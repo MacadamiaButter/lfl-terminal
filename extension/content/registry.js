@@ -77,6 +77,16 @@
         aliases: entry.aliases || [],
         argSpec: entry.argSpec || entry.name,
         help: entry.help || '',
+        // `hidden` (added for the `sl` easter egg): excludes this entry
+        // from helpText() ONLY - get()/names()/manText() still see it
+        // exactly like every other entry, so `man <name>` keeps working
+        // and vocabulary enumeration (did-you-mean, the registry-cannot-
+        // extend-model-vocabulary check) is unaffected. Defaults false, so
+        // every pre-existing register() call (none of which pass this
+        // field) is completely unchanged - this is a strict, additive
+        // widening of the entry shape, not a behavior change for anyone
+        // who doesn't opt in.
+        hidden: !!entry.hidden,
       });
     }
 
@@ -92,7 +102,7 @@
 
     function helpText() {
       const pad = (s) => (s.length >= 34 ? s + ' ' : s + ' '.repeat(34 - s.length));
-      return entries.map((e) => `  ${pad(e.argSpec)}- ${e.help}`).join('\n');
+      return entries.filter((e) => !e.hidden).map((e) => `  ${pad(e.argSpec)}- ${e.help}`).join('\n');
     }
 
     function manText(name) {
@@ -136,6 +146,10 @@
     // M4b fun pack v2 (extension/content/games.js, dispatched by
     // terminal.js) - same shadowing footgun as above.
     'snake', '2048', 'games',
+    // `sl` easter egg (same file, same dispatch path) - same shadowing
+    // footgun; also keeps it out of setAlias/setMacro's NAME_RE-valid
+    // namespace as a normal by-product of being reserved.
+    'sl',
   ]);
 
   // M4b (design doc §3/§5): games are never allowed to run as part of a
@@ -149,7 +163,7 @@
   // `macro x = go foo && ls` (both `go` and `ls` are themselves reserved
   // names, but are exactly the kind of built-in verb macros exist to
   // chain together).
-  const GAME_NAMES = new Set(['snake', '2048', 'games']);
+  const GAME_NAMES = new Set(['snake', '2048', 'games', 'sl']);
 
   // M4b verify fix (MED-2): the funpack-v1 quartet gets the same
   // macro-body write-time block as the games - previously

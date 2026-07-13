@@ -376,10 +376,104 @@
     return `${grid}\n${statusParts.join('  ')}`;
   }
 
+  // =====================================================================
+  // sl (steam locomotive easter egg)
+  // =====================================================================
+  //
+  // No game state at all - just tick -> frame. The engine art is a rigid
+  // block of text that translates one column per tick; the only thing
+  // that ever changes tick-to-tick is which of the two smoke-puff
+  // variants (SL_SMOKE_A/SL_SMOKE_B) draws the top row, alternating by
+  // tick parity. terminal.js's runner drives the tick counter and calls
+  // slTotalTicks() once (at start) to know when the crossing is done -
+  // see that file's _startSL()/onTick comment for the auto-exit wiring.
+
+  // 17 - the width of the widest art row below (the boiler/undercarriage
+  // rows); every row is padded/clipped to exactly this so none of them
+  // carries wasted trailing blank columns (that would make the engine
+  // finish "visually" exiting a few ticks before slTotalTicks() says the
+  // crossing is done).
+  const SL_TRAIN_WIDTH = 17;
+  const SL_TRAIN_HEIGHT = 5;
+  // Fixed virtual canvas the engine crosses - not a real terminal column
+  // count (same posture as SNAKE_WIDTH/SNAKE_HEIGHT above, which are also
+  // a fixed virtual grid, not the page's actual pixel size). Chosen with
+  // slTotalTicks() and the ~8fps the runner uses so one full crossing
+  // (fully off-screen right -> fully off-screen left) takes ~4.6 seconds:
+  // (SL_COLS + SL_TRAIN_WIDTH) ticks / 8 ticks-per-second.
+  const SL_COLS = 20;
+  const SL_ROWS = SL_TRAIN_HEIGHT;
+
+  function padTrainRow(s) {
+    const str = String(s || '');
+    return str.length >= SL_TRAIN_WIDTH ? str.slice(0, SL_TRAIN_WIDTH) : str + ' '.repeat(SL_TRAIN_WIDTH - str.length);
+  }
+
+  // Smoke puff - the only row that changes shape from tick to tick (design:
+  // "smoke puffs that alternate by tick"); the rest of the engine below is
+  // rigid and simply rides along with it.
+  const SL_SMOKE_A = padTrainRow('  (@)');
+  const SL_SMOKE_B = padTrainRow('   (@@)');
+  // Stack/cab roof, boiler, undercarriage, wheels - a compact side-view
+  // steam engine (engine, cab, wheels all present, per design).
+  const SL_BODY_ROWS = [
+    padTrainRow(' _|##|________'),
+    padTrainRow('/  ________  \\_'),
+    padTrainRow('|__|_||__||_|___|'),
+    padTrainRow('   o    o    o  o'),
+  ].map(padTrainRow);
+
+  // Pure: the SL_TRAIN_HEIGHT rows of engine art for one tick (smoke
+  // variant selected by tick parity, body rows always identical).
+  function slTrainRows(tick) {
+    const smoke = (tick % 2 === 0) ? SL_SMOKE_A : SL_SMOKE_B;
+    return [smoke].concat(SL_BODY_ROWS);
+  }
+
+  // Pure: total ticks for one full crossing at the given canvas width -
+  // the engine starts with its own leftmost column exactly at column
+  // `cols` (fully off-screen to the right) and the crossing is complete
+  // once its rightmost column has passed column 0, i.e. after
+  // `cols + SL_TRAIN_WIDTH` ticks (one tick = one column of leftward
+  // travel; terminal.js's runner owns the actual tick RATE via fps).
+  function slTotalTicks(cols) {
+    const w = Number.isFinite(cols) && cols > 0 ? Math.floor(cols) : 0;
+    return w + SL_TRAIN_WIDTH;
+  }
+
+  // Pure renderer: positions the rigid engine art at column `cols - tick`
+  // (tick 0 -> leftmost engine column sits exactly at `cols`, fully
+  // off-screen) inside a `cols`-wide canvas, clipping any engine column
+  // outside [0, cols). Always renders all SL_TRAIN_HEIGHT engine rows;
+  // `rows` only ever pads the canvas with blank rows below them (never
+  // crops the engine itself - it is fixed at SL_TRAIN_HEIGHT rows tall).
+  function slFrame(tick, cols, rows) {
+    const w = Number.isFinite(cols) && cols > 0 ? Math.floor(cols) : SL_TRAIN_WIDTH;
+    const h = Number.isFinite(rows) && rows > 0 ? Math.floor(rows) : SL_TRAIN_HEIGHT;
+    const t = Number.isFinite(tick) && tick > 0 ? Math.floor(tick) : 0;
+    const offset = w - t;
+    const trainRows = slTrainRows(t);
+    const canvasHeight = Math.max(h, trainRows.length);
+    const out = [];
+    for (let i = 0; i < canvasHeight; i++) {
+      if (i >= trainRows.length) { out.push(' '.repeat(w)); continue; }
+      const row = new Array(w).fill(' ');
+      const line = trainRows[i];
+      for (let c = 0; c < line.length; c++) {
+        const col = offset + c;
+        if (col >= 0 && col < w) row[col] = line[c];
+      }
+      out.push(row.join(''));
+    }
+    return out.join('\n');
+  }
+
   return {
     // snake
     SNAKE_WIDTH, SNAKE_HEIGHT, createSnakeGame, turnSnake, stepSnake, snakeFps, renderSnake,
     // 2048
     BOARD_SIZE, createGame2048, slideRowLeft, slideBoard, move2048, isGameOver2048, render2048,
+    // sl
+    SL_TRAIN_WIDTH, SL_TRAIN_HEIGHT, SL_COLS, SL_ROWS, slTotalTicks, slFrame,
   };
 });

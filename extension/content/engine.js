@@ -92,6 +92,20 @@
   reg.register({ name: 'snake', argSpec: 'snake', help: 'classic snake - arrows to move, q or Esc to quit (fun pack v2)' });
   reg.register({ name: '2048', argSpec: '2048', help: '2048 - arrows to slide/merge, q or Esc to quit (fun pack v2)' });
   reg.register({ name: 'games', argSpec: 'games', help: 'list available games and best scores (fun pack v2)' });
+  // `sl` - the classic steam-locomotive easter egg. Deliberately hidden
+  // (registry.js's `hidden` flag) from the general `help` listing above -
+  // easter eggs stay undiscoverable by browsing help - but still fully
+  // reachable via `man sl`, since registry.js's get()/manText() ignore
+  // `hidden` (it only filters helpText()). Not listed in `games` either
+  // (terminal.js's _printGamesList() hardcodes snake/2048 only) and has no
+  // chrome.storage.local score entry - no high-score/storage entanglement
+  // for this one, by design.
+  reg.register({
+    name: 'sl',
+    argSpec: 'sl',
+    hidden: true,
+    help: 'steam locomotive easter egg - one silent pass chugging right to left across the terminal (~5s), then exits on its own with a dry one-liner; q or Esc still quit it early, unlike the classic',
+  });
 
   const HELP_TEXT = [
     'deterministic commands (never call the local model):',

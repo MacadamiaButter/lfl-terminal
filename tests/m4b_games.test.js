@@ -1253,10 +1253,275 @@ async function testVerifyFixes() {
   });
 }
 
+// =====================================================================
+// Part 9 - sl (steam locomotive easter egg): pure frame math (games.js
+// purity is already covered automatically by testPurityGate() above - it
+// greps the whole games.js file, sl's code included, for the same
+// forbidden-token list), registry locks, and help/man separation.
+// =====================================================================
+
+function testSlFrameLogic() {
+  console.log('\n[9] sl - slFrame/slTotalTicks (pure, no rng - unlike snake/2048, sl has no randomness at all)');
+
+  check('slTotalTicks: total ticks = cols + SL_TRAIN_WIDTH', () => {
+    assert.strictEqual(games.slTotalTicks(20), 20 + games.SL_TRAIN_WIDTH);
+    assert.strictEqual(games.slTotalTicks(0), games.SL_TRAIN_WIDTH);
+  });
+
+  check('slFrame: tick 0 is fully blank - the engine starts entirely off-screen to the right', () => {
+    const frame = games.slFrame(0, games.SL_COLS, games.SL_ROWS);
+    assert.ok(frame.split('\n').every((line) => line.trim() === ''), 'tick 0 must show nothing yet');
+  });
+
+  check('slFrame: a mid-crossing tick differs from tick 0 and shows actual engine art', () => {
+    const total = games.slTotalTicks(games.SL_COLS);
+    const start = games.slFrame(0, games.SL_COLS, games.SL_ROWS);
+    const mid = games.slFrame(Math.floor(total / 2), games.SL_COLS, games.SL_ROWS);
+    assert.notStrictEqual(mid, start);
+    assert.ok(mid.trim().length > 0, 'a mid-crossing frame must show some non-space content');
+  });
+
+  check('slFrame: completion-tick math - one tick before slTotalTicks() still shows a sliver, the completion tick itself is blank again', () => {
+    const total = games.slTotalTicks(games.SL_COLS);
+    const last = games.slFrame(total - 1, games.SL_COLS, games.SL_ROWS);
+    const done = games.slFrame(total, games.SL_COLS, games.SL_ROWS);
+    assert.ok(last.trim().length > 0, 'one tick before completion must still show a sliver of the engine');
+    assert.ok(done.split('\n').every((line) => line.trim() === ''), 'the completion tick itself must be fully off-screen');
+    assert.notStrictEqual(last, done);
+  });
+
+  check('slFrame: the smoke-puff row alternates by tick parity (two consecutive ticks never share a top row)', () => {
+    const a = games.slFrame(10, games.SL_COLS, games.SL_ROWS).split('\n');
+    const b = games.slFrame(11, games.SL_COLS, games.SL_ROWS).split('\n');
+    assert.notStrictEqual(a[0], b[0], 'the smoke (top) row must differ tick to tick');
+  });
+
+  check('slFrame is a pure function of (tick, cols, rows) - identical inputs give an identical string', () => {
+    const c = games.slFrame(10, games.SL_COLS, games.SL_ROWS);
+    const d = games.slFrame(10, games.SL_COLS, games.SL_ROWS);
+    assert.strictEqual(c, d, 'slFrame must be a pure function of (tick, cols, rows)');
+  });
+}
+
+function testSlRegistryLocks() {
+  console.log('\n[10] registry.js - RESERVED_NAMES + macro write-time block for "sl", plus the hidden-entry help/man split');
+
+  check('setAlias: "sl" is reserved, cannot be shadowed by an alias', () => {
+    const store = registry.createAliasStore(null);
+    const res = store.setAlias('sl', 'go example.com');
+    assert.strictEqual(res.ok, false);
+  });
+
+  check('setMacro: a macro NAMED "sl" is rejected (reserved name)', () => {
+    const store = registry.createAliasStore(null);
+    assert.strictEqual(store.setMacro('sl', 'go example.com').ok, false);
+  });
+
+  check('setMacro: a macro body referencing "sl" anywhere in the chain is rejected at WRITE time', () => {
+    const store = registry.createAliasStore(null);
+    const res = store.setMacro('x2', 'go example.com && sl');
+    assert.strictEqual(res.ok, false);
+    assert.match(res.reason, /games cannot run inside a macro/);
+  });
+
+  check('createRegistry: a `hidden` entry is excluded from helpText() but stays reachable via get()/manText()/names()', () => {
+    const reg = registry.createRegistry();
+    reg.register({ name: 'visible', argSpec: 'visible', help: 'shown in help' });
+    reg.register({ name: 'sl', argSpec: 'sl', hidden: true, help: 'steam locomotive easter egg' });
+    const help = reg.helpText();
+    assert.ok(!help.includes('sl'), 'a hidden entry must not appear in helpText()');
+    assert.ok(help.includes('visible'), 'a non-hidden entry must still appear in helpText()');
+    assert.ok(reg.names().includes('sl'), 'a hidden entry must still be enumerated by names() (vocabulary/did-you-mean unaffected)');
+    assert.match(reg.manText('sl'), /steam locomotive/);
+  });
+
+  check('createRegistry: register() with no `hidden` field defaults to visible (existing callers unaffected)', () => {
+    const reg = registry.createRegistry();
+    reg.register({ name: 'plain', argSpec: 'plain', help: 'ordinary entry' });
+    assert.ok(reg.helpText().includes('plain'));
+  });
+}
+
+function testSlHelpManAndDidYouMean() {
+  console.log('\n[11] engine.js registers "sl" hidden - man works, help does not show it, did-you-mean stays quiet for single letters');
+
+  check('LFL.commandRegistry: "sl" is registered (names()/man work) but absent from the help listing', () => {
+    const sandbox = buildEngineSandbox();
+    const reg = sandbox.window.LFL.commandRegistry;
+    assert.ok(reg.names().includes('sl'), '"sl" missing from commandRegistry.names()');
+    const man = reg.manText('sl');
+    assert.match(man, /steam locomotive/i);
+    assert.ok(!man.includes('no such command'));
+    assert.ok(!man.includes('\u2014'), 'man text for sl must not contain an em dash');
+    const help = reg.helpText();
+    assert.ok(!help.includes('steam locomotive'), '"sl" must stay out of the help listing - easter eggs stay hidden');
+  });
+
+  check('did-you-mean: single-letter input "l" or "s" never suggests "sl" (DID_YOU_MEAN_MIN_TOKEN_LEN=3 already guards this)', () => {
+    // Length check, not deepStrictEqual against a literal `[]` - this
+    // sandbox's Array comes from a DIFFERENT vm realm than this outer
+    // script's, so even a same-shape empty array fails a reference-aware
+    // deepStrictEqual (see buildTerminalSandbox()'s own comment on this
+    // exact cross-realm gotcha, a few hundred lines up).
+    const sandbox = buildEngineSandbox();
+    const names = sandbox.window.LFL.commandRegistry.names();
+    assert.strictEqual(sandbox.window.LFL.registry.didYouMean('l', names).length, 0);
+    assert.strictEqual(sandbox.window.LFL.registry.didYouMean('s', names).length, 0);
+  });
+
+  check('did-you-mean: "sl" itself is too short (2 chars) to ever be offered as a suggestion target text', () => {
+    // Not that it matters in practice - GAME_NAMES routes a directly-typed
+    // "sl" to the game before did-you-mean is ever consulted - but this
+    // confirms the min-token-length guard is on the INPUT token, and "sl"
+    // as a candidate NAME can still surface for a close 3+-char typo (e.g.
+    // "sll"), which is fine: did-you-mean only ever narrows what already
+    // would have gone to the model, never announces hidden commands to
+    // ordinary typing.
+    const sandbox = buildEngineSandbox();
+    const names = sandbox.window.LFL.commandRegistry.names();
+    const suggestions = sandbox.window.LFL.registry.didYouMean('sll', names);
+    assert.ok(Array.isArray(suggestions));
+  });
+}
+
+// =====================================================================
+// Part 12 - sl runner lifecycle: dispatch starts program mode, auto-exit
+// on completion (no q needed), q still exits early, chain/macro rejection.
+// =====================================================================
+
+async function testSlRunnerLifecycle() {
+  console.log('\n[12] sl runner lifecycle - dispatch, auto-exit at completion, early q, chain/macro rejection (design §3 locks inherited)');
+
+  await acheck('typing "sl" enters program mode: mode=program, one <pre class="lfl-frame"> appended, input readOnly, fps-driven tick registered', async () => {
+    const { terminal, intervals } = buildTerminalSandbox();
+    await flush();
+    terminal._submitCommand('sl');
+    await flush();
+    assert.strictEqual(terminal.state.mode, 'program');
+    assert.ok(terminal._activeProgram, 'a program must be active');
+    assert.strictEqual(terminal._activeProgram.prog.name, 'sl');
+    assert.strictEqual(terminal._activeProgram.frameEl.className, 'lfl-frame');
+    assert.ok(terminal.outputEl.children.includes(terminal._activeProgram.frameEl));
+    assert.strictEqual(terminal.inputEl.readOnly, true);
+    assert.ok(intervals.has(terminal._activeProgram.intervalId), 'sl must register a tick interval (fps-driven, unlike 2048)');
+  });
+
+  await acheck('"q" exits sl early, before the crossing completes, printing the same dry one-liner', async () => {
+    const { terminal, sandbox, intervals } = buildTerminalSandbox();
+    await flush();
+    terminal._submitCommand('sl');
+    await flush();
+    const intervalId = terminal._activeProgram.intervalId;
+    const tickFn = intervals.get(intervalId);
+    // A handful of scheduler ticks - nowhere near a full crossing - so this
+    // proves early exit works mid-run, not just at the end.
+    for (let i = 0; i < 4; i++) tickFn();
+    assert.ok(terminal._activeProgram, 'sl must still be running this early');
+    terminal._onInputKeydown({ isTrusted: true, key: 'q', preventDefault() {} });
+    assert.strictEqual(terminal._activeProgram, null);
+    assert.ok(!intervals.has(intervalId), 'clearInterval must have been called on early exit');
+    assert.strictEqual(terminal.inputEl.readOnly, false);
+    const printed = terminal.outputEl.children.map((c) => c.textContent).join('\n');
+    assert.match(printed, /you meant ls\. the train forgives\./);
+    void sandbox;
+  });
+
+  await acheck('"Escape" also exits sl early', async () => {
+    const { terminal } = buildTerminalSandbox();
+    await flush();
+    terminal._submitCommand('sl');
+    await flush();
+    terminal._onInputKeydown({ isTrusted: true, key: 'Escape', preventDefault() {} });
+    assert.strictEqual(terminal._activeProgram, null);
+  });
+
+  await acheck('sl auto-exits on its own once the crossing completes - no q/Esc needed - and prints the dry one-liner exactly once', async () => {
+    const { terminal, sandbox, intervals } = buildTerminalSandbox();
+    await flush();
+    terminal._submitCommand('sl');
+    await flush();
+    const intervalId = terminal._activeProgram.intervalId;
+    const tickFn = intervals.get(intervalId);
+    const totalTicks = sandbox.window.LFL.games.slTotalTicks(sandbox.window.LFL.games.SL_COLS);
+    // The runner's 100ms scheduler only actually calls onTick() once per
+    // ~125ms (fps 8 -> 1000/8) of accumulated scheduler ticks - i.e. every
+    // OTHER 100ms scheduler tick, exactly (see _startProgramTick()'s acc
+    // reset) - so driving `totalTicks` real onTick() firings takes roughly
+    // 2x that many scheduler-tick calls. A generous multiple (plus a
+    // cushion) guarantees completion regardless of exact rounding.
+    const schedulerCalls = totalTicks * 2 + 10;
+    for (let i = 0; i < schedulerCalls; i++) tickFn();
+    assert.strictEqual(terminal._activeProgram, null, 'sl must have auto-exited without any q/Esc');
+    assert.ok(!intervals.has(intervalId), 'the tick interval must be cleared on auto-exit');
+    assert.strictEqual(terminal.inputEl.readOnly, false);
+    assert.strictEqual(terminal.state.mode, 'idle');
+    const printed = terminal.outputEl.children.map((c) => c.textContent).join('\n');
+    const occurrences = printed.split('you meant ls. the train forgives.').length - 1;
+    assert.strictEqual(occurrences, 1, 'the parting one-liner must print exactly once, even though tickFn keeps getting called after exit');
+  });
+
+  await acheck('"sl && stats" is rejected at dispatch (chain context) and never starts a program', async () => {
+    const { terminal } = buildTerminalSandbox();
+    await flush();
+    terminal._submitCommand('clear && sl');
+    await flush();
+    assert.strictEqual(terminal._activeProgram, null);
+    const printed = terminal.outputEl.children.map((c) => c.textContent).join('\n');
+    assert.match(printed, /"sl" cannot run inside a chain or macro/);
+  });
+
+  await acheck('"sl" as the FIRST segment of a chain is also rejected', async () => {
+    const { terminal } = buildTerminalSandbox();
+    await flush();
+    terminal._submitCommand('sl && clear');
+    await flush();
+    assert.strictEqual(terminal._activeProgram, null);
+    const printed = terminal.outputEl.children.map((c) => c.textContent).join('\n');
+    assert.match(printed, /"sl" cannot run inside a chain or macro/);
+  });
+
+  await acheck('starting "sl" while an EARLIER chain is still pending is refused, and the pending queue is left untouched', async () => {
+    const { terminal, fakeSw } = buildTerminalSandbox();
+    await flush();
+    fakeSw.state.queue = ['stats'];
+    fakeSw.state.expectedOrigin = 'https://example.com';
+    terminal._submitCommand('sl');
+    await flush();
+    assert.strictEqual(terminal._activeProgram, null);
+    assert.match(terminal._lastResult.message, /chained command is still pending/);
+    assert.deepStrictEqual(fakeSw.state.queue, ['stats'], 'a refused game-start must NOT cancel the pending chain');
+  });
+
+  await acheck('_enterProgram refuses to start sl a second time while one is already running (and vice versa)', async () => {
+    const { terminal } = buildTerminalSandbox();
+    await flush();
+    terminal._submitCommand('sl');
+    await flush();
+    const started = terminal._enterProgram({ name: 'snake', onExit: () => [] });
+    assert.strictEqual(started, false);
+    assert.strictEqual(terminal._activeProgram.prog.name, 'sl', 'the original sl run must still be the active one');
+  });
+
+  await acheck('a mutating proposal arriving mid-run force-exits sl first (MED-1 mutual exclusion, inherited automatically)', async () => {
+    const { terminal, intervals } = buildTerminalSandbox();
+    await flush();
+    terminal._submitCommand('sl');
+    await flush();
+    const intervalId = terminal._activeProgram.intervalId;
+    terminal._presentProposal({ action: 'click', element: 1, value: '', reason: '' }, 42);
+    assert.strictEqual(terminal._activeProgram, null, 'sl must have been force-exited');
+    assert.ok(!intervals.has(intervalId));
+    assert.strictEqual(terminal.state.mode, 'awaiting-approval');
+    const printed = terminal.outputEl.children.map((c) => c.textContent).join('\n');
+    assert.match(printed, /game ended: a proposal arrived/);
+    assert.match(printed, /you meant ls\. the train forgives\./);
+  });
+}
+
 // ---- run everything ----
 
 async function main() {
-  console.log('tests/m4b_games.test.js - M4b fun pack v2: snake, 2048, games');
+  console.log('tests/m4b_games.test.js - M4b fun pack v2: snake, 2048, games, sl');
   testSnakeLogic();
   testGame2048Logic();
   testPurityGate();
@@ -1265,6 +1530,10 @@ async function main() {
   testManifestAndCss();
   await testRunnerLifecycle();
   await testVerifyFixes();
+  testSlFrameLogic();
+  testSlRegistryLocks();
+  testSlHelpManAndDidYouMean();
+  await testSlRunnerLifecycle();
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);

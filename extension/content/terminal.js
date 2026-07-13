@@ -52,7 +52,12 @@
   // M4b fun pack v2 (design doc §4/§5): the fixed set of game command
   // names. Kept in sync with registry.js's RESERVED_NAMES/GAME_NAMES and
   // engine.js's reg.register() calls for these three names.
-  const GAME_NAMES = new Set(['snake', '2048', 'games']);
+  // `sl` (steam locomotive easter egg, added later): same set, same
+  // chain/macro/awaiting-something/already-running locks, all inherited
+  // for free via _handleGameCommand()/_enterProgram() below - see
+  // _startSL()'s own comment for the one thing that's different about it
+  // (auto-exit on its own, no human quit required to finish a run).
+  const GAME_NAMES = new Set(['snake', '2048', 'games', 'sl']);
   // M4b verify fix (MED-2): the four funpack-v1 names get the same
   // chain/macro posture as the games. Directly-typed, they are matched in
   // _submitCommand() and never reach _dispatchSegment() at all - but a
@@ -1258,6 +1263,7 @@
       }
       if (name === 'snake') this._startSnake();
       else if (name === '2048') this._start2048();
+      else if (name === 'sl') this._startSL();
       // Starting a program does NOT itself settle/advance a chain the way
       // every other command does (see _settle()/_afterSettle()) -- a
       // program stays interactively active until an explicit exit path
@@ -1367,6 +1373,54 @@
           this._recordGameScore('g2048', state.score);
           return [`2048: game over - score ${state.score}`];
         },
+      };
+      this._enterProgram(prog);
+    }
+
+    // `sl` - the classic steam-locomotive easter egg. No game state at
+    // all (unlike snake/2048): a plain tick counter and games.js's pure
+    // slFrame()/slTotalTicks(). The one thing that makes this program
+    // different from snake/2048 is that it EXITS ITSELF once the engine
+    // has fully crossed off the left edge, instead of waiting for q/Esc
+    // (the classic `sl` is famously uninterruptible - ours isn't: q/Esc
+    // still work early, same fail-safe as every other program, see
+    // _routeProgramKey() - but it doesn't need them to end normally).
+    // onTick is a closure over `this` (same as every prog callback here),
+    // so it can call _exitProgram() directly on the final tick - no new
+    // primitive needed in _enterProgram()/_startProgramTick() for this;
+    // every existing lock (chain/macro rejection, awaiting-something,
+    // already-running) is inherited automatically because GAME_NAMES/
+    // _handleGameCommand() route `sl` through the exact same path as
+    // snake/2048.
+    _startSL() {
+      const cols = LFL.games.SL_COLS;
+      const rows = LFL.games.SL_ROWS;
+      const totalTicks = LFL.games.slTotalTicks(cols);
+      let tick = 0;
+      const prog = {
+        name: 'sl',
+        initialFrame: LFL.games.slFrame(0, cols, rows),
+        getFps: () => 8,
+        // No onKey - sl takes no input while running, same as 2048 has no
+        // onTick; q/Esc are intercepted before onKey is ever consulted
+        // (see _routeProgramKey()).
+        onTick: () => {
+          tick += 1;
+          if (tick >= totalTicks) {
+            // Auto-exit choke point: the SAME _exitProgram() every other
+            // exit path uses (q/Esc, navigation, proposal arriving) - so
+            // the onExit summary line, audit entry, and _settle() all
+            // happen exactly once, exactly the normal way. Returning null
+            // here (rather than a final blank frame) is fine - the engine
+            // is already fully off-screen by definition of totalTicks
+            // (see games.js's slTotalTicks() comment), so there is
+            // nothing left worth drawing.
+            this._exitProgram('complete');
+            return null;
+          }
+          return LFL.games.slFrame(tick, cols, rows);
+        },
+        onExit: () => ['you meant ls. the train forgives.'],
       };
       this._enterProgram(prog);
     }
