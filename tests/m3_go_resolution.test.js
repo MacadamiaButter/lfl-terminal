@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * tests/m3_go_resolution.test.js — unit proof of the `go` resolution ladder
+ * tests/m3_go_resolution.test.js - unit proof of the `go` resolution ladder
  * (design doc §2) against the REAL, unmodified `extension/content/nav.js`
- * source (plain CommonJS require — nav.js has no DOM dependency at all, so
+ * source (plain CommonJS require - nav.js has no DOM dependency at all, so
  * unlike terminal.js it's directly requireable, same posture as guards.js/
  * ratelimit.js/registry.js).
  *
@@ -10,7 +10,7 @@
  * scheme, non-http(s) rejection, "not a domain" rejection so bare-word `go`
  * commands correctly fall through to the nav-lane rather than "succeeding"
  * against garbage), alias-hit resolution (step 2), the needsNavLane signal
- * (step 3), and — the key distinction from guards.safeSameOriginHttpUrl() —
+ * (step 3), and - the key distinction from guards.safeSameOriginHttpUrl() -
  * that `go` is explicitly NOT restricted to same-origin: it is a trusted,
  * user-typed, address-bar-equivalent command (design §1/§2), unlike the
  * LLM-proposed `navigate`/`click` actions guards.js hard-blocks to
@@ -44,7 +44,7 @@ function check(name, fn) {
 // ---- resolveLiteralDestination (ladder step 1 primitive) ----
 
 function testResolveLiteralDestination() {
-  console.log('\n[1] resolveLiteralDestination — step 1 of the go ladder');
+  console.log('\n[1] resolveLiteralDestination - step 1 of the go ladder');
 
   check('bare domain, no scheme -> defaults to https', () => {
     const r = nav.resolveLiteralDestination('en.wikipedia.org');
@@ -98,19 +98,19 @@ function testResolveLiteralDestination() {
     assert.strictEqual(r.ok, false);
   });
 
-  check('cross-origin (relative to nothing — go has no "origin" of its own) resolution is simply whatever domain was typed — no same-origin restriction exists here at all, unlike guards.safeSameOriginHttpUrl()', () => {
+  check('cross-origin (relative to nothing - go has no "origin" of its own) resolution is simply whatever domain was typed - no same-origin restriction exists here at all, unlike guards.safeSameOriginHttpUrl()', () => {
     const r1 = nav.resolveLiteralDestination('saucedemo.com');
     const r2 = nav.resolveLiteralDestination('en.wikipedia.org');
     assert.strictEqual(r1.ok, true);
     assert.strictEqual(r2.ok, true);
-    assert.notStrictEqual(r1.url.origin, r2.url.origin, 'sanity: these really are two different origins, and go resolves both — no origin gate exists in this file at all');
+    assert.notStrictEqual(r1.url.origin, r2.url.origin, 'sanity: these really are two different origins, and go resolves both - no origin gate exists in this file at all');
   });
 }
 
 // ---- resolveGoLadder (the full ladder, steps 1-3) ----
 
 function testResolveGoLadder() {
-  console.log('\n[2] resolveGoLadder — the full ladder (design §2)');
+  console.log('\n[2] resolveGoLadder - the full ladder (design §2)');
 
   check('step 1 hit: literal domain resolves deterministically, step="literal"', () => {
     const r = nav.resolveGoLadder({ arg: 'en.wikipedia.org' });
@@ -169,10 +169,10 @@ function testResolveGoLadder() {
     assert.match(r.reason, /usage: go/);
   });
 
-  check('the model is NEVER consulted for a step-1/step-2 hit — resolveGoLadder is fully synchronous and pure, no network/async capability exists in this file', () => {
+  check('the model is NEVER consulted for a step-1/step-2 hit - resolveGoLadder is fully synchronous and pure, no network/async capability exists in this file', () => {
     // Structural proof: nav.js exports nothing that returns a Promise, and
     // the ladder function itself is synchronous (no `async` keyword, no
-    // Promise involved) — the ONLY way the model gets consulted is the
+    // Promise involved) - the ONLY way the model gets consulted is the
     // needsNavLane:true signal, which the CALLER (terminal.js) must act on
     // separately via an explicit NAV_LLM_REQUEST round trip.
     const r = nav.resolveGoLadder({ arg: 'saucedemo.com' });
@@ -185,7 +185,7 @@ function testResolveGoLadder() {
 // ---- checkArrival (queue continuation's fail-closed guard) ----
 
 function testCheckArrival() {
-  console.log('\n[3] checkArrival — arrival-check fail-closed logic');
+  console.log('\n[3] checkArrival - arrival-check fail-closed logic');
 
   check('matching origin -> ok', () => {
     const r = nav.checkArrival('https://example.com', 'https://example.com');
@@ -214,7 +214,7 @@ function testCheckArrival() {
 
 // ---- run everything ----
 
-console.log('tests/m3_go_resolution.test.js — go resolution ladder + arrival check (M3)');
+console.log('tests/m3_go_resolution.test.js - go resolution ladder + arrival check (M3)');
 testResolveLiteralDestination();
 testResolveGoLadder();
 testCheckArrival();

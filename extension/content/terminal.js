@@ -1,15 +1,15 @@
 /**
- * terminal.js — the overlay UI and the human approval gate. This is the core of
+ * terminal.js - the overlay UI and the human approval gate. This is the core of
  * the product: proposals from the local model are rendered deterministically
  * from the raw action JSON (never model-generated prose) and require an
  * explicit Enter/click-Approve to execute; Esc/click-Reject always rejects.
  * click/fill/select/navigate are gated; answer/extract/scroll/abort are
  * read-only and auto-run.
  *
- * Rate-limit state (M2.3) is NOT owned by this class as of 2026-07-12 — it
+ * Rate-limit state (M2.3) is NOT owned by this class as of 2026-07-12 - it
  * used to be a local `LFL.rateLimiter.createRateLimiter()` instance, which
  * meant the counters and the paused latch were destroyed and reset every
- * time this class was re-constructed (top-frame navigation, reload — the
+ * time this class was re-constructed (top-frame navigation, reload - the
  * content script re-injects and runs `new Terminal()` from scratch). That
  * defeated the control. The AUTHORITATIVE state now lives in the background
  * service worker, keyed by tab id and backed by chrome.storage.session (see
@@ -19,12 +19,12 @@
  * rendering) and talks to the SW via the `_rl*` async helper methods below.
  *
  * Rendered inside a CLOSED shadow root appended to documentElement (limits
- * page CSS/JS interference), AND — M2.1 — the host element carries
+ * page CSS/JS interference), AND - M2.1 - the host element carries
  * `popover="manual"` and is shown/hidden via showPopover()/hidePopover(),
  * promoting the whole overlay (terminal panel + approval card, since the
  * card is a descendant of the popover host) into the browser TOP LAYER.
  * Page z-index/position tricks cannot occlude or reposition top-layer
- * content — this is the documented fix for DOM-based extension clickjacking
+ * content - this is the documented fix for DOM-based extension clickjacking
  * (defeated 11 password managers in 2025, see docs/threat-model.md).
  *
  * Top-layer positioning alone does not fully close the loop, though: two
@@ -33,7 +33,7 @@
  * `popover`/`<dialog>`) could in principle race to render above ours. That
  * is exactly why _probeApprovalOcclusion() re-checks, immediately before
  * executing an APPROVED mutating action, that the approve control was
- * genuinely the topmost, un-occluded element at click time — occlusion
+ * genuinely the topmost, un-occluded element at click time - occlusion
  * detected there means ABORT, not "warn and proceed". See
  * tests/fixtures/occlusion-attack.html for the adversarial case this is
  * built against.
@@ -55,18 +55,18 @@
   const GAME_NAMES = new Set(['snake', '2048', 'games']);
   // M4b verify fix (MED-2): the four funpack-v1 names get the same
   // chain/macro posture as the games. Directly-typed, they are matched in
-  // _submitCommand() and never reach _dispatchSegment() at all — but a
+  // _submitCommand() and never reach _dispatchSegment() at all - but a
   // chain segment (`go x && fortune`) or an alias expansion DOES reach it,
   // and previously fell through to the page-lane model (burning an LLM
   // budget slot and popping an unrelated proposal for a command that is
   // supposed to be free and local). Kept in sync with registry.js's
   // FUNPACK_NAMES (the macro write-time half of the same lock).
   // Deliberately does NOT include the pre-existing meta-commands
-  // (budget/dev/origins/continue/alias/macro/...) — their posture is
+  // (budget/dev/origins/continue/alias/macro/...) - their posture is
   // unchanged by this fix, per the verify scope.
   const FUNPACK_NAMES = new Set(['fortune', 'stats', 'theme', 'cowsay']);
   // Storage-key form of each playable game's name, used only for the
-  // chrome.storage.local `lflGameScores` object's keys (design §4) — "2048"
+  // chrome.storage.local `lflGameScores` object's keys (design §4) - "2048"
   // is not a valid property to reach via dot-notation and reads oddly as a
   // bare numeric-looking key, so the design doc gives it the storage key
   // `g2048` (see _recordGameScore()/_printGamesList()).
@@ -75,7 +75,7 @@
     ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',
   });
 
-  // Kept in sync with content/terminal.css — see the TODO note there.
+  // Kept in sync with content/terminal.css - see the TODO note there.
   const CSS_TEXT = `
 :host{all:initial;position:fixed;inset:auto 0 0 0;margin:0;padding:0;border:none;width:auto;height:auto;background:transparent;color:inherit;overflow:visible;z-index:2147483647;display:block;}
 .lfl-panel{display:none;flex-direction:column;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.45;color:var(--lfl-fg,#dbe4f0);background:var(--lfl-bg,#0b0e14);border-top:2px solid var(--lfl-accent,#e0a339);box-shadow:0 -8px 24px rgba(0,0,0,.55);max-height:46vh;}
@@ -144,11 +144,11 @@
         mode: 'idle', // 'idle' | 'awaiting-approval' | 'awaiting-nav-confirm' (M3)
         pendingCrossOriginUrl: null,
         pendingProposal: null,
-        pendingNav: null, // M3: {url, origin, modelResolved} — see _handleGo/_confirmOrNavigate
+        pendingNav: null, // M3: {url, origin, modelResolved} - see _handleGo/_confirmOrNavigate
         history: [],
         historyIdx: -1,
         // M4a: the `ls`-built index->element listing context ({entries, map,
-        // notes}, EXACTLY axtree.build()'s own return shape — see
+        // notes}, EXACTLY axtree.build()'s own return shape - see
         // engine.js's doLs()) and the active `find` match state
         // ({query, matches, idx}). Both are page-scoped, human-visible-only
         // memory: never persisted (no TS_* key), never sent to either LLM
@@ -158,24 +158,24 @@
         listingContext: null,
         findContext: null,
         // M4a: a live mirror of this._rlBudgetCache (see below) so
-        // engine.js's `here` handler — which only receives `state`, not this
-        // Terminal instance — can render the already-cached rate-limit
+        // engine.js's `here` handler - which only receives `state`, not this
+        // Terminal instance - can render the already-cached rate-limit
         // budget synchronously, without needing terminal.js's separate
         // chrome.*-capable async dispatch path the way go/alias/macro/dev/
         // origins need. Kept in sync everywhere _rlBudgetCache is assigned.
         rlBudgetCache: null,
       };
-      // M3: the alias/macro store (registry.js) — chrome.storage.local
+      // M3: the alias/macro store (registry.js) - chrome.storage.local
       // backed, loaded async below. The ONLY writers of it are
       // _handleAliasCommand/_handleMacroCommand (typed `alias`/`macro`
-      // commands) — see registry.js's header comment for the write-path
+      // commands) - see registry.js's header comment for the write-path
       // lock this is built around.
       this._aliasStore = LFL.registry.createAliasStore(
         (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) || null,
       );
       this._aliasStore.load();
       // M3 H2 (design doc §8): the data-lfl-state test hook is OFF by
-      // default — see _updateTestHook()'s own comment. Loaded async from
+      // default - see _updateTestHook()'s own comment. Loaded async from
       // storage.local `lflDevHooks`; stays false (hidden) until that
       // resolves, which is the safe default direction to fail in.
       this._devHooksEnabled = false;
@@ -189,7 +189,7 @@
       this._lastCommand = '';
       // Monotonic counter bumped at every "settle" point (deterministic result
       // printed, proposal rendered awaiting approval, LLM error surfaced, or
-      // approve/reject resolved, or an async nav-watch/rate-limit event) —
+      // approve/reject resolved, or an async nav-watch/rate-limit event) -
       // see reportAsync(). Exposed via the test hook so tests/run_battery.py
       // can detect "this command is done" without guessing a fixed sleep, and
       // can measure real submit->settle latency instead of polling only for
@@ -200,12 +200,12 @@
       // without needing to read text out of the closed shadow root.
       this._lastResult = null;
       // M2.3 rate limiting is now SW-authoritative (see class header comment
-      // and background/service-worker.js) — this is only a cache of the
+      // and background/service-worker.js) - this is only a cache of the
       // last real snapshot the service worker returned, for synchronous
       // titlebar rendering between async round trips. Seeded with
       // optimistic (full-budget, not-paused) placeholder numbers from
       // LFL.rateLimiter.DEFAULTS until the first real fetch resolves
-      // (_refreshRateLimitBudget(), kicked off below) — if this tab was
+      // (_refreshRateLimitBudget(), kicked off below) - if this tab was
       // already paused/partially-consumed from before a reload, that first
       // fetch corrects the placeholder immediately.
       this._rlBudgetCache = {
@@ -216,18 +216,18 @@
         paused: false,
         pauseReason: null,
       };
-      this.state.rlBudgetCache = this._rlBudgetCache; // M4a — see state's own comment above
-      // Reentrancy guard for _approveProposal()'s async SW round trip — see
+      this.state.rlBudgetCache = this._rlBudgetCache; // M4a - see state's own comment above
+      // Reentrancy guard for _approveProposal()'s async SW round trip - see
       // that method for why.
       this._approvalBusy = false;
       // M4b fun pack v2 (design §3): non-null while `snake`/`2048` is
-      // actively running — { prog, frameEl, intervalId }. `prog` is the
+      // actively running - { prog, frameEl, intervalId }. `prog` is the
       // {name, onKey, onTick?, getFps?, onExit} object the game-start
       // handler built (see _startSnake()/_start2048()); `frameEl` is the
       // single <pre class="lfl-frame"> whose textContent every redraw
       // replaces; `intervalId` is whatever setInterval() returned for the
       // tick (null for 2048, which is key-driven only). See _enterProgram()/
-      // _exitProgram() below — this is the ONLY state the program-mode
+      // _exitProgram() below - this is the ONLY state the program-mode
       // primitive needs beyond the ordinary command state above.
       this._activeProgram = null;
       this._buildDom();
@@ -235,13 +235,13 @@
       this._loadHistory();
       this._updateTestHook();
       // Fire-and-forget: pulls the SW-authoritative numbers as soon as
-      // possible after (re)injection — this is what makes a just-reloaded
+      // possible after (re)injection - this is what makes a just-reloaded
       // page's titlebar honestly reflect a pre-existing pause/partial budget
       // instead of the optimistic placeholder above.
       this._refreshRateLimitBudget();
       // M3 (design doc §4): restore scrollback (display-only), auto-reopen
       // if this tab's terminal was open before the last navigation, and
-      // continue any in-flight `&&` chain (arrival check first) — all via
+      // continue any in-flight `&&` chain (arrival check first) - all via
       // the SW-authoritative per-tab TS_* state. Fire-and-forget; nothing
       // here blocks the terminal being usable immediately.
       this._restoreTerminalState();
@@ -250,7 +250,7 @@
     // ---- M3 terminal-state (TS_*) SW messaging ----
     //
     // Mirrors _rlSend()'s shape but without the rate-limiter's fail-closed
-    // "block the action" posture — none of TS_* gates a mutation by itself
+    // "block the action" posture - none of TS_* gates a mutation by itself
     // (the one TS_*-informed safety decision, the queue's arrival check, is
     // its own explicit fail-closed comparison in _advanceQueue(), not a
     // property of this transport helper). A messaging failure here simply
@@ -274,18 +274,18 @@
           this._devHooksEnabled = !!(res && res.lflDevHooks);
           this._updateTestHook();
         });
-      } catch (_e) { /* storage unavailable — stays off, the safe default */ }
+      } catch (_e) { /* storage unavailable - stays off, the safe default */ }
     }
 
     async _restoreTerminalState() {
-      // Scrollback restore — display-only, rendered via the DOM-only helper
+      // Scrollback restore - display-only, rendered via the DOM-only helper
       // (never re-persisted, never re-executed, never fed into either LLM
-      // lane's payload — see buildNavLanePayload()'s/buildPayload()'s own
+      // lane's payload - see buildNavLanePayload()'s/buildPayload()'s own
       // comments in service-worker.js for why there is nothing here to
       // wire in even if a future edit wanted to).
       const sb = await this._tsSend('TS_SCROLLBACK_GET');
       if (sb.ok && Array.isArray(sb.scrollback) && sb.scrollback.length > 0) {
-        this._appendLineDom('— restored scrollback from before navigation —', 'info');
+        this._appendLineDom('(restored scrollback from before navigation)', 'info');
         for (const line of sb.scrollback) {
           this._appendLineDom((line && line.text) || '', (line && line.cls) || 'info');
         }
@@ -301,7 +301,7 @@
 
     // Sends one rate-limit message to the service worker and returns its
     // response. Fails CLOSED on any messaging error (SW unreachable,
-    // extension context invalidated, etc.) — same posture as the M2.1
+    // extension context invalidated, etc.) - same posture as the M2.1
     // occlusion probe's "can't check" != "check passed": a safety control
     // that cannot be consulted must not silently permit the thing it exists
     // to gate.
@@ -314,12 +314,12 @@
         resp = null;
       }
       if (!resp || !resp.ok) {
-        const reason = (resp && resp.error) || 'rate-limit check unavailable (service worker unreachable) — blocked for safety';
+        const reason = (resp && resp.error) || 'rate-limit check unavailable (service worker unreachable) - blocked for safety';
         return { ok: false, allowed: false, paused: true, reason, resumed: false, recorded: false, budget: this._rlBudgetCache };
       }
       if (resp.budget) {
         this._rlBudgetCache = resp.budget;
-        this.state.rlBudgetCache = resp.budget; // M4a — keep `here`'s synchronous view in sync
+        this.state.rlBudgetCache = resp.budget; // M4a - keep `here`'s synchronous view in sync
       }
       return resp;
     }
@@ -350,7 +350,7 @@
       this.host.id = 'lfl-terminal-host';
       // M2.1: promote the whole overlay (panel + approval card, both
       // descendants of this host) into the browser top layer. "manual" mode
-      // means WE control show/hide (open()/hidePopover() below) — no
+      // means WE control show/hide (open()/hidePopover() below) - no
       // light-dismiss-on-outside-click, no auto-close-on-Escape (we already
       // handle Escape ourselves, deliberately, to route it through the
       // approval-reject / close logic instead of the UA default).
@@ -399,7 +399,7 @@
       this.approveBtn.className = 'lfl-approve-btn';
       this.approveBtn.textContent = 'Approve (Enter)';
       this.approveBtn.addEventListener('click', (e) => {
-        if (!LFL.guards.isTrustedInputEvent(e)) return; // M3 H1 — see guards.js
+        if (!LFL.guards.isTrustedInputEvent(e)) return; // M3 H1 - see guards.js
         this._approvePending();
       });
       this.rejectBtn = document.createElement('button');
@@ -407,7 +407,7 @@
       this.rejectBtn.className = 'lfl-reject-btn';
       this.rejectBtn.textContent = 'Reject (Esc)';
       this.rejectBtn.addEventListener('click', (e) => {
-        if (!LFL.guards.isTrustedInputEvent(e)) return; // M3 H1 — see guards.js
+        if (!LFL.guards.isTrustedInputEvent(e)) return; // M3 H1 - see guards.js
         this._rejectPending();
       });
       this.actionsEl.appendChild(this.approveBtn);
@@ -428,7 +428,7 @@
       this.inputEl.type = 'text';
       this.inputEl.autocomplete = 'off';
       this.inputEl.spellcheck = false;
-      this.inputEl.placeholder = 'type a command — try "help"';
+      this.inputEl.placeholder = 'type a command - try "help"';
       inputrow.appendChild(prompt);
       inputrow.appendChild(this.inputEl);
 
@@ -446,8 +446,8 @@
       this.inputEl.addEventListener('keydown', this._onInputKeydown.bind(this));
       // M4b (design §3): force-exit an active program on ANY navigation
       // signal. Reuses the SAME Navigation API technique nav-watch.js
-      // already established for runtime navigation interception —
-      // `window.navigation`'s `navigate` event — for same-document/SPA-style
+      // already established for runtime navigation interception -
+      // `window.navigation`'s `navigate` event - for same-document/SPA-style
       // navigations, plus `pagehide` (always available) as the universal
       // signal for an actual top-level unload. A full top-level navigation
       // destroys this whole content-script realm anyway (the interval dies
@@ -455,7 +455,7 @@
       // which is what lets _exitProgram() run its ordinary cleanup
       // (clearInterval, restore prompt, print the score summary) instead of
       // the program just vanishing mid-frame. Deliberately does NOT touch
-      // nav-watch.js itself (design §7 — that file's own short-lived,
+      // nav-watch.js itself (design §7 - that file's own short-lived,
       // per-click watcher is out of scope here); this is a second,
       // independent listener with a different job (halt OUR OWN running
       // program, not classify a click's destination).
@@ -471,14 +471,14 @@
     }
 
     // M3 H1 (design doc §8): every input handler ignores non-isTrusted
-    // events outright — a page can dispatch synthetic KeyboardEvent/
+    // events outright - a page can dispatch synthetic KeyboardEvent/
     // MouseEvent objects at our host element (it's in the light DOM,
     // retargeted from inside the closed shadow root) or its own listeners,
     // and "terminal input = trusted because a human typed it" only holds if
     // every one of these handlers actually checks that. See guards.js's
     // isTrustedInputEvent() for the pure predicate this calls (unit-tested
     // directly; the DOM wiring itself needs a real event object to exercise
-    // — see tests/m3_hardening.test.js for what is and isn't covered here).
+    // - see tests/m3_hardening.test.js for what is and isn't covered here).
     _isAwaitingSomething() {
       return this.state.mode === 'awaiting-approval' || this.state.mode === 'awaiting-nav-confirm';
     }
@@ -508,7 +508,7 @@
           }
           if (e.key === 'Tab') {
             // Focus trap (M2.1): while an approval is pending, Tab only ever
-            // cycles between our own Approve/Reject controls — focus can
+            // cycles between our own Approve/Reject controls - focus can
             // never move onto a page element (which would let a hostile
             // page's own focus/keydown handlers intercept the next
             // keystroke a human thinks is going to the approval gate).
@@ -537,7 +537,7 @@
     _onInputKeydown(e) {
       if (!LFL.guards.isTrustedInputEvent(e)) return; // M3 H1
       // M4b (design §3): while a program is active, EVERY keystroke routes
-      // here instead of the ordinary prompt — the input element is also set
+      // here instead of the ordinary prompt - the input element is also set
       // readOnly for the duration (see _enterProgram()), but readOnly does
       // not stop keydown events from firing, so this check must come first.
       if (this._activeProgram) {
@@ -581,17 +581,17 @@
 
     open() {
       if (this._popoverSupported) {
-        try { this.host.showPopover(); } catch (_e) { /* already open — ignore */ }
+        try { this.host.showPopover(); } catch (_e) { /* already open - ignore */ }
       }
       this.panel.classList.add('lfl-open');
       this.inputEl.focus();
       this._updateTestHook();
       // Refresh the SW-authoritative budget every time the overlay is
-      // (re)opened, not just at construction — cheap, and keeps the
+      // (re)opened, not just at construction - cheap, and keeps the
       // titlebar honest if a lot of async time passed since the last fetch.
       this._refreshRateLimitBudget();
       // M3: persist open state per tab so a later re-injection (navigation)
-      // auto-reopens — see _restoreTerminalState(). Fire-and-forget.
+      // auto-reopens - see _restoreTerminalState(). Fire-and-forget.
       this._tsSend('TS_OPEN_SET', { open: true });
       // funpack v1: at most one dim fortune line per calendar day, shown
       // whenever the overlay is opened. Fire-and-forget, never delays the
@@ -601,7 +601,7 @@
 
     close() {
       // M4b (design §3): overlay hidden/closed while a program is active is
-      // one of the mandatory forced-exit paths — checked first, mutually
+      // one of the mandatory forced-exit paths - checked first, mutually
       // exclusive with the awaiting-approval/awaiting-nav-confirm branches
       // below (a program never runs at the same time as either of those;
       // see _enterProgram()'s own awaiting-something guard).
@@ -626,7 +626,7 @@
       }
       this.panel.classList.remove('lfl-open');
       if (this._popoverSupported) {
-        try { this.host.hidePopover(); } catch (_e) { /* already closed — ignore */ }
+        try { this.host.hidePopover(); } catch (_e) { /* already closed - ignore */ }
       }
       this._updateTestHook();
       this._tsSend('TS_OPEN_SET', { open: false });
@@ -639,12 +639,12 @@
 
     // ---- output helpers ----
 
-    // DOM-only append — used both by _appendLine() (new output, which also
+    // DOM-only append - used both by _appendLine() (new output, which also
     // persists to the SW-backed scrollback) and by _restoreTerminalState()
     // (rendering PREVIOUSLY-persisted lines, which must not be re-persisted
-    // — that would just re-append the same lines to their own backing store
+    // - that would just re-append the same lines to their own backing store
     // on every navigation). H3 (design doc §8): text is always assigned via
-    // .textContent, never innerHTML/eval — a restored scrollback line (or
+    // .textContent, never innerHTML/eval - a restored scrollback line (or
     // any other TS_* response field) is rendered as inert text, never as
     // markup or code.
     _appendLineDom(text, cls) {
@@ -658,9 +658,9 @@
       this.outputEl.scrollTop = this.outputEl.scrollHeight;
     }
 
-    // M3: persists the last ~100 lines per tab (design §4) — fire-and-forget,
+    // M3: persists the last ~100 lines per tab (design §4) - fire-and-forget,
     // display-only. Never read back into any LLM prompt (see
-    // buildPayload()/buildNavLanePayload() in service-worker.js — neither
+    // buildPayload()/buildNavLanePayload() in service-worker.js - neither
     // one accepts or reads a scrollback field at all).
     _appendLine(text, cls) {
       this._appendLineDom(text, cls);
@@ -677,7 +677,7 @@
     }
 
     // Surfaces an event that happens OUTSIDE the synchronous submit->settle
-    // flow — e.g. nav-watch.js's onBlocked/onDetectedOnly callbacks, which
+    // flow - e.g. nav-watch.js's onBlocked/onDetectedOnly callbacks, which
     // fire asynchronously (sometime after execute() already returned) when
     // the Navigation API's `navigate` event lands. Bumps `_seq` too, so
     // tests polling the seq counter can observe these the same way they
@@ -706,7 +706,7 @@
           if (chrome.runtime.lastError) return;
           if (res && Array.isArray(res.lflHistory)) this.state.history = res.lflHistory;
         });
-      } catch (_e) { /* storage unavailable — history just won't persist across pages */ }
+      } catch (_e) { /* storage unavailable - history just won't persist across pages */ }
     }
 
     _saveHistory() {
@@ -741,7 +741,7 @@
 
     // M3 (design doc §5): the queue only ever holds user-typed text, and
     // only continues past a successful settle. "Any error/block/rejection/
-    // Esc clears the whole queue" (plan §13 item 2) — this is the single
+    // Esc clears the whole queue" (plan §13 item 2) - this is the single
     // choke point that enforces that: every dispatch path below calls
     // _afterSettle(ok) exactly once at its own settle point, ok being
     // whether THAT step succeeded. See registry.js/nav.js for the pure
@@ -757,7 +757,7 @@
     async _advanceQueue() {
       const peek = await this._tsSend('TS_QUEUE_PEEK');
       if (!peek.ok || !Array.isArray(peek.queue) || peek.queue.length === 0) return;
-      // Arrival check (design §5) — fail closed: an origin mismatch (e.g. a
+      // Arrival check (design §5) - fail closed: an origin mismatch (e.g. a
       // redirect, or an open-redirect URL, landing the tab somewhere the
       // human didn't ask for) halts the queue outright rather than running
       // the next typed command on whatever page we actually ended up on.
@@ -778,7 +778,7 @@
       this._lastCommand = popped.next;
       this.printCmdEcho(popped.next);
       // M4b: anything popped off the queue exists ONLY because an earlier
-      // `&&` chain or macro expansion put it there — always chain/macro
+      // `&&` chain or macro expansion put it there - always chain/macro
       // context, regardless of how many segments came before it (see
       // _handleGameCommand()'s fromChain check).
       await this._dispatchSegment(popped.next, { fromChain: true });
@@ -793,15 +793,15 @@
 
       // M2.3: "continue" and "budget" are rate-limiter controls, handled
       // here (not engine.js) because they resolve against the SW-
-      // authoritative limiter for this tab — everything else about the
+      // authoritative limiter for this tab - everything else about the
       // deterministic/LLM dispatch split is unchanged. Both are now async
       // (a message round trip to the service worker), unlike the old local-
-      // instance version — see class header comment. Neither participates
+      // instance version - see class header comment. Neither participates
       // in `&&` chaining (a rate-limit control makes no sense as a chain
-      // step) — handled before any chain-splitting is even attempted.
+      // step) - handled before any chain-splitting is even attempted.
       if (/^continue$/i.test(raw)) {
         this._rlResume().then((res) => {
-          const msg = res.resumed ? 'resuming — rate-limit pause cleared' : 'nothing paused to continue';
+          const msg = res.resumed ? 'resuming - rate-limit pause cleared' : 'nothing paused to continue';
           this.printInfo(msg);
           this._auditPush({ action: 'continue' }, 'auto', msg);
           this._settle(true, msg);
@@ -811,17 +811,17 @@
       if (/^budget$/i.test(raw)) {
         this._rlSend('RL_BUDGET').then((resp) => {
           const b = resp.budget;
-          const msg = `LLM calls: ${b.llmRemaining}/${b.llmMax} remaining this window. Executed actions: ${b.actionRemaining}/${b.actionMax} remaining this window.${b.paused ? ' PAUSED — type "continue" to resume.' : ''}`;
+          const msg = `LLM calls: ${b.llmRemaining}/${b.llmMax} remaining this window. Executed actions: ${b.actionRemaining}/${b.actionMax} remaining this window.${b.paused ? ' PAUSED - type "continue" to resume.' : ''}`;
           this.printInfo(msg);
           this._settle(true, msg);
         });
         return;
       }
-      // M3 Terminal-level commands (design §6/§8) — need chrome.* / async
+      // M3 Terminal-level commands (design §6/§8) - need chrome.* / async
       // access engine.js's synchronous tryDeterministic() contract doesn't
       // have, so (like continue/budget above) they're dispatched here
       // rather than through the registry, and (like continue/budget) don't
-      // participate in `&&` chaining — each is a standalone control command,
+      // participate in `&&` chaining - each is a standalone control command,
       // not a page-driving verb.
       if (/^dev\s+(on|off)$/i.test(raw)) { this._handleDevCommand(raw); return; }
       if (/^origins$/i.test(raw)) { this._handleOrigins(); return; }
@@ -861,7 +861,7 @@
       if (segments.length === 0) return;
 
       // M4b (design §3): a game may never run as part of a chain or a
-      // macro's expansion — `chainContext` is true either because this
+      // macro's expansion - `chainContext` is true either because this
       // raw input came from `macro`'s stored body (isMacroExpansion), or
       // because splitting on `&&` produced more than one segment. This is
       // the flag _dispatchSegment()/_handleGameCommand() below rejects on;
@@ -871,11 +871,11 @@
 
       // M4b (design §3): "REFUSE to start a program while a && chain queue
       // is pending... (finish or cancel that first)". This can ONLY be
-      // checked for the lone-command case (chainContext false) — and it
+      // checked for the lone-command case (chainContext false) - and it
       // MUST be checked BEFORE the TS_QUEUE_SET/TS_QUEUE_CLEAR below, which
       // would otherwise silently cancel a still-pending earlier chain as an
       // unavoidable side effect of "typing something new abandons a stale
-      // queue" (the very next comment down — true and correct for ordinary
+      // queue" (the very next comment down - true and correct for ordinary
       // commands, but wrong for a REFUSED game-start attempt: the human
       // must explicitly finish or cancel the pending chain themselves, a
       // blocked "snake" must not do it for them).
@@ -895,7 +895,7 @@
         });
       } else {
         // A lone (non-chain) command abandons any stale queue left over from
-        // an earlier interrupted chain — typing something new is itself a
+        // an earlier interrupted chain - typing something new is itself a
         // decision not to continue waiting on the old one.
         await this._tsSend('TS_QUEUE_CLEAR');
       }
@@ -904,12 +904,12 @@
 
     // M4b (design §3): the "a chain queue is pending" half of the program
     // interaction locks (the "a proposal is awaiting approval" half is
-    // structurally almost unreachable here — Enter routes to
+    // structurally almost unreachable here - Enter routes to
     // _approvePending() instead of _submitCommand while awaiting something
-    // — but _handleGameCommand() re-checks it too, as defense in depth).
+    // - but _handleGameCommand() re-checks it too, as defense in depth).
     // Returns true (and has already printed/audited/settled the refusal)
     // if a game-start attempt must be blocked; false if it may proceed.
-    // Deliberately does NOT call _afterSettle() on the blocked path — this
+    // Deliberately does NOT call _afterSettle() on the blocked path - this
     // must leave any pending queue completely untouched (see _runChain()'s
     // caller comment for why).
     async _maybeBlockGameStart(name) {
@@ -923,7 +923,7 @@
       return true;
     }
 
-    // The single per-segment dispatch path — used for both the first
+    // The single per-segment dispatch path - used for both the first
     // segment of a freshly-submitted chain and every segment popped off the
     // SW-backed queue later (possibly after a navigation and a fresh
     // content-script injection). Alias-resolves the segment's leading word,
@@ -947,7 +947,7 @@
         return;
       }
 
-      // M4b fun pack v2 (design §3/§4/§5): snake/2048/games — never part of
+      // M4b fun pack v2 (design §3/§4/§5): snake/2048/games - never part of
       // a chain or macro (opts.fromChain, computed by _runChain()/
       // _advanceQueue() above; this is what actually enforces the "reject
       // at dispatch when the segment comes from a chain/macro context"
@@ -955,7 +955,7 @@
       // alias whose EXPANSION text is a game name, invoked from inside a
       // macro). Dispatched here (not in _submitCommand, unlike the
       // fortune/stats/theme/cowsay quartet) specifically so this
-      // chain-context check is reachable at all — see _handleGameCommand().
+      // chain-context check is reachable at all - see _handleGameCommand().
       if (GAME_NAMES.has(firstTok)) {
         await this._handleGameCommand(firstTok, opts);
         return;
@@ -963,11 +963,11 @@
 
       // M4b verify fix (MED-2): funpack commands in a chain/macro segment
       // are rejected (previously they silently fell through to _runLlm()
-      // below — see FUNPACK_NAMES's own comment). Reached only via a chain
+      // below - see FUNPACK_NAMES's own comment). Reached only via a chain
       // segment or an alias expansion; a directly-typed `fortune` never
       // gets here (matched in _submitCommand()). The non-chain case (an
       // alias like `alias f = fortune`, typed alone) routes to the real
-      // handler instead of the model — same outcome as typing the name
+      // handler instead of the model - same outcome as typing the name
       // directly, which is what an alias is supposed to mean.
       if (FUNPACK_NAMES.has(firstTok)) {
         if (opts.fromChain) {
@@ -998,15 +998,15 @@
         // FIX 1 (security verify LOW-1): `back`/same-origin `open`/`open!`/
         // auto-submitting `search` all INITIATE a navigation from inside
         // tryDeterministic() (engine.js tags the result `navInitiated: true`
-        // on exactly those branches — see engine.js's own comments). Because
+        // on exactly those branches - see engine.js's own comments). Because
         // location.href/history.back()/form.submit() do not unload the
         // document synchronously, calling the ordinary _afterSettle(true) ->
         // _advanceQueue() here would run the NEXT queued segment against the
-        // OLD, about-to-unload document — defeating design §5's "run where
+        // OLD, about-to-unload document - defeating design §5's "run where
         // you arrive" semantics (confirmed non-exploitable for cross-origin
         // execution, since the queue only ever holds typed text either way,
         // but still the wrong document). Skip the synchronous advance
-        // entirely for these results — no _afterSettle call at all, so the
+        // entirely for these results - no _afterSettle call at all, so the
         // queue (and its recorded expectedOrigin) is left exactly as it was.
         // Continuation is then driven the same way `go` already drives it:
         // the next content-script injection's _restoreTerminalState() ->
@@ -1018,14 +1018,14 @@
         return;
       }
 
-      // M4a — did-you-mean (tool 3, design note in engine.js's header):
+      // M4a - did-you-mean (tool 3, design note in engine.js's header):
       // NOT an "ask ..." (that's the unambiguous, explicit model path) and
       // NOT a bare number (engine.js's tryDeterministic() above always
-      // returns non-null for one — an action or a gentle "no listing"
-      // error — so det would never have been null in the first place; this
+      // returns non-null for one - an action or a gentle "no listing"
+      // error - so det would never have been null in the first place; this
       // second check is defense in depth for this function's own contract,
       // not a case that can actually be reached via a bare-number input
-      // today). Deliberately narrows the model surface, never widens it —
+      // today). Deliberately narrows the model surface, never widens it -
       // this can only intercept some inputs that would otherwise have
       // reached _runLlm() below; nothing here ever routes text TO the model
       // that wouldn't already have gone there.
@@ -1037,7 +1037,7 @@
           const suggestion = candidates.length === 1
             ? candidates[0]
             : candidates.join(', ');
-          const msg = `unknown command "${token}" — did you mean: ${suggestion}? (or prefix with "ask" to send to the local model)`;
+          const msg = `unknown command "${token}" - did you mean: ${suggestion}? (or prefix with "ask" to send to the local model)`;
           this.printError(msg);
           this._auditPush({ action: 'did-you-mean' }, 'blocked', msg);
           this._settle(false, msg);
@@ -1473,7 +1473,7 @@
       // M4b verify fix (LOW-4): while a program is active, no keystroke
       // aimed at the game should bubble out to page document listeners
       // (shadow-root events retarget but still propagate to the document).
-      // Scoped ONLY to this program-mode path — ordinary typing keeps the
+      // Scoped ONLY to this program-mode path - ordinary typing keeps the
       // terminal's original propagation semantics untouched.
       if (typeof e.stopPropagation === 'function') e.stopPropagation();
       const key = e.key;
@@ -1524,7 +1524,7 @@
 
     // M4b verify fix (MED-1): the reverse arm of the program/proposal
     // mutual exclusion. _enterProgram() refuses to start while a proposal/
-    // nav-confirm is pending; this closes the OTHER direction — a proposal
+    // nav-confirm is pending; this closes the OTHER direction - a proposal
     // or navigation confirm arriving (from an async model round trip that
     // was already in flight when the game started) while a program is
     // active. Called at the very top of _presentProposal() and
@@ -1591,7 +1591,7 @@
       const on = /\bon$/i.test(raw.trim());
       this._devHooksEnabled = on;
       try { chrome.storage.local.set({ lflDevHooks: on }); } catch (_e) { /* best-effort */ }
-      const msg = `dev hooks ${on ? 'ENABLED' : 'disabled'} (data-lfl-state test attribute) — see docs/threat-model.md H2`;
+      const msg = `dev hooks ${on ? 'ENABLED' : 'disabled'} (data-lfl-state test attribute) - see docs/threat-model.md H2`;
       this.printInfo(msg);
       this._auditPush({ action: 'dev' }, 'auto', msg);
       this._settle(true, msg);
@@ -1606,7 +1606,7 @@
       this._settle(true, msg);
     }
 
-    // ---- M3 `go` — the navigation verb (design §2/§3) ----
+    // ---- M3 `go` - the navigation verb (design §2/§3) ----
 
     async _handleGo(resolvedSegment) {
       const arg = resolvedSegment.replace(/^go\s*/i, '').trim();
@@ -1640,7 +1640,7 @@
 
       // Step 3 (design §2/§3): the nav-lane model call. Shares the LLM-call
       // rate-limit budget with page-lane (same RL_CHECK/RL_RECORD as
-      // _runLlm() below) — both lanes are gated/recorded identically, only
+      // _runLlm() below) - both lanes are gated/recorded identically, only
       // the message type and the payload differ.
       const budgetCheck = await this._rlCheck('llm');
       if (!budgetCheck.allowed) {
@@ -1656,16 +1656,16 @@
       let resp;
       try {
         // THE isolation-critical call: the payload sent to the model
-        // contains ONLY `command` (the user's typed segment text) — no
+        // contains ONLY `command` (the user's typed segment text) - no
         // element list, no title, no origin, no scrollback. See
         // service-worker.js's buildNavLanePayload() and
         // tests/m3_nav_lane_isolation.test.js for the proof.
         resp = await chrome.runtime.sendMessage({ type: 'NAV_LLM_REQUEST', command: resolvedSegment });
       } catch (e) {
-        resp = { ok: false, error: 'local model offline — deterministic commands still work (' + (e && e.message ? e.message : 'messaging error') + ')' };
+        resp = { ok: false, error: 'local model offline - deterministic commands still work (' + (e && e.message ? e.message : 'messaging error') + ')' };
       }
       if (!resp || !resp.ok) {
-        const errMsg = (resp && resp.error) || 'local model offline — deterministic commands still work';
+        const errMsg = (resp && resp.error) || 'local model offline - deterministic commands still work';
         this.printError(errMsg);
         this._auditPush({ action: 'go-nav-lane-error' }, 'n/a', errMsg);
         this._settle(false, errMsg);
@@ -1685,13 +1685,13 @@
 
       // Defense in depth: the model's own proposed URL is still validated
       // through the EXACT SAME literal-destination guard as ladder steps
-      // 1/2 (http(s)-only, must look like a real destination) — the nav-lane
+      // 1/2 (http(s)-only, must look like a real destination) - the nav-lane
       // isolation removes page-injection risk, it does not exempt the
       // model's own output from the scheme floor everything else in this
       // extension is held to.
       const check = LFL.nav.resolveLiteralDestination(navAction.value || '');
       if (!check.ok) {
-        const msg = `go: model proposed an unusable destination — ${check.reason}`;
+        const msg = `go: model proposed an unusable destination - ${check.reason}`;
         this.printError(msg);
         this._auditPush({ action: 'go-nav-lane-invalid' }, 'blocked', msg);
         this._settle(false, msg);
@@ -1702,16 +1702,16 @@
       await this._confirmOrNavigate(check.url, { modelResolved: true });
     }
 
-    // First-visit-per-origin (or, always, model-resolved) confirmation —
+    // First-visit-per-origin (or, always, model-resolved) confirmation -
     // design §2's friction tiers. Reuses the SAME approval-card DOM
     // (glossEl/detailEl/approveBtn/rejectBtn) the LLM-action proposal uses,
     // labeled NAVIGATION, gated by the parallel `awaiting-nav-confirm` mode
     // rather than overloading `state.pendingProposal` (which stays an LLM
-    // action object shape — see _normalizeAction()/executor.execute()).
+    // action object shape - see _normalizeAction()/executor.execute()).
     async _confirmOrNavigate(url, opts) {
       // M4b verify fix (MED-1): the program/proposal mutual exclusion must
       // hold in BOTH directions. _enterProgram() already refuses to start
-      // while a confirm/approval is pending; this is the reverse arm — a
+      // while a confirm/approval is pending; this is the reverse arm - a
       // navigation confirm arriving while a game is running (possible via
       // the async nav-lane round trip: `go <words>` was typed, the model
       // answer is still in flight, the human starts a game meanwhile) must
@@ -1719,7 +1719,7 @@
       // choke point every other exit path uses. Without this, the
       // approval-card state below would clobber state.mode while the tick
       // interval kept running, and approveBtn.focus() would yank focus
-      // onto Approve mid-keymash — an Enter meant as game input could
+      // onto Approve mid-keymash - an Enter meant as game input could
       // approve a navigation unread.
       this._maybeExitProgramForProposal();
       const originStr = url.origin;
@@ -1737,7 +1737,7 @@
       this.state.mode = 'awaiting-nav-confirm';
       this.glossEl.textContent = `NAVIGATION: go to ${url.href}`;
       this.detailEl.textContent = opts.modelResolved
-        ? `origin=${originStr}  (model-resolved destination — read it before approving)`
+        ? `origin=${originStr}  (model-resolved destination - read it before approving)`
         : `origin=${originStr}  (first visit to this origin this tab session)`;
       this.proposalEl.hidden = false;
       this.inputEl.readOnly = true;
@@ -1749,7 +1749,7 @@
     async _doNavigate(urlHref, originStr) {
       await this._tsSend('TS_VISITED_ADD', { origin: originStr });
       // If a chain is mid-flight, pin the queue's expected-arrival origin to
-      // the REAL destination right before actually navigating — this is
+      // the REAL destination right before actually navigating - this is
       // what the arrival check (nav.js's checkArrival(), consulted by
       // _advanceQueue() on the next injection) verifies against (design §5).
       const peek = await this._tsSend('TS_QUEUE_PEEK');
@@ -1765,16 +1765,16 @@
       this._approvalBusy = true;
       try {
         // Same execution-time occlusion re-check as an LLM-action approval
-        // (M2.1) — a navigation confirm is approval-gated for exactly the
+        // (M2.1) - a navigation confirm is approval-gated for exactly the
         // same clickjacking-style reason a click/fill/select/navigate
         // proposal is.
         const occlusion = this._probeApprovalOcclusion();
         if (occlusion.occluded) {
           this.proposalEl.hidden = true;
           this.inputEl.readOnly = false;
-          this.inputEl.focus(); // FIX 3: restore typing focus — mirrors _rejectNav()/_rejectProposal()
+          this.inputEl.focus(); // FIX 3: restore typing focus - mirrors _rejectNav()/_rejectProposal()
           this.state.mode = 'idle';
-          const msg = `approval UI was covered — navigation cancelled for safety (${occlusion.reason})`;
+          const msg = `approval UI was covered - navigation cancelled for safety (${occlusion.reason})`;
           this.printError(msg);
           this._auditPush({ action: 'go' }, 'aborted(occluded)', msg);
           this.state.pendingNav = null;
@@ -1804,7 +1804,7 @@
       // click back into the field. This method is only ever reached via an
       // isTrusted-gated entry point (_rejectPending(), called from the
       // isTrusted-checked _onGlobalKeydown/_onInputKeydown handlers or the
-      // isTrusted-checked reject-button click listener — see H1), so no
+      // isTrusted-checked reject-button click listener - see H1), so no
       // additional gating is needed here.
       this.inputEl.focus();
       this.state.mode = 'idle';
@@ -1816,7 +1816,7 @@
     }
 
     async _runLlm(command) {
-      // M2.3: LLM-call budget gate. Deterministic, never model-controlled —
+      // M2.3: LLM-call budget gate. Deterministic, never model-controlled -
       // this check runs before the model is even asked anything. Checked
       // against the SW-authoritative limiter (see class header comment) so
       // the budget/pause latch is real even if this Terminal instance was
@@ -1847,12 +1847,12 @@
           title: document.title,
         });
       } catch (e) {
-        resp = { ok: false, error: 'local model offline — deterministic commands still work (' + (e && e.message ? e.message : 'messaging error') + ')' };
+        resp = { ok: false, error: 'local model offline - deterministic commands still work (' + (e && e.message ? e.message : 'messaging error') + ')' };
       }
       const latencyMs = Math.round(performance.now() - t0);
 
       if (!resp || !resp.ok) {
-        const errMsg = (resp && resp.error) || 'local model offline — deterministic commands still work';
+        const errMsg = (resp && resp.error) || 'local model offline - deterministic commands still work';
         this.printError(errMsg);
         this._auditPush({ action: 'llm-error' }, 'n/a', errMsg);
         this._settle(false, errMsg);
@@ -1884,7 +1884,7 @@
 
     // Deterministic destination line for a click that resolves to a
     // navigation target (<a href>, ancestor <a>, formaction, form action,
-    // area, or svg-a) — built from the LIVE element via guards.js, never
+    // area, or svg-a) - built from the LIVE element via guards.js, never
     // from the model's own prose. See MUST-FIX #2 in the M1 security review:
     // an approval card that shows role/name but not where a click actually
     // goes lets a human approve blind. M2.4: uses the element's OWN frame
@@ -1896,7 +1896,7 @@
       const nav = LFL.guards.checkClickTarget(el, opts);
       if (!nav.hasTarget) return '';
       const dest = nav.url ? nav.url.href : nav.rawUrl;
-      const rel = nav.blocked ? `${nav.classification} — WILL BE BLOCKED` : 'same-origin';
+      const rel = nav.blocked ? `${nav.classification} - WILL BE BLOCKED` : 'same-origin';
       return ` -> ${dest} (${rel})`;
     }
 
@@ -1928,7 +1928,7 @@
 
     _presentProposal(action, latencyMs) {
       // M4b verify fix (MED-1): force-exit any active program BEFORE
-      // presenting — see _confirmOrNavigate()'s twin call and
+      // presenting - see _confirmOrNavigate()'s twin call and
       // _maybeExitProgramForProposal()'s own comment for the full race
       // (an in-flight _runLlm() answer landing while a game runs).
       // Unconditional (before the requiresApproval split below), so an
@@ -1966,27 +1966,27 @@
         `  latency=${latencyMs}ms`;
       this.proposalEl.hidden = false;
       this.inputEl.readOnly = true;
-      this._seq++; // proposal rendered — this is the "submit -> proposal render" settle point
+      this._seq++; // proposal rendered - this is the "submit -> proposal render" settle point
       this._updateTestHook();
-      // M2.1: move focus onto our own extension-owned Approve control — out
-      // of any page element's reach — and keep it trapped there (see
+      // M2.1: move focus onto our own extension-owned Approve control - out
+      // of any page element's reach - and keep it trapped there (see
       // _onGlobalKeydown's Tab handling) until the proposal resolves.
       if (this.approveBtn) this.approveBtn.focus();
     }
 
     // M2.1: execution-time occlusion re-check. Samples what's actually
-    // topmost at the approve control's on-screen center point RIGHT NOW —
-    // immediately before executing an approved mutating action — and aborts
+    // topmost at the approve control's on-screen center point RIGHT NOW -
+    // immediately before executing an approved mutating action - and aborts
     // if it isn't genuinely our own control. See guards.js
     // classifyOcclusionProbe() for the pure decision logic this wraps.
     _probeApprovalOcclusion() {
       if (!this.approveBtn) return { occluded: true, reason: 'no approval control to check' };
       if (typeof document.elementsFromPoint !== 'function') {
         // Given this project's Chrome >=144 floor, elementsFromPoint has
-        // been available for years — this is a documented, extremely
+        // been available for years - this is a documented, extremely
         // unlikely residual, not an expected runtime path. Fail CLOSED: an
         // occlusion check that cannot run is not evidence of no occlusion.
-        return { occluded: true, reason: 'occlusion-check API (elementsFromPoint) unavailable in this browser — aborting rather than assuming safety' };
+        return { occluded: true, reason: 'occlusion-check API (elementsFromPoint) unavailable in this browser - aborting rather than assuming safety' };
       }
       const rect = this.approveBtn.getBoundingClientRect();
       if (rect.width <= 0 || rect.height <= 0) {
@@ -2007,7 +2007,7 @@
 
       // Pointer-events probe: temporarily exclude our own overlay from hit
       // testing and resample. A genuinely un-occluded reading should change
-      // (reveal page content, or a competing overlay, underneath) — proving
+      // (reveal page content, or a competing overlay, underneath) - proving
       // the first reading reflected real hit-testing rather than a stale or
       // otherwise wrong result.
       let underneathTopmost = null;
@@ -2018,14 +2018,14 @@
         this.host.style.pointerEvents = '';
       }
       if (underneathTopmost === this.host) {
-        return { occluded: true, reason: 'pointer-events probe was inconclusive — excluding the overlay from hit-testing did not change the topmost result' };
+        return { occluded: true, reason: 'pointer-events probe was inconclusive - excluding the overlay from hit-testing did not change the topmost result' };
       }
 
       return { occluded: false, reason: null };
     }
 
     // Async now (M2.3 rate-limit check is a message round trip to the
-    // service worker — see class header comment). This introduces a real
+    // service worker - see class header comment). This introduces a real
     // await window between "user clicked Approve" and "action actually
     // executes", during which the user could hit Reject/Esc or close the
     // overlay (both still fully synchronous). `_approvalBusy` blocks a
@@ -2040,24 +2040,24 @@
       this._approvalBusy = true;
       try {
         // M2.1: execution-time occlusion re-check FIRST, still fully
-        // synchronous, run at the exact instant Approve was pressed — same
+        // synchronous, run at the exact instant Approve was pressed - same
         // zero-added-latency timing this check has always had. Ordered
         // ahead of the (now-async) M2.3 rate-limit check deliberately: the
         // occlusion probe's adversarial fixture
         // (tests/fixtures/occlusion-attack.html) races a page-owned overlay
-        // against the moment a human approves, on a real wall-clock timer —
+        // against the moment a human approves, on a real wall-clock timer -
         // inserting an awaited SW round trip BEFORE this probe would push
         // that moment later by a variable amount for no security benefit
         // (both checks must pass before execution either way; which one is
-        // evaluated first doesn't change what gets blocked). Not a warning —
+        // evaluated first doesn't change what gets blocked). Not a warning -
         // a detected occlusion cancels the action outright.
         const occlusion = this._probeApprovalOcclusion();
         if (occlusion.occluded) {
           this.proposalEl.hidden = true;
           this.inputEl.readOnly = false;
-          this.inputEl.focus(); // FIX 3: restore typing focus — mirrors _rejectProposal()
+          this.inputEl.focus(); // FIX 3: restore typing focus - mirrors _rejectProposal()
           this.state.mode = 'idle';
-          const msg = `approval UI was covered — action cancelled for safety (${occlusion.reason})`;
+          const msg = `approval UI was covered - action cancelled for safety (${occlusion.reason})`;
           this.printError(msg);
           this._auditPush(action, 'aborted(occluded)', msg);
           this.state.pendingProposal = null;
@@ -2067,7 +2067,7 @@
         }
 
         // M2.3: rate-limit gate on EXECUTED mutating actions, checked
-        // against the SW-authoritative limiter — still runs before
+        // against the SW-authoritative limiter - still runs before
         // execution, as required; just after the occlusion probe rather
         // than before it (see above).
         const budgetCheck = await this._rlCheck('action');
@@ -2075,7 +2075,7 @@
         if (!budgetCheck.allowed) {
           this.proposalEl.hidden = true;
           this.inputEl.readOnly = false;
-          this.inputEl.focus(); // FIX 3: restore typing focus — mirrors _rejectProposal()
+          this.inputEl.focus(); // FIX 3: restore typing focus - mirrors _rejectProposal()
           this.state.mode = 'idle';
           this.printError(budgetCheck.reason);
           this._auditPush(action, 'blocked(rate-limit)', budgetCheck.reason);
@@ -2086,7 +2086,7 @@
         }
 
         // Only actually-executed mutations count against the action budget
-        // (unchanged posture from the pre-M2.3-SW-move design) — record
+        // (unchanged posture from the pre-M2.3-SW-move design) - record
         // AFTER both the occlusion check and the budget check pass.
         await this._rlRecord('action');
         if (this.state.pendingProposal !== action) return; // resolved by Reject/close while awaiting
@@ -2119,7 +2119,7 @@
       this.proposalEl.hidden = true;
       this.inputEl.readOnly = false;
       // FIX 3 (battery-found usability bug): restore focus to the terminal
-      // input — without this the human has to click back into the field to
+      // input - without this the human has to click back into the field to
       // keep typing after a reject. Only ever reached via an isTrusted-gated
       // entry point (_rejectPending(), see H1's guard chain), so no extra
       // gating is needed here.
@@ -2155,7 +2155,7 @@
       // element, NOT inside the closed shadow root) that tests/run_battery.py
       // reads directly without needing to pierce shadow DOM.
       // M2.3: `budget` is the cached last-known SW-authoritative snapshot
-      // (_rlBudgetCache), never locally computed — see class header comment.
+      // (_rlBudgetCache), never locally computed - see class header comment.
       // It is refreshed opportunistically (construction, open(), and every
       // RL_* response) rather than on every call to this method, since this
       // method itself must stay synchronous (called from many sync code
@@ -2165,14 +2165,14 @@
 
       // M3 H2 (design doc §8): this attribute exposes pending-proposal
       // contents, budgets, and mode to PAGE JAVASCRIPT on every page (it's a
-      // plain DOM attribute on an element that lives in the light DOM — a
+      // plain DOM attribute on an element that lives in the light DOM - a
       // page's own `MutationObserver`/`getAttribute` can read it same as
       // any other attribute; the closed shadow root only hides the OVERLAY
       // CONTENTS, not this host-level attribute). Fine for a private spike;
       // wrong default for a public product (a page could observe/time the
       // approval flow, or read what command the human just typed). Emitted
       // ONLY when the `dev` command has turned it on this session
-      // (storage.local `lflDevHooks`, off by default — see
+      // (storage.local `lflDevHooks`, off by default - see
       // _handleDevCommand()/_loadDevHooksFlag()); the Playwright battery
       // must type `dev on` (or pre-seed `lflDevHooks:true` in
       // storage.local before injection) to read this attribute at all.

@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * tests/m2_security.test.js — direct unit-level proof of the M2 security
+ * tests/m2_security.test.js - direct unit-level proof of the M2 security
  * hardening's PURE, testable decision logic: the occlusion-probe classifier
  * and the runtime-navigation classifier (both in guards.js), the M2.3 rate
- * limiter (ratelimit.js, time-injected — no real sleeps), and the M2.4
+ * limiter (ratelimit.js, time-injected - no real sleeps), and the M2.4
  * per-frame guard-context mechanism (guards.js's checkClickTarget with an
  * explicitly supplied, non-ambient origin/baseURI, exactly as
  * axtree.js's frameOptsFor()/executor.js supply it for an in-iframe element).
@@ -14,7 +14,7 @@
  * probe) and axtree.js's real iframe/shadow-root traversal
  * (querySelectorAll, iframe.contentDocument, el.shadowRoot). Those are
  * exercised end-to-end by the Playwright adversarial test
- * (tests/m2_adversarial.py) against the fixture pages instead — see
+ * (tests/m2_adversarial.py) against the fixture pages instead - see
  * README.md's M2 verification section for that run's actual output.
  *
  * Run: node tests/m2_security.test.js
@@ -45,13 +45,13 @@ function check(name, fn) {
 }
 
 // =====================================================================
-// Part 1 — M2.1: classifyOcclusionProbe (pure decision logic; the DOM
+// Part 1 - M2.1: classifyOcclusionProbe (pure decision logic; the DOM
 // sampling that produces its inputs lives in terminal.js and is proven by
 // the Playwright adversarial test against occlusion-attack.html).
 // =====================================================================
 
 function testOcclusionClassifier() {
-  console.log('\n[1] M2.1 classifyOcclusionProbe — pure occlusion decision');
+  console.log('\n[1] M2.1 classifyOcclusionProbe - pure occlusion decision');
 
   const host = { tag: 'host' };
   const approveEl = { tag: 'approve', contains(other) { return other === approveEl || other === innerDescendant; } };
@@ -92,13 +92,13 @@ function testOcclusionClassifier() {
 }
 
 // =====================================================================
-// Part 2 — M2.2: classifyRuntimeNavigation (pure decision logic; given a
+// Part 2 - M2.2: classifyRuntimeNavigation (pure decision logic; given a
 // destination + approved-destination -> block/allow, exactly the signature
 // the task spec asks for).
 // =====================================================================
 
 function testNavClassifier() {
-  console.log('\n[2] M2.2 classifyRuntimeNavigation — nav-interception classifier');
+  console.log('\n[2] M2.2 classifyRuntimeNavigation - nav-interception classifier');
 
   check('same-origin destination -> ALLOW regardless of approvedDestinationHref', () => {
     const r = guards.classifyRuntimeNavigation({
@@ -158,16 +158,16 @@ function testNavClassifier() {
 }
 
 // =====================================================================
-// Part 3 — M2.3: the rate limiter, time-injected (no real sleeps, fully
+// Part 3 - M2.3: the rate limiter, time-injected (no real sleeps, fully
 // deterministic). Proves: LLM-call budget, executed-action budget, burst
 // detection, pause-until-explicit-continue (no silent auto-recovery), and
 // that the window actually rolls once time advances past it.
 // =====================================================================
 
 function testRateLimiter() {
-  console.log('\n[3] M2.3 rate limiter — deterministic, time-injected');
+  console.log('\n[3] M2.3 rate limiter - deterministic, time-injected');
 
-  check('LLM calls: allowed up to the max, then blocked — burst of near-identical calls trips it', () => {
+  check('LLM calls: allowed up to the max, then blocked - burst of near-identical calls trips it', () => {
     let clock = 0;
     const rl = rateLimitModule.createRateLimiter({ now: () => clock, llmMax: 3, llmWindowMs: 60000, actionMax: 100, actionWindowMs: 60000 });
     for (let i = 0; i < 3; i++) {
@@ -181,14 +181,14 @@ function testRateLimiter() {
     assert.match(fourth.reason, /budget exceeded/);
   });
 
-  check('once paused, stays paused even after the window rolls past — no silent auto-recovery', () => {
+  check('once paused, stays paused even after the window rolls past - no silent auto-recovery', () => {
     let clock = 0;
     const rl = rateLimitModule.createRateLimiter({ now: () => clock, llmMax: 2, llmWindowMs: 1000, actionMax: 100, actionWindowMs: 60000 });
     rl.recordLlmCall(); clock += 10;
     rl.recordLlmCall(); clock += 10;
     assert.strictEqual(rl.canCallLlm().allow, false, 'budget should be exhausted');
-    clock += 10000; // far past the 1000ms window — timestamps would prune clean
-    assert.strictEqual(rl.canCallLlm().allow, false, 'must STILL be blocked — pause requires explicit continue, not just window rollover');
+    clock += 10000; // far past the 1000ms window - timestamps would prune clean
+    assert.strictEqual(rl.canCallLlm().allow, false, 'must STILL be blocked - pause requires explicit continue, not just window rollover');
   });
 
   check('resumeAfterContinue() clears the pause and the window is fresh again', () => {
@@ -213,9 +213,9 @@ function testRateLimiter() {
     const rl = rateLimitModule.createRateLimiter({ now: () => clock, llmMax: 1, llmWindowMs: 60000, actionMax: 2, actionWindowMs: 60000 });
     rl.recordLlmCall(); // exhausts LLM budget
     assert.strictEqual(rl.canCallLlm().allow, false);
-    // Action budget should be untouched by the LLM-call budget's own pause —
+    // Action budget should be untouched by the LLM-call budget's own pause -
     // they are two independent counters (a paused LLM budget also pauses
-    // canExecuteAction() by design once EITHER is exceeded — see below —
+    // canExecuteAction() by design once EITHER is exceeded - see below -
     // but merely calling canCallLlm() past its own max must not by itself
     // consume or block the action budget before that budget's own check runs).
     // This assertion targets a limiter that has NOT had its action budget
@@ -241,10 +241,10 @@ function testRateLimiter() {
 }
 
 // =====================================================================
-// Part 4 — M2.4: the per-frame guard-context mechanism. axtree.js itself is
+// Part 4 - M2.4: the per-frame guard-context mechanism. axtree.js itself is
 // browser-only DOM-heavy code not practically loadable under plain Node, so
 // this proves the piece it depends on: guards.checkClickTarget() correctly
-// applies a SUPPLIED (non-ambient) origin/baseURI — exactly what
+// applies a SUPPLIED (non-ambient) origin/baseURI - exactly what
 // axtree.js's frameOptsFor() + executor.js supply for an element resolved
 // from inside a same-origin iframe, rather than silently falling back to
 // the top page's origin (which would be a real functional-safety bug: an
@@ -254,7 +254,7 @@ function testRateLimiter() {
 // =====================================================================
 
 function testFrameScopedGuardContext() {
-  console.log('\n[4] M2.4 per-frame guard context — checkClickTarget honors a supplied (non-ambient) origin');
+  console.log('\n[4] M2.4 per-frame guard context - checkClickTarget honors a supplied (non-ambient) origin');
 
   function fakeAnchor(href) {
     return {
@@ -287,15 +287,15 @@ function testFrameScopedGuardContext() {
     assert.strictEqual(r.classification, 'cross-origin');
   });
 
-  check('the SAME element/URL pair judged with no opts (ambient ThatWouldBeTheTopPage) vs. with frameOpts can disagree — proves the origin actually being used is the supplied one, not a hardcoded/ignored value', () => {
+  check('the SAME element/URL pair judged with no opts (ambient ThatWouldBeTheTopPage) vs. with frameOpts can disagree - proves the origin actually being used is the supplied one, not a hardcoded/ignored value', () => {
     const el = fakeAnchor('https://frame.example.com/inner-page');
     const rWithFrameOrigin = guards.safeSameOriginHttpUrl('https://frame.example.com/inner-page', frameOpts);
     assert.strictEqual(rWithFrameOrigin.ok, true);
     const rWithDifferentOrigin = guards.safeSameOriginHttpUrl('https://frame.example.com/inner-page', { origin: 'https://top-page.example.org', baseURI: 'https://top-page.example.org/' });
-    assert.strictEqual(rWithDifferentOrigin.ok, false, 'same URL must be judged cross-origin against a different supplied origin — proves opts.origin is actually load-bearing');
+    assert.strictEqual(rWithDifferentOrigin.ok, false, 'same URL must be judged cross-origin against a different supplied origin - proves opts.origin is actually load-bearing');
   });
 
-  check('credential guard (isPasswordField) needs no frame context at all — attribute-only, works identically for in-frame elements', () => {
+  check('credential guard (isPasswordField) needs no frame context at all - attribute-only, works identically for in-frame elements', () => {
     const el = { tagName: 'input', getAttribute(n) { return n === 'type' ? 'password' : null; } };
     assert.strictEqual(guards.isPasswordField(el), true);
   });
@@ -303,7 +303,7 @@ function testFrameScopedGuardContext() {
 
 // ---- run everything ----
 
-console.log('tests/m2_security.test.js — M2.1-2.4 pure decision-logic proof');
+console.log('tests/m2_security.test.js - M2.1-2.4 pure decision-logic proof');
 testOcclusionClassifier();
 testNavClassifier();
 testRateLimiter();

@@ -4,25 +4,25 @@
 <meta charset="utf-8">
 <title>redirect-origin-a fixture</title>
 <script>
-  // M3 battery item (c) — design §5 arrival-check fail-closed proof: a `go`
+  // M3 battery item (c) - design §5 arrival-check fail-closed proof: a `go`
   // that lands on THIS page (port 8998) immediately, programmatically
   // redirects to a DIFFERENT origin (port 8999) before any queued command
   // can run. The extension pins the queue's expectedOrigin to THIS page's
   // origin (127.0.0.1:8998) at the moment `go` actually navigates here
-  // (terminal.js's _doNavigate()) — so when the content script re-injects
+  // (terminal.js's _doNavigate()) - so when the content script re-injects
   // on the *landed* page and checks in, `location.origin` will be
   // 127.0.0.1:8999, which must NOT match the recorded expectation. The
   // arrival check (nav.js's checkArrival()) must halt the queue before the
   // next chained command (e.g. "extract links") ever runs.
   //
-  // Immediate JS redirect (not a meta-refresh) so timing is deterministic —
+  // Immediate JS redirect (not a meta-refresh) so timing is deterministic -
   // no reliance on a refresh-interval race.
   location.replace('http://127.0.0.1:8999/redirect-target-b.html');
 </script>
 </head>
 <body>
 <h1>redirect-origin-a fixture</h1>
-<p>You should never see this rendered — the redirect above fires before paint
+<p>You should never see this rendered - the redirect above fires before paint
 in practice, but this body exists as a fallback / for a human debugging the
 fixture directly.</p>
 </body>

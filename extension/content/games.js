@@ -1,5 +1,5 @@
 /**
- * games.js — M4b fun pack v2: PURE LOGIC ONLY for `snake` and `2048` (design
+ * games.js - M4b fun pack v2: PURE LOGIC ONLY for `snake` and `2048` (design
  * doc §2/§4, LFL-TERMINAL-FUN-PACK-DESIGN.md).
  *
  * Hard split (design §2): this file may contain step/merge/spawn functions
@@ -7,14 +7,14 @@
  * `window.*` page APIs, no `chrome.*`, no timers (`setInterval`/
  * `setTimeout`), no listeners (`addEventListener`), no network calls of any
  * kind (no fetch, no XHR, no raw sockets), no `innerHTML`, no `location`, and
- * no `Math.random()` anywhere — every function that needs randomness (food
+ * no `Math.random()` anywhere - every function that needs randomness (food
  * placement, tile spawn) takes an injected `rng()` argument (a function
  * returning a float in [0, 1), the same calling convention as
  * `Math.random`) so the whole file is exactly reproducible from tests
  * (tests/m4b_games.test.js) with a canned rng sequence. terminal.js is the
  * ONLY caller that ever passes a REAL `Math.random`-backed rng, owns the
  * `setInterval` tick, the `<pre class="lfl-frame">` element, key routing,
- * and the `chrome.storage.local` high-score writes — same division of
+ * and the `chrome.storage.local` high-score writes - same division of
  * labor funpack.js's header comment describes for fortune/MOTD/stats.
  *
  * A dedicated grep test (tests/m4b_games.test.js, "purity gate") enforces
@@ -49,7 +49,7 @@
   });
 
   // Pure helper: every (x,y) in `width`x`height` NOT present in `occupied`,
-  // in a fixed row-major order (deterministic — needed so an injected rng
+  // in a fixed row-major order (deterministic - needed so an injected rng
   // index always names the same cell for the same state).
   function emptyCells(width, height, occupied) {
     const occSet = new Set((occupied || []).map((p) => `${p.x},${p.y}`));
@@ -109,7 +109,7 @@
 
   // Pure: changes `state.dir` unless `dirKey` is unrecognized, the snake is
   // already dead, or `dirKey` is the exact reverse of the CURRENT direction
-  // (design §4: "reverse-into-self ignored") — in every ignored case the
+  // (design §4: "reverse-into-self ignored") - in every ignored case the
   // input state is returned completely unchanged (same reference-equality-
   // friendly contract stepSnake() below uses).
   function turnSnake(state, dirKey) {
@@ -124,11 +124,11 @@
   // Pure: advances the snake exactly one cell in its current direction.
   // Wall collision and self collision both set `alive:false` and otherwise
   // leave the state exactly as it was at the moment of death (no partial
-  // move applied) — so a death frame always shows precisely where the fatal
+  // move applied) - so a death frame always shows precisely where the fatal
   // move was attempted from. Self-collision is checked against the body
   // MINUS the tail segment when not eating this move (the tail cell is
   // vacated the same tick), and against the FULL body when eating (the
-  // snake grows, so the tail does not vacate) — the classic snake rule.
+  // snake grows, so the tail does not vacate) - the classic snake rule.
   function stepSnake(state, rng) {
     if (!state.alive) return state;
     const head = state.snake[0];
@@ -159,7 +159,7 @@
 
   // Pure renderer: one box-drawn frame + a status line. `█` snake, `●`
   // food, plain box-drawing border. Dead state swaps the status line for a
-  // "GAME OVER" notice rather than mutating the board — the last live frame
+  // "GAME OVER" notice rather than mutating the board - the last live frame
   // stays visible underneath it.
   function renderSnake(state) {
     const w = state.width;
@@ -203,7 +203,7 @@
     return out;
   }
 
-  // Pure: places one new tile (2 with 0.9 probability, 4 with 0.1 — both
+  // Pure: places one new tile (2 with 0.9 probability, 4 with 0.1 - both
   // read off the SAME single rng() call's fractional value, so this
   // consumes exactly one rng() draw for the position and one for the
   // value) into a uniformly-chosen empty cell. A full board is returned
@@ -232,7 +232,7 @@
 
   // Pure: slides+merges ONE row toward index 0 (i.e. "left"). Classic 2048
   // rule: a tile that was JUST created by a merge this move cannot merge
-  // again in the same slide — e.g. `[4,4,8,0]` -> merge the two 4s into an
+  // again in the same slide - e.g. `[4,4,8,0]` -> merge the two 4s into an
   // 8, then the ORIGINAL 8 is examined next and does NOT merge with the
   // freshly-made 8 (design §6: `[4,4,8]` -> `[8,8]`, never `[16]`).
   // Returns `{row, scoreDelta}`; `row` is always exactly `row.length` long
@@ -280,7 +280,7 @@
   // mirroring the board so "left" is always the working direction, then
   // rotating/mirroring back. `moved` is true iff the resulting board
   // differs from the input in at least one cell (2048's own rule for
-  // "was this a legal move" — an attempted slide that changes nothing does
+  // "was this a legal move" - an attempted slide that changes nothing does
   // not consume a turn or spawn a tile).
   function slideBoard(board, dirKey) {
     let working = board.map((row) => row.slice());
@@ -316,7 +316,7 @@
   }
 
   // Pure: true iff there is no empty cell AND no pair of horizontally- or
-  // vertically-adjacent equal tiles anywhere — i.e. no move in any of the
+  // vertically-adjacent equal tiles anywhere - i.e. no move in any of the
   // 4 directions could possibly change the board.
   function isGameOver2048(board) {
     if (boardEmptyPositions(board).length > 0) return false;
@@ -330,12 +330,12 @@
     return true;
   }
 
-  // Pure: one full move — slide+merge, then (only if something actually
+  // Pure: one full move - slide+merge, then (only if something actually
   // moved) spawn one new tile and recompute score/won/over. Returns
   // `{state, moved, justWon}`; `state` is the (possibly unchanged) new
   // state, `moved` is whether this call had any effect, `justWon` is true
   // only on the SINGLE move that first produces a 2048 tile (design §4:
-  // "reaching 2048 prints '2048!' and play continues" — `state.won` stays
+  // "reaching 2048 prints '2048!' and play continues" - `state.won` stays
   // true for the rest of the game so callers can keep showing the
   // achievement without re-announcing it every subsequent move).
   function move2048(state, dirKey, rng) {

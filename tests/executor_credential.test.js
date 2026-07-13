@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * tests/executor_credential.test.js — direct unit-level proof of the
+ * tests/executor_credential.test.js - direct unit-level proof of the
  * credential hard block and the click-target guard in executor.js,
  * bypassing the model AND the UI entirely.
  *
@@ -9,9 +9,9 @@
  * file is that test.
  *
  * How it works: executor.js and guards.js are plain browser-global scripts
- * (`window.LFL = window.LFL || {}` at module scope) — not requireable as-is
+ * (`window.LFL = window.LFL || {}` at module scope) - not requireable as-is
  * under plain Node. Rather than add jsdom (out of scope per the task's own
- * environment notes — no npm install), this test uses Node's built-in `vm`
+ * environment notes - no npm install), this test uses Node's built-in `vm`
  * module to run the REAL, UNMODIFIED source of guards.js and executor.js
  * inside a minimal sandbox object that plays the role of `window`:
  *   - `window` self-references the sandbox (so the bare `window` identifier
@@ -21,11 +21,11 @@
  *     fillNative() takes its documented plain `el.value = value` fallback
  *     path instead of the real-DOM property-descriptor trick.
  *   - `window.LFL.axtree.resolve` is stubbed to `(map, idx) => map.get(idx)`
- *     — a direct Map lookup instead of axtree.js's real WeakRef+visibility
+ *     - a direct Map lookup instead of axtree.js's real WeakRef+visibility
  *     re-check (axtree.js's own resolve() logic is exercised by the
  *     Playwright battery against a real DOM, not by this unit test).
- * Everything else — isPasswordField, safeSameOriginHttpUrl,
- * resolveClickNavTarget, checkClickTarget, and execute() itself — is the
+ * Everything else - isPasswordField, safeSameOriginHttpUrl,
+ * resolveClickNavTarget, checkClickTarget, and execute() itself - is the
  * exact code shipped in extension/content/guards.js and
  * extension/content/executor.js. No reimplementation.
  *
@@ -67,7 +67,7 @@ function buildSandbox() {
   sandbox.HTMLTextAreaElement = function HTMLTextAreaElement() {};
   // Minimal Event stub: executor.js's select branch (and fillNative, when a
   // fake element provides dispatchEvent) constructs `new Event(type, opts)`
-  // unconditionally — Node's vm contexts don't inherit the outer realm's
+  // unconditionally - Node's vm contexts don't inherit the outer realm's
   // WHATWG globals, so this has to be supplied explicitly.
   sandbox.Event = function Event(type, opts) {
     this.type = type;
@@ -75,9 +75,9 @@ function buildSandbox() {
   };
   // IMPORTANT: vm-created contexts get a fresh set of pure-ECMAScript
   // built-ins (Object, Array, Map, JSON, ...) but do NOT inherit Node's own
-  // WHATWG globals — `URL` is one of those. Without this, `new URL(...)`
+  // WHATWG globals - `URL` is one of those. Without this, `new URL(...)`
   // inside guards.js would throw ReferenceError, which its own try/catch
-  // would silently swallow as a generic "unparseable URL" — masking real
+  // would silently swallow as a generic "unparseable URL" - masking real
   // parsing/origin-comparison bugs behind a result that happens to still be
   // `blocked` (fail-safe direction) but for the wrong, misleading reason.
   // Reusing Node's own URL class across the vm/outer-realm boundary is safe
@@ -116,7 +116,7 @@ function fakeInput(attrs) {
     value: '',
     getAttribute(name) { return Object.prototype.hasOwnProperty.call(attrs, name) ? attrs[name] : null; },
     hasAttribute(name) { return Object.prototype.hasOwnProperty.call(attrs, name); },
-    dispatchEvent() { /* no-op stub — event delivery isn't under test here */ },
+    dispatchEvent() { /* no-op stub - event delivery isn't under test here */ },
   };
   return el;
 }
@@ -125,11 +125,11 @@ function fakeAnchor(href, { ancestorOf } = {}) {
   const clicked = { count: 0 };
   const el = {
     tagName: 'A',
-    _href: href, // mutable — read live by getAttribute below, for the TOCTOU probe
+    _href: href, // mutable - read live by getAttribute below, for the TOCTOU probe
     getAttribute(name) { return name === 'href' ? this._href : null; },
     hasAttribute(name) { return name === 'href'; },
     closest(sel) {
-      // Only the 'a[href]' selector is used by guards.js — good enough here.
+      // Only the 'a[href]' selector is used by guards.js - good enough here.
       if (sel === 'a[href]') return this;
       return null;
     },
@@ -169,7 +169,7 @@ function fakeForm(action) {
 }
 
 // `type` undefined => no `type` attribute at all, i.e. a real <button>'s
-// spec default-submit case — the exact gap the verifier found.
+// spec default-submit case - the exact gap the verifier found.
 function fakeSubmitButton({ type, form, formaction } = {}) {
   const clicked = { count: 0 };
   const attrs = {};
@@ -203,7 +203,7 @@ function fakeSubmitInput({ type, form }) {
   return el;
 }
 
-// <button type=button>, no form association at all — must stay ALLOWED
+// <button type=button>, no form association at all - must stay ALLOWED
 // (this is the "don't over-block every button" control case).
 function fakeUnassociatedButton(type) {
   const clicked = { count: 0 };
@@ -234,7 +234,7 @@ function fakeArea(href) {
 }
 
 // SVGAElement shape: lowercase 'a' tagName, no plain `href` attribute (only
-// `hasAttribute('href')` => false), target lives in `xlink:href` — read via
+// `hasAttribute('href')` => false), target lives in `xlink:href` - read via
 // getAttribute('xlink:href') since this fake (like a pre-SVG2 real SVGAElement)
 // has no getAttributeNS implementation, exercising guards.js's fallback path.
 function fakeSvgAnchor(xlinkHref) {
@@ -252,14 +252,14 @@ function fakeSvgAnchor(xlinkHref) {
 }
 
 // =====================================================================
-// Part 1 — MUST-FIX #3 / #4: the credential hard block, exercised via the
+// Part 1 - MUST-FIX #3 / #4: the credential hard block, exercised via the
 // REAL execute() function with a synthetic {action:'fill', value:'hunter2'}
 // against four backing elements: (a) type=password, (b) autocomplete=
 // current-password, (c) autocomplete=one-time-code, (d) a normal text field.
 // =====================================================================
 
 function testCredentialBlockViaExecute() {
-  console.log('\n[1] credential hard block via execute() — MUST-FIX #3 / #4');
+  console.log('\n[1] credential hard block via execute() - MUST-FIX #3 / #4');
   const sandbox = buildSandbox();
   const execute = sandbox.window.LFL.executor.execute;
 
@@ -305,9 +305,9 @@ function testCredentialBlockViaExecute() {
     assert.strictEqual(elements.d_normal_text_field.value, 'hunter2', 'normal field should actually receive the value');
   });
 
-  // select uses the same guard — prove it's not fill-only. type=password is
+  // select uses the same guard - prove it's not fill-only. type=password is
   // meaningless on a <select> (browsers ignore it), so this uses the
-  // autocomplete token instead — the realistic case for a select-based
+  // autocomplete token instead - the realistic case for a select-based
   // credential widget (e.g. a select-based OTP/country-code-for-2FA picker).
   const selectEl = fakeInput({ autocomplete: 'one-time-code' });
   selectEl.tagName = 'SELECT';
@@ -321,21 +321,21 @@ function testCredentialBlockViaExecute() {
 }
 
 // =====================================================================
-// Part 2 — MUST-FIX #1: the click-target guard, exercised via the REAL
+// Part 2 - MUST-FIX #1: the click-target guard, exercised via the REAL
 // execute() with a synthetic {action:'click'} against javascript:,
 // cross-origin, same-origin, ancestor-bubbling, and no-target elements.
 // =====================================================================
 
 function testClickTargetGuardViaExecute() {
-  console.log('\n[2] click-target guard via execute() — MUST-FIX #1');
+  console.log('\n[2] click-target guard via execute() - MUST-FIX #1');
   const sandbox = buildSandbox();
   const execute = sandbox.window.LFL.executor.execute;
   const opts = { origin: 'https://example.com', baseURI: 'https://example.com/page' };
   // execute()'s click branch calls LFL.guards.checkClickTarget(el) with NO
-  // opts, which falls back to `document.baseURI`/`location.origin` — neither
+  // opts, which falls back to `document.baseURI`/`location.origin` - neither
   // exists in this sandbox. So for this execute()-level test we patch
   // checkClickTarget to supply the fixed origin/baseURI above (equivalent to
-  // what a real page at https://example.com/page would provide) — the guard
+  // what a real page at https://example.com/page would provide) - the guard
   // LOGIC under test (guards.checkClickTarget / resolveClickNavTarget /
   // safeSameOriginHttpUrl) is untouched; only the ambient origin lookup is
   // supplied explicitly, exactly as guards.js's own `opts` parameter is
@@ -392,7 +392,7 @@ function testClickTargetGuardViaExecute() {
   const rAfter = execute({ action: 'click', element: 1 }, toctouMap);
   check('TOCTOU probe, phase 2 (page swapped href to javascript: before "approval") -> BLOCKED', () => {
     assert.strictEqual(rAfter.ok, false, `expected ok:false, got ${JSON.stringify(rAfter)}`);
-    assert.strictEqual(toctouAnchor.__clicked.count, 0, 'the swapped-in javascript: href must be caught — re-resolved live, not cached');
+    assert.strictEqual(toctouAnchor.__clicked.count, 0, 'the swapped-in javascript: href must be caught - re-resolved live, not cached');
   });
 
   // Ancestor-bubbling case: the model targets a <span> inside an <a>.
@@ -411,16 +411,16 @@ function testClickTargetGuardViaExecute() {
 }
 
 // =====================================================================
-// Part 2b — 2026-07-12 verifier follow-up: the click guard's target
+// Part 2b - 2026-07-12 verifier follow-up: the click guard's target
 // resolution was missing an enclosing <form>'s `action`, <area href>, and
-// SVG <a xlink:href> — so a click on a submit control inside
+// SVG <a xlink:href> - so a click on a submit control inside
 // <form action="https://evil.com"> (or an <area>/svg-<a> pointing off-site)
 // reached el.click() with zero scheme/origin check. Same execute()-level
 // harness as Part 2, same origin/baseURI patch.
 // =====================================================================
 
 function testFormAreaSvgClickGuardViaExecute() {
-  console.log('\n[2b] form-action / <area> / svg-<a> click-target guard via execute() — verifier follow-up');
+  console.log('\n[2b] form-action / <area> / svg-<a> click-target guard via execute() - verifier follow-up');
   const sandbox = buildSandbox();
   const execute = sandbox.window.LFL.executor.execute;
   const opts = { origin: 'https://example.com', baseURI: 'https://example.com/page' };
@@ -509,7 +509,7 @@ function testFormAreaSvgClickGuardViaExecute() {
 }
 
 // =====================================================================
-// Part 3 — guards.js in isolation (no vm/execute() involved), the plain
+// Part 3 - guards.js in isolation (no vm/execute() involved), the plain
 // Node-requireable path, covering the same (a)-(d) cases directly against
 // isPasswordField() and the click guard functions.
 // =====================================================================
@@ -517,7 +517,7 @@ function testFormAreaSvgClickGuardViaExecute() {
 function testGuardsDirectly() {
   console.log('\n[3] guards.js loaded directly via require() (no vm/execute involved)');
   // guards.js has zero top-level DOM dependencies (all document/location
-  // reads are inside function bodies, behind `typeof` checks) — it is
+  // reads are inside function bodies, behind `typeof` checks) - it is
   // directly requireable as plain CommonJS, unlike executor.js.
   const guards = require(GUARDS_PATH);
 
@@ -536,11 +536,11 @@ function testGuardsDirectly() {
   check('guards.isPasswordField: plain text field -> false', () => {
     assert.strictEqual(guards.isPasswordField(fakeInput({ type: 'text', name: 'q' })), false);
   });
-  check('guards.isPasswordField: documented scope gap — generic PIN with no autocomplete hint is NOT detected', () => {
+  check('guards.isPasswordField: documented scope gap - generic PIN with no autocomplete hint is NOT detected', () => {
     // Honest scope statement (MUST-FIX #4): a type=text PIN field with no
     // autocomplete attribute at all cannot be distinguished from any other
     // text field by this check. This assertion documents that as expected
-    // behavior, not a bug — see README.md / docs/threat-model.md.
+    // behavior, not a bug - see README.md / docs/threat-model.md.
     assert.strictEqual(guards.isPasswordField(fakeInput({ type: 'text', name: 'pin' })), false);
   });
 
@@ -580,7 +580,7 @@ function testGuardsDirectly() {
 
 // ---- run everything ----
 
-console.log('tests/executor_credential.test.js — MUST-FIX #1, #3, #4 proof');
+console.log('tests/executor_credential.test.js - MUST-FIX #1, #3, #4 proof');
 testCredentialBlockViaExecute();
 testClickTargetGuardViaExecute();
 testFormAreaSvgClickGuardViaExecute();

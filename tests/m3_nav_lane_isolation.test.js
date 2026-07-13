@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * tests/m3_nav_lane_isolation.test.js — THE load-bearing M3 security proof
+ * tests/m3_nav_lane_isolation.test.js - THE load-bearing M3 security proof
  * (design doc §12 gate item 2): the nav-lane payload sent to the local model
- * contains ONLY the user's typed command string — no element list, no page
- * title, no origin, no scrollback — proven against the REAL, UNMODIFIED
+ * contains ONLY the user's typed command string - no element list, no page
+ * title, no origin, no scrollback - proven against the REAL, UNMODIFIED
  * `background/service-worker.js` source, not a reimplementation of it.
  *
  * Method: loads service-worker.js via Node's `vm` module, exactly the way
@@ -11,21 +11,21 @@
  * resolution for content/ratelimit.js, same fake chrome.storage.session).
  * NEW here: a fake `fetch` that CAPTURES the exact request body sent to
  * http://127.0.0.1:1238, so the assertions below are against the real bytes
- * the extension would put on the wire — not against an exported internal
+ * the extension would put on the wire - not against an exported internal
  * function nobody else calls the same way. Sending a NAV_LLM_REQUEST message
  * through the real onMessage listener, with a message object that carries
  * extra fields (elementList/title/origin/scrollback) a hypothetical caller
- * bug might attach, and asserting NONE of them appear in the captured body —
+ * bug might attach, and asserting NONE of them appear in the captured body -
  * that's the isolation guarantee itself, exercised end to end.
  *
  * A second, contrasting case proves the isolation is SPECIFIC to the
  * nav-lane, not an accidental global no-op: the SAME extra fields sent via
  * the EXISTING page-lane message type (LFL_LLM_REQUEST) DO appear in ITS
- * request body — the isolation is a property of buildNavLanePayload(), not
+ * request body - the isolation is a property of buildNavLanePayload(), not
  * of the transport.
  *
  * Also proves the nav-lane response schema enum is EXACTLY ['navigate',
- * 'abort'] — the 2-subset design §3/§7 requires, not the full 8-primitive
+ * 'abort'] - the 2-subset design §3/§7 requires, not the full 8-primitive
  * page-lane vocabulary.
  *
  * Run: node tests/m3_nav_lane_isolation.test.js
@@ -72,7 +72,7 @@ async function acheck(name, fn) {
 // Builds one "service worker instance" the same way
 // tests/sw_ratelimit_persistence.test.js's buildSwInstance() does, plus a
 // fake `fetch`/`AbortController`/timers so callLocalModelWithPayload() can
-// actually run — capturing every request body it sends rather than hitting
+// actually run - capturing every request body it sends rather than hitting
 // a real network.
 function buildSwInstance() {
   const sandbox = {};
@@ -170,7 +170,7 @@ const POISONED_MSG = {
   type: 'NAV_LLM_REQUEST',
   command: 'take me to the arch linux wiki',
   // Everything below is what a hypothetical caller bug might accidentally
-  // attach — the isolation guarantee is that buildNavLanePayload() never
+  // attach - the isolation guarantee is that buildNavLanePayload() never
   // reads any of it, no matter what the caller's message object contains.
   elementList: '[1] link "SHOULD-NOT-APPEAR-ELEMENTLIST"',
   title: 'SHOULD-NOT-APPEAR-TITLE',
@@ -179,7 +179,7 @@ const POISONED_MSG = {
 };
 
 async function main() {
-  console.log('tests/m3_nav_lane_isolation.test.js — nav-lane payload isolation (M3 gate item 2)');
+  console.log('tests/m3_nav_lane_isolation.test.js - nav-lane payload isolation (M3 gate item 2)');
 
   await acheck('NAV_LLM_REQUEST payload contains NO forbidden page-data snippets anywhere in the serialized body', async () => {
     const sw = buildSwInstance();
@@ -192,7 +192,7 @@ async function main() {
     }
   });
 
-  await acheck('the nav-lane user message, parsed, has EXACTLY {command} — no elementList/origin/title/scrollback keys at all', async () => {
+  await acheck('the nav-lane user message, parsed, has EXACTLY {command} - no elementList/origin/title/scrollback keys at all', async () => {
     const sw = buildSwInstance();
     await sw.send(POISONED_MSG, 1);
     const body = JSON.parse(sw.capturedRequests[0].init.body);
@@ -203,7 +203,7 @@ async function main() {
     assert.strictEqual(parsedContent.command, POISONED_MSG.command);
   });
 
-  await acheck('nav-lane response_format schema enum is EXACTLY [navigate, abort] — the design §3/§7 2-subset, not the 8-primitive page-lane vocabulary', async () => {
+  await acheck('nav-lane response_format schema enum is EXACTLY [navigate, abort] - the design §3/§7 2-subset, not the 8-primitive page-lane vocabulary', async () => {
     const sw = buildSwInstance();
     await sw.send(POISONED_MSG, 1);
     const body = JSON.parse(sw.capturedRequests[0].init.body);
@@ -211,13 +211,13 @@ async function main() {
     assert.deepStrictEqual(enumVals, ['navigate', 'abort']);
   });
 
-  await acheck('nav-lane call reaches the SAME endpoint (127.0.0.1:1238) as page-lane — single fetch sink, shared by construction', async () => {
+  await acheck('nav-lane call reaches the SAME endpoint (127.0.0.1:1238) as page-lane - single fetch sink, shared by construction', async () => {
     const sw = buildSwInstance();
     await sw.send(POISONED_MSG, 1);
     assert.strictEqual(sw.capturedRequests[0].url, 'http://127.0.0.1:1238/v1/chat/completions');
   });
 
-  await acheck('CONTRAST: the SAME extra fields sent via page-lane (LFL_LLM_REQUEST) DO appear in ITS body — proves nav-lane isolation is specific, not a global no-op', async () => {
+  await acheck('CONTRAST: the SAME extra fields sent via page-lane (LFL_LLM_REQUEST) DO appear in ITS body - proves nav-lane isolation is specific, not a global no-op', async () => {
     const sw = buildSwInstance();
     const pageLaneMsg = {
       type: 'LFL_LLM_REQUEST',
@@ -229,7 +229,7 @@ async function main() {
     const resp = await sw.send(pageLaneMsg, 1);
     assert.strictEqual(resp.ok, true, JSON.stringify(resp));
     const bodyStr = sw.capturedRequests[0].init.body;
-    // Page-lane is SUPPOSED to carry element list/title/origin — that's the
+    // Page-lane is SUPPOSED to carry element list/title/origin - that's the
     // whole reason it has its own (existing, unchanged) hard blocks on
     // navigate/click. This assertion is the deliberate contrast case.
     assert.ok(bodyStr.includes('SHOULD-NOT-APPEAR-ELEMENTLIST'), 'page-lane SHOULD carry the element list (contrast case)');
@@ -237,7 +237,7 @@ async function main() {
     assert.ok(bodyStr.includes('should-not-appear.example'), 'page-lane SHOULD carry the origin (contrast case)');
     const body = JSON.parse(bodyStr);
     const enumVals = body.response_format.json_schema.schema.properties.action.enum;
-    assert.deepStrictEqual(enumVals, ['click', 'fill', 'select', 'navigate', 'scroll', 'extract', 'answer', 'abort'], 'page-lane schema must be unchanged from M1/M2 — 8-primitive vocabulary');
+    assert.deepStrictEqual(enumVals, ['click', 'fill', 'select', 'navigate', 'scroll', 'extract', 'answer', 'abort'], 'page-lane schema must be unchanged from M1/M2 - 8-primitive vocabulary');
   });
 
   await acheck('NAV_LLM_REQUEST with a valid navigate response round-trips through the real onMessage handler correctly', async () => {

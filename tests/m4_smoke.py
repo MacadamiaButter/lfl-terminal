@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-tests/m4_smoke.py — small, standalone live-browser smoke check for the M4a
+tests/m4_smoke.py - small, standalone live-browser smoke check for the M4a
 "friction trio" (ls + numbered actions, read/find, here), on top of a real
 Wikipedia page. OPTIONAL, per the M4a build task's own note ("add a small
-m4 live smoke ... only if the harness makes it cheap") — this reuses
+m4 live smoke ... only if the harness makes it cheap") - this reuses
 tests/m3_battery.py's existing driving helpers (real Playwright keyboard
 input, the data-lfl-state test hook, the same settle-detection pattern)
 rather than duplicating them, so it stays cheap. It is NOT part of the
@@ -23,7 +23,7 @@ from pathlib import Path
 from playwright.sync_api import sync_playwright
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from m3_battery import (  # noqa: E402 — see sys.path insert above
+from m3_battery import (  # noqa: E402 - see sys.path insert above
     EXTENSION_DIR, USER_DATA_DIR, cur_seq, open_terminal, read_lfl_state,
     submit_command, wait_for_seq_change,
 )
@@ -57,7 +57,7 @@ def run():
         page.wait_for_timeout(800)
         open_terminal(page)
 
-        # dev on — needed to read data-lfl-state (off by default, H2).
+        # dev on - needed to read data-lfl-state (off by default, H2).
         seq0 = cur_seq(page)
         submit_command(page, "dev on")
         wait_for_seq_change(page, seq0)
@@ -73,14 +73,14 @@ def run():
         check("`ls` settles ok and lists sections", bool(ls_ok), ls_msg.splitlines()[0] if ls_msg else "(no message)")
         check("`ls` output mentions links/buttons/fields sections", all(s in ls_msg for s in ["links (", "buttons (", "fields ("]))
 
-        # ---- open 1 (whatever [1] is — a real Wikipedia page always has
+        # ---- open 1 (whatever [1] is - a real Wikipedia page always has
         # at least one visible link near the top) ----
         seq0 = cur_seq(page)
         submit_command(page, "open 1")
         state, navigated = wait_for_seq_change(page, seq0)
         msg = (state or {}).get("lastResult", {}).get("message", "") if state else ""
         # A same-origin `open <N>` sets navInitiated and calls location.href
-        # synchronously — the settle-detection poll can observe the settled
+        # synchronously - the settle-detection poll can observe the settled
         # seq/message a beat BEFORE the navigation actually tears down the
         # execution context (a real race, not a product bug: same
         # non-instant-unload timing docs/threat-model.md's "Queue risks"
@@ -106,7 +106,7 @@ def run():
             wait_for_seq_change(page, seq0)
         else:
             # [1] might legitimately be a non-link (e.g. a button) on some
-            # renders — either a real cross-origin-pending message or a
+            # renders - either a real cross-origin-pending message or a
             # "not a link" hint is still proof the numbered-action path ran
             # end to end without crashing.
             check(

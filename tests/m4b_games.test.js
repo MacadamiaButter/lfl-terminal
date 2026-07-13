@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * tests/m4b_games.test.js — unit proof of the M4b "fun pack v2" games
+ * tests/m4b_games.test.js - unit proof of the M4b "fun pack v2" games
  * (LFL-TERMINAL-FUN-PACK-DESIGN.md §2-§6): `snake`/`2048`/`games`.
  *
  * Three parts:
  *
  * 1. Pure-logic proof of extension/content/games.js (step/turn/merge/spawn/
- *    render), exact via an injected rng — no DOM/vm sandbox needed, same
+ *    render), exact via an injected rng - no DOM/vm sandbox needed, same
  *    posture as tests/funpack.test.js.
  *
  * 2. The purity gate (design §6): a static grep of games.js's source for
@@ -18,12 +18,12 @@
  * 3. Runner lifecycle proof of terminal.js's program-mode primitive
  *    (_enterProgram/_exitProgram/_routeProgramKey) and the dispatch-context
  *    locks (_runChain/_dispatchSegment/_handleGameCommand), loaded via a
- *    `vm` sandbox with simulated DOM/chrome/service-worker handles — same
+ *    `vm` sandbox with simulated DOM/chrome/service-worker handles - same
  *    pattern tests/m4_friction.test.js and tests/m3_hardening.test.js use
  *    for the other window.LFL-scoped, browser-only files, extended here
  *    with enough of a fake DOM (createElement/attachShadow/classList/
  *    chrome.storage.local/chrome.runtime.sendMessage) to actually
- *    CONSTRUCT a real, unmodified `Terminal` instance — something no
+ *    CONSTRUCT a real, unmodified `Terminal` instance - something no
  *    existing suite in this project has done before (see m3_hardening's
  *    own header comment on why it previously settled for static source-
  *    shape checks instead). setInterval/clearInterval are captured rather
@@ -90,11 +90,11 @@ function seqRng(values) {
 }
 
 // =====================================================================
-// Part 1 — pure logic: snake
+// Part 1 - pure logic: snake
 // =====================================================================
 
 function testSnakeLogic() {
-  console.log('\n[1] snake — createSnakeGame/turnSnake/stepSnake/snakeFps/renderSnake (pure, injected rng)');
+  console.log('\n[1] snake - createSnakeGame/turnSnake/stepSnake/snakeFps/renderSnake (pure, injected rng)');
 
   check('createSnakeGame: length-3 snake, moving right, food not on the snake', () => {
     const s = games.createSnakeGame(seqRng([0]));
@@ -214,16 +214,16 @@ function testSnakeLogic() {
     const s = Object.assign({}, games.createSnakeGame(seqRng([0])), { alive: false, score: 3 });
     const frame = games.renderSnake(s);
     assert.match(frame, /GAME OVER.*score: 3/);
-    assert.ok(!frame.includes('—'), 'no em dash in this user-visible frame text');
+    assert.ok(!frame.includes('\u2014'), 'no em dash in this user-visible frame text');
   });
 }
 
 // =====================================================================
-// Part 1b — pure logic: 2048
+// Part 1b - pure logic: 2048
 // =====================================================================
 
 function testGame2048Logic() {
-  console.log('\n[2] 2048 — slideRowLeft/slideBoard/move2048/isGameOver2048/render2048 (pure, injected rng)');
+  console.log('\n[2] 2048 - slideRowLeft/slideBoard/move2048/isGameOver2048/render2048 (pure, injected rng)');
 
   check('slideRowLeft: [2,2,4,4] -> [4,8,0,0], scoreDelta = 12 (design §6 example)', () => {
     const { row, scoreDelta } = games.slideRowLeft([2, 2, 4, 4]);
@@ -356,12 +356,12 @@ function testGame2048Logic() {
     assert.ok(frameWon.includes('2048!'));
     const frameOver = games.render2048(Object.assign({}, s, { over: true }));
     assert.ok(frameOver.includes('GAME OVER'));
-    assert.ok(!frameOver.includes('—'), 'no em dash in this user-visible frame text');
+    assert.ok(!frameOver.includes('\u2014'), 'no em dash in this user-visible frame text');
   });
 }
 
 // =====================================================================
-// Part 2 — purity gate (design §6)
+// Part 2 - purity gate (design §6)
 // =====================================================================
 
 const FORBIDDEN_TOKENS = [
@@ -369,7 +369,7 @@ const FORBIDDEN_TOKENS = [
   'setInterval', 'setTimeout', 'addEventListener', 'innerHTML', 'location',
 ];
 
-// Strips comments before the token scan below — this file's own header
+// Strips comments before the token scan below - this file's own header
 // comment documents the purity rule using the exact forbidden token names
 // (backtick-quoted, for maintainers), which would otherwise trip a naive
 // grep over the raw source. Only the CODE is required to be free of these
@@ -382,7 +382,7 @@ function stripComments(src) {
 }
 
 function testPurityGate() {
-  console.log('\n[3] purity gate — games.js contains none of the forbidden tokens (design §6)');
+  console.log('\n[3] purity gate - games.js contains none of the forbidden tokens (design §6)');
   const raw = fs.readFileSync(GAMES_PATH, 'utf8');
   const src = stripComments(raw);
 
@@ -408,12 +408,12 @@ function testPurityGate() {
 }
 
 // =====================================================================
-// Part 4 — registry.js: RESERVED_NAMES + macro write-time game-name block
-// (no DOM/vm needed — registry.js is plain, dual-mode, pure)
+// Part 4 - registry.js: RESERVED_NAMES + macro write-time game-name block
+// (no DOM/vm needed - registry.js is plain, dual-mode, pure)
 // =====================================================================
 
 function testRegistryLocks() {
-  console.log('\n[4] registry.js — RESERVED_NAMES + macro write-time block for game names (design §3/§5)');
+  console.log('\n[4] registry.js - RESERVED_NAMES + macro write-time block for game names (design §3/§5)');
 
   check('setAlias: "snake" is reserved, cannot be shadowed by an alias', () => {
     const store = registry.createAliasStore(null);
@@ -483,7 +483,7 @@ function testRegistryLocks() {
 }
 
 // =====================================================================
-// Part 5 — did-you-mean / help-text vocabulary pickup (engine.js + registry.js,
+// Part 5 - did-you-mean / help-text vocabulary pickup (engine.js + registry.js,
 // light vm sandbox, no terminal.js needed)
 // =====================================================================
 
@@ -545,7 +545,7 @@ function testDidYouMeanPickup() {
       const man = reg.manText(name);
       assert.match(man, /arrows/i);
       assert.match(man, /quit/i);
-      assert.ok(!man.includes('—'), `man text for ${name} must not contain an em dash`);
+      assert.ok(!man.includes('\u2014'), `man text for ${name} must not contain an em dash`);
     });
     const gamesMan = reg.manText('games');
     assert.ok(!gamesMan.includes('no such command'));
@@ -553,7 +553,7 @@ function testDidYouMeanPickup() {
 }
 
 // =====================================================================
-// Part 6 — manifest + CSS sync (file-based, no sandbox needed)
+// Part 6 - manifest + CSS sync (file-based, no sandbox needed)
 // =====================================================================
 
 function testManifestAndCss() {
@@ -580,7 +580,7 @@ function testManifestAndCss() {
 }
 
 // =====================================================================
-// Part 7 — runner lifecycle: real terminal.js constructed in a vm sandbox
+// Part 7 - runner lifecycle: real terminal.js constructed in a vm sandbox
 // with simulated DOM/chrome/service-worker handles.
 // =====================================================================
 
@@ -665,7 +665,7 @@ function makeFakeElement(tag) {
 // handling for terminal.js's constructor and command-dispatch paths to
 // settle cleanly. `state.queue` is directly readable/writable by tests
 // (e.g. to simulate "a chain is already pending" before calling
-// _submitCommand — see the "hadPendingQueue" lock tests below).
+// _submitCommand - see the "hadPendingQueue" lock tests below).
 function makeFakeSw(rateLimiterDefaults) {
   const state = {
     scrollback: [],
@@ -714,7 +714,7 @@ function makeFakeSw(rateLimiterDefaults) {
   return { state, handle };
 }
 
-// Flushes the real microtask/macrotask queues a few times — enough for the
+// Flushes the real microtask/macrotask queues a few times - enough for the
 // vm-sandboxed async chains (chrome.runtime.sendMessage's Promise.resolve()
 // chains, _restoreTerminalState()'s awaits) to fully settle before a test
 // makes assertions.
@@ -806,16 +806,16 @@ function buildTerminalSandbox() {
   // ---- controllable Math.random (for the full-game-flow tests below) ----
   //
   // `vm.createContext()` gives the sandboxed scripts their OWN realm's
-  // Math/Object/Array etc — `sandbox.Math` is NOT reachable as an ordinary
+  // Math/Object/Array etc - `sandbox.Math` is NOT reachable as an ordinary
   // property from OUTSIDE the context (confirmed empirically: it reads as
   // undefined even though bare `Math` resolves fine to code running INSIDE
   // the context). So control is threaded through instead: `__rngValue` is a
   // plain object (by reference, not deep-compared, so which realm it came
   // from does not matter) whose `.v` field the override reads on every
-  // call — tests mutate `sandbox.__rngValue.v` directly to control what the
+  // call - tests mutate `sandbox.__rngValue.v` directly to control what the
   // GLUE code's `Math.random`-backed rng returns. Only ever affects code
   // running inside this one sandbox; games.js itself still never touches
-  // Math.random (see the purity gate) — this only fakes what terminal.js's
+  // Math.random (see the purity gate) - this only fakes what terminal.js's
   // `_startSnake()`/`_start2048()` pass AS the injected rng.
   sandbox.__rngValue = { v: 0.5 };
   vm.runInContext('Math.random = function () { return __rngValue.v; };', sandbox, { filename: 'rng-shim.js' });
@@ -859,7 +859,7 @@ function buildTerminalSandbox() {
 }
 
 async function testRunnerLifecycle() {
-  console.log('\n[7] runner lifecycle — real terminal.js constructed in a vm sandbox (design §3)');
+  console.log('\n[7] runner lifecycle - real terminal.js constructed in a vm sandbox (design §3)');
 
   await acheck('typing "snake" enters program mode: mode=program, one <pre class="lfl-frame"> appended, input readOnly', async () => {
     const { terminal } = buildTerminalSandbox();
@@ -1033,7 +1033,7 @@ async function testRunnerLifecycle() {
   await acheck('_recordGameScore: best only improves, plays always increments', async () => {
     // Field-by-field (not deepStrictEqual against an object literal): the
     // stored object was built INSIDE the vm sandbox's own realm, whose
-    // Object.prototype differs from this outer script's — deepStrictEqual
+    // Object.prototype differs from this outer script's - deepStrictEqual
     // correctly treats that as "same shape, not reference-equal" and fails,
     // even though the data itself is exactly right.
     const { terminal, storageStore } = buildTerminalSandbox();
@@ -1093,7 +1093,7 @@ async function testRunnerLifecycle() {
 }
 
 // =====================================================================
-// Part 8 — Fable-verify fixes (2026-07-13 PASS-with-notes follow-up):
+// Part 8 - Fable-verify fixes (2026-07-13 PASS-with-notes follow-up):
 // MED-1 program/proposal mutual exclusion (reverse arm), MED-2 funpack
 // chain/macro rejection, LOW-4 stopPropagation, plus the two coverage
 // gaps flagged as finding 6 (bare-number precedence, alias-inside-macro
@@ -1101,7 +1101,7 @@ async function testRunnerLifecycle() {
 // =====================================================================
 
 async function testVerifyFixes() {
-  console.log('\n[8] verify fixes — MED-1 mutual exclusion, MED-2 funpack chain posture, LOW-4 stopPropagation, finding-6 coverage');
+  console.log('\n[8] verify fixes - MED-1 mutual exclusion, MED-2 funpack chain posture, LOW-4 stopPropagation, finding-6 coverage');
 
   await acheck('MED-1: a mutating proposal arriving mid-game force-exits the program FIRST (interval cleared, "game ended" printed), THEN presents', async () => {
     const { terminal, intervals } = buildTerminalSandbox();
@@ -1165,7 +1165,7 @@ async function testVerifyFixes() {
     assert.strictEqual(intervals.size, 0);
   });
 
-  await acheck('MED-2: "clear && fortune" rejects the fortune segment at dispatch — no page-lane model call, no "model offline" error', async () => {
+  await acheck('MED-2: "clear && fortune" rejects the fortune segment at dispatch - no page-lane model call, no "model offline" error', async () => {
     const { terminal } = buildTerminalSandbox();
     await flush();
     terminal._submitCommand('clear && fortune');
@@ -1225,7 +1225,7 @@ async function testVerifyFixes() {
   await acheck('finding 6a: "2048" typed while an ls-listing is active runs the GAME, not the bare-number listing action', async () => {
     const { terminal } = buildTerminalSandbox();
     await flush();
-    // A live listing context — the shape engine.js's doLs() builds. A bare
+    // A live listing context - the shape engine.js's doLs() builds. A bare
     // number would normally act on it; the game name must win precedence.
     terminal.state.listingContext = { entries: [], map: new Map(), notes: [] };
     terminal._submitCommand('2048');
@@ -1240,7 +1240,7 @@ async function testVerifyFixes() {
     await flush();
     terminal._submitCommand('alias s = snake');
     await flush();
-    // Write time only sees the head word "s" — this MUST be accepted
+    // Write time only sees the head word "s" - this MUST be accepted
     // (proving the runtime check below is load-bearing, not redundant).
     terminal._submitCommand('macro m = clear && s');
     await flush();
@@ -1256,7 +1256,7 @@ async function testVerifyFixes() {
 // ---- run everything ----
 
 async function main() {
-  console.log('tests/m4b_games.test.js — M4b fun pack v2: snake, 2048, games');
+  console.log('tests/m4b_games.test.js - M4b fun pack v2: snake, 2048, games');
   testSnakeLogic();
   testGame2048Logic();
   testPurityGate();

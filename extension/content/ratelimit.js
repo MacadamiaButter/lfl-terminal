@@ -1,23 +1,23 @@
 /**
- * ratelimit.js — M2.3 deterministic per-tab-session rate limiter: caps LLM
+ * ratelimit.js - M2.3 deterministic per-tab-session rate limiter: caps LLM
  * proposal calls and executed mutating actions per rolling time window.
- * Pure/testable (time is injectable via opts.now — the only place Date.now()
+ * Pure/testable (time is injectable via opts.now - the only place Date.now()
  * is read is as the default), and never model-controlled: the model has no
- * channel into this file at all — it is a safety control, not a quality
+ * channel into this file at all - it is a safety control, not a quality
  * heuristic.
  *
  * On exceeding a budget, the limiter latches into a "paused" state that
  * every subsequent canCallLlm()/canExecuteAction() reports as blocked until
  * the caller explicitly calls resumeAfterContinue() (wired to a `continue`
  * terminal command in terminal.js). A silent auto-recovery once the rolling
- * window empties out would defeat the point — a burst-pause-immediately-
+ * window empties out would defeat the point - a burst-pause-immediately-
  * resume-on-its-own loop is not meaningfully different from no limit at all.
  *
  * AUTHORITY, since the M2-independent-verify fix (2026-07-12): the counters
  * and the paused latch this file computes are only trustworthy when they
  * live somewhere that survives a content-script re-injection (top-frame
  * navigation, location.reload()). A per-page `Terminal` instance does NOT
- * survive that — it is destroyed and rebuilt from scratch — so the
+ * survive that - it is destroyed and rebuilt from scratch - so the
  * AUTHORITATIVE state now lives in the background service worker, keyed by
  * tab id and backed by `chrome.storage.session` (see
  * `background/service-worker.js`'s RL_CHECK/RL_RECORD/RL_RESUME/RL_BUDGET
@@ -28,14 +28,14 @@
  * fetch resolves); the service worker is the only place that now calls
  * `createRateLimiter()` for real, one instance per message, rehydrated from
  * and immediately re-persisted to `chrome.storage.session` via
- * `opts.initialState` / `exportState()` below — so the algorithm itself
+ * `opts.initialState` / `exportState()` below - so the algorithm itself
  * never diverges between a "content script copy" and a "service worker
  * copy" the way the task explicitly warned against; there is only ever one
  * copy of the logic, imported (via `importScripts`) by the service worker.
  *
  * Dual-mode like guards.js: window.LFL.rateLimiter in the browser (and
  * self.LFL.rateLimiter in the service worker, which is the same `root`
- * branch — service workers have `self` but no CommonJS `module`),
+ * branch - service workers have `self` but no CommonJS `module`),
  * module.exports under Node (tests/m2_security.test.js and
  * tests/sw_ratelimit_persistence.test.js load it directly).
  */
@@ -65,14 +65,14 @@
     const actionMax = opts.actionMax || DEFAULTS.actionMax;
 
     // opts.initialState lets a caller REHYDRATE a limiter from a previously
-    // exportState()'d snapshot instead of starting empty — this is what
+    // exportState()'d snapshot instead of starting empty - this is what
     // makes the background service worker's per-tab, chrome.storage.session-
     // backed limiter possible: it builds a fresh createRateLimiter() per
     // message (service workers can be evicted between messages), seeded from
     // whatever was last persisted, so the counters and the paused latch are
     // continuous across that even though the JS object itself is not.
     // Ignored entirely (defaults to the original empty-state behavior) when
-    // absent — existing callers (terminal.js's tests, m2_security.test.js)
+    // absent - existing callers (terminal.js's tests, m2_security.test.js)
     // are unaffected.
     const init = (opts.initialState && typeof opts.initialState === 'object') ? opts.initialState : {};
     let llmTimestamps = Array.isArray(init.llmTimestamps) ? init.llmTimestamps.slice() : [];
@@ -90,7 +90,7 @@
       prune(llmTimestamps, llmWindowMs);
       if (llmTimestamps.length >= llmMax) {
         paused = true;
-        pauseReason = `LLM call budget exceeded (${llmMax} per ${Math.round(llmWindowMs / 1000)}s) — type "continue" to resume`;
+        pauseReason = `LLM call budget exceeded (${llmMax} per ${Math.round(llmWindowMs / 1000)}s) - type "continue" to resume`;
         return { allow: false, reason: pauseReason, remaining: 0 };
       }
       return { allow: true, reason: null, remaining: llmMax - llmTimestamps.length };
@@ -106,7 +106,7 @@
       prune(actionTimestamps, actionWindowMs);
       if (actionTimestamps.length >= actionMax) {
         paused = true;
-        pauseReason = `action budget exceeded (${actionMax} per ${Math.round(actionWindowMs / 1000)}s) — type "continue" to resume`;
+        pauseReason = `action budget exceeded (${actionMax} per ${Math.round(actionWindowMs / 1000)}s) - type "continue" to resume`;
         return { allow: false, reason: pauseReason, remaining: 0 };
       }
       return { allow: true, reason: null, remaining: actionMax - actionTimestamps.length };
@@ -137,7 +137,7 @@
       return { resumed: true };
     }
 
-    // Serializes the full internal state as plain, JSON-safe data — the
+    // Serializes the full internal state as plain, JSON-safe data - the
     // counterpart to opts.initialState above. Round-trips exactly: feeding
     // the return value of exportState() back in as another limiter's
     // opts.initialState reconstructs an equivalent limiter. Used by the

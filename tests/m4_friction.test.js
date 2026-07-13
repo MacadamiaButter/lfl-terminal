@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * tests/m4_friction.test.js — unit proof of the M4a "friction trio" built
+ * tests/m4_friction.test.js - unit proof of the M4a "friction trio" built
  * into `extension/content/engine.js` (ls-listing + numbered actions,
  * read/find, here + did-you-mean) and `extension/content/registry.js`'s
  * `didYouMean()`, against the REAL, unmodified extension source, loaded
@@ -9,17 +9,17 @@
  * `window.LFL`-scoped, browser-only files.
  *
  * Load order (mirrors manifest.json's content_scripts order): guards.js,
- * executor.js, registry.js, engine.js — all REAL, unmodified source.
+ * executor.js, registry.js, engine.js - all REAL, unmodified source.
  *
  * `LFL.axtree` is a deliberately simplified but FAITHFUL stand-in for
  * axtree.js's real build()/resolve()/isElementVisible() contract (index/ref
  * map shape, WeakRef-or-plain ref, isConnected + visibility checks), not
- * axtree.js's real DOM-walking/CSS-computing implementation — axtree.js
+ * axtree.js's real DOM-walking/CSS-computing implementation - axtree.js
  * itself has no dedicated Node unit-test harness anywhere in this project
  * (battery-tested only; see engine.js's own header comment on the division
- * of labor). This suite's job is the M4a INTEGRATION CONTRACT — does a
+ * of labor). This suite's job is the M4a INTEGRATION CONTRACT - does a
  * listing context built the way `ls` builds it actually work when handed to
- * the real executor.js/guards.js — not re-proving axtree's own visibility
+ * the real executor.js/guards.js - not re-proving axtree's own visibility
  * heuristics, which is out of scope here exactly like it is everywhere else
  * in this project's unit-test suite.
  *
@@ -38,7 +38,7 @@ const EXECUTOR_PATH = path.join(ROOT, 'extension', 'content', 'executor.js');
 const REGISTRY_PATH = path.join(ROOT, 'extension', 'content', 'registry.js');
 const ENGINE_PATH = path.join(ROOT, 'extension', 'content', 'engine.js');
 
-const registry = require(REGISTRY_PATH); // plain CommonJS — no DOM dependency (didYouMean tests)
+const registry = require(REGISTRY_PATH); // plain CommonJS - no DOM dependency (didYouMean tests)
 
 let passed = 0;
 let failed = 0;
@@ -56,7 +56,7 @@ function check(name, fn) {
 }
 
 // =====================================================================
-// sandbox construction — real guards.js/executor.js/registry.js/engine.js,
+// sandbox construction - real guards.js/executor.js/registry.js/engine.js,
 // a faithful-but-simplified LFL.axtree stand-in (see header comment).
 // =====================================================================
 
@@ -84,7 +84,7 @@ function buildSandbox() {
 
   vm.runInContext(fs.readFileSync(GUARDS_PATH, 'utf8'), sandbox, { filename: 'guards.js' });
 
-  // Faithful-but-simplified LFL.axtree stand-in — see file header comment.
+  // Faithful-but-simplified LFL.axtree stand-in - see file header comment.
   // resolve() mirrors the real contract exactly: ref may be WeakRef-shaped
   // (has .deref()) or a plain element (real axtree.resolve() supports both
   // via `ref.deref ? ref.deref() : ref`); null/disconnected/invisible all
@@ -100,7 +100,7 @@ function buildSandbox() {
       return el;
     },
     isElementVisible(el) { return !!el && el.__visible !== false; },
-    frameOptsFor() { return undefined; }, // top-document only in this suite — ambient document/location used instead
+    frameOptsFor() { return undefined; }, // top-document only in this suite - ambient document/location used instead
   };
 
   vm.runInContext(fs.readFileSync(EXECUTOR_PATH, 'utf8'), sandbox, { filename: 'executor.js' });
@@ -180,7 +180,7 @@ function freshState(listingContext) {
 }
 
 // =====================================================================
-// Part 1 — listing map shape is exactly executor-consumable, and `ls`
+// Part 1 - listing map shape is exactly executor-consumable, and `ls`
 // itself builds a context in that shape (not a parallel structure).
 // =====================================================================
 
@@ -211,7 +211,7 @@ function testListingMapShape() {
     // different Map constructor object than this test file's own global
     // Map, even though it's the same built-in), so `instanceof Map` against
     // the host realm's Map would fail for reasons that have nothing to do
-    // with product correctness — check the functional Map interface instead.
+    // with product correctness - check the functional Map interface instead.
     const map = state.listingContext.map;
     assert.strictEqual(typeof map.get, 'function');
     assert.strictEqual(typeof map.set, 'function');
@@ -250,13 +250,13 @@ function testListingMapShape() {
 }
 
 // =====================================================================
-// Part 2 — `open <N>`: same-origin navigates + navInitiated:true;
+// Part 2 - `open <N>`: same-origin navigates + navInitiated:true;
 // cross-origin -> pendingCrossOriginUrl, NOT navigation, NOT navInitiated;
 // non-link -> refused; no context -> gentle error.
 // =====================================================================
 
 function testOpenIndex() {
-  console.log('\n[2] `open <N>` — same-origin navigate, cross-origin pending-confirm, guard cases');
+  console.log('\n[2] `open <N>` - same-origin navigate, cross-origin pending-confirm, guard cases');
 
   const sandbox = buildSandbox();
 
@@ -314,7 +314,7 @@ function testOpenIndex() {
     assert.match(det.output, /no such item: \[99\]/);
   });
 
-  check('`open <link text>` (non-numeric) is unaffected — still the pre-existing text-search path', () => {
+  check('`open <link text>` (non-numeric) is unaffected - still the pre-existing text-search path', () => {
     sandbox.document.__qsa = [{ textContent: 'Home', getAttribute: (n) => (n === 'href' ? '/home' : null) }];
     const state = freshState();
     const det = sandbox.window.LFL.engine.tryDeterministic('open home', state);
@@ -323,14 +323,14 @@ function testOpenIndex() {
 }
 
 // =====================================================================
-// Part 3 — `click <N>` inherits executor.js's guards verbatim: blocked
+// Part 3 - `click <N>` inherits executor.js's guards verbatim: blocked
 // javascript:/cross-origin targets refuse (el.click() never fires),
 // normal targets are allowed (el.click() fires), no approval card
 // concept applies at this layer (engine.js never renders one).
 // =====================================================================
 
 function testClickIndex() {
-  console.log('\n[3] `click <N>` — inherits executor.js guards verbatim');
+  console.log('\n[3] `click <N>` - inherits executor.js guards verbatim');
 
   const sandbox = buildSandbox();
 
@@ -375,13 +375,13 @@ function testClickIndex() {
 }
 
 // =====================================================================
-// Part 4 — `fill <N> with <text>` and `fill <label> with <text>` inherit
+// Part 4 - `fill <N> with <text>` and `fill <label> with <text>` inherit
 // isPasswordField() verbatim; label matching is exact-wins/substring/
 // ambiguous.
 // =====================================================================
 
 function testFillIndexAndLabel() {
-  console.log('\n[4] `fill <N> with ...` / `fill <label> with ...` — credential guard + label matching');
+  console.log('\n[4] `fill <N> with ...` / `fill <label> with ...` - credential guard + label matching');
 
   const sandbox = buildSandbox();
 
@@ -447,12 +447,12 @@ function testFillIndexAndLabel() {
 }
 
 // =====================================================================
-// Part 5 — bare `<N>` default action by type; requires an active listing
+// Part 5 - bare `<N>` default action by type; requires an active listing
 // context.
 // =====================================================================
 
 function testBareNumber() {
-  console.log('\n[5] bare `<N>` — default action by listing-entry type, requires context');
+  console.log('\n[5] bare `<N>` - default action by listing-entry type, requires context');
 
   const sandbox = buildSandbox();
 
@@ -494,11 +494,11 @@ function testBareNumber() {
 }
 
 // =====================================================================
-// Part 6 — read/find pure helpers (matching + truncation caps).
+// Part 6 - read/find pure helpers (matching + truncation caps).
 // =====================================================================
 
 function testReadFindPureHelpers() {
-  console.log('\n[6] read/find pure helpers — capLines (truncation) + textIncludesQuery (matching)');
+  console.log('\n[6] read/find pure helpers - capLines (truncation) + textIncludesQuery (matching)');
 
   const sandbox = buildSandbox();
   const engine = sandbox.window.LFL.engine;
@@ -522,7 +522,7 @@ function testReadFindPureHelpers() {
   });
 
   check('capLines: non-array input -> empty, no throw', () => {
-    // Returned array is constructed inside the vm sandbox's own realm — see
+    // Returned array is constructed inside the vm sandbox's own realm - see
     // the Map comment in Part 1; compare by length, not deepStrictEqual
     // against a host-realm array literal.
     const r = engine.capLines(null, 5);
@@ -606,11 +606,11 @@ function testReadFindPureHelpers() {
 }
 
 // =====================================================================
-// Part 7 — `here`'s pure pieces: suggestCommands rules + report formatting.
+// Part 7 - `here`'s pure pieces: suggestCommands rules + report formatting.
 // =====================================================================
 
 function testHerePureHelpers() {
-  console.log('\n[7] `here` pure helpers — suggestCommands rules + formatHereReport');
+  console.log('\n[7] `here` pure helpers - suggestCommands rules + formatHereReport');
 
   const sandbox = buildSandbox();
   const engine = sandbox.window.LFL.engine;
@@ -655,11 +655,11 @@ function testHerePureHelpers() {
 }
 
 // =====================================================================
-// Part 8 — did-you-mean (registry.js, plain CommonJS, no vm needed).
+// Part 8 - did-you-mean (registry.js, plain CommonJS, no vm needed).
 // =====================================================================
 
 function testDidYouMean() {
-  console.log('\n[8] did-you-mean — registry.didYouMean() pure function');
+  console.log('\n[8] did-you-mean - registry.didYouMean() pure function');
 
   const NAMES = ['search', 'open', 'open!', 'go', 'back', 'scroll', 'extract', 'log', 'budget', 'continue', 'help', 'man', 'clear', 'alias', 'unalias', 'macro', 'unmacro', 'origins', 'dev', 'ls', 'click', 'fill', 'read', 'find', 'here'];
 
@@ -719,7 +719,7 @@ function testDidYouMean() {
     const realNames = sandbox.window.LFL.commandRegistry.names();
     assert.ok(realNames.includes('search'), 'sanity: search must be a real registered name');
     assert.ok(realNames.includes('ls'), 'sanity: the M4a verbs must be registered too');
-    // r is an array constructed inside the vm sandbox's own realm — see the
+    // r is an array constructed inside the vm sandbox's own realm - see the
     // Map/capLines comments above; convert before deepStrictEqual so the
     // comparison isn't tripped up by a harmless cross-realm artifact.
     const r = Array.from(sandbox.window.LFL.registry.didYouMean('serach', realNames));
@@ -729,7 +729,7 @@ function testDidYouMean() {
 
 // ---- run everything ----
 
-console.log('tests/m4_friction.test.js — M4a friction trio: ls+actions, read/find, here+did-you-mean');
+console.log('tests/m4_friction.test.js - M4a friction trio: ls+actions, read/find, here+did-you-mean');
 testListingMapShape();
 testOpenIndex();
 testClickIndex();

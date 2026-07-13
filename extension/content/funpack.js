@@ -1,5 +1,5 @@
 /**
- * funpack.js — "fun pack v1": fortune, MOTD, stats, theme, cowsay.
+ * funpack.js - "fun pack v1": fortune, MOTD, stats, theme, cowsay.
  *
  * Every function in this file is PURE data + pure functions: no DOM reads,
  * no DOM writes, no chrome.* calls, no network calls, no Math.random(). All

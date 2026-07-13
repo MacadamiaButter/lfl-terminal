@@ -1,12 +1,12 @@
 /**
- * nav.js — M3 `go` navigation verb: the deterministic resolution ladder,
+ * nav.js - M3 `go` navigation verb: the deterministic resolution ladder,
  * arrival check, and the literal-URL/domain guard `go` uses (deliberately
  * separate from guards.js's safeSameOriginHttpUrl(), which is scoped to the
- * SAME-ORIGIN M1/M2 posture for LLM-proposed navigate/click — `go` is a
+ * SAME-ORIGIN M1/M2 posture for LLM-proposed navigate/click - `go` is a
  * TRUSTED, user-typed command and is allowed to leave the origin by design;
  * see design doc §1's trust split and §2).
  *
- * Pure resolution logic only — no chrome.* calls, no DOM mutation, no
+ * Pure resolution logic only - no chrome.* calls, no DOM mutation, no
  * location.href assignment. terminal.js owns the actual navigation
  * (location.href=), the approval-card UI, and the SW round trips (TS_*
  * visited-origin checks, NAV_LLM_REQUEST for the nav-lane fallback); this
@@ -33,9 +33,9 @@
   //
   // `go en.wikipedia.org` / `go https://x.com/foo` / `go localhost:8080`.
   // Unlike guards.safeSameOriginHttpUrl(), this has NO origin-equality
-  // clause — `go` is a trusted, address-bar-equivalent command and may
+  // clause - `go` is a trusted, address-bar-equivalent command and may
   // navigate cross-origin. It still hard-rejects non-http(s) schemes
-  // (javascript:, file:, data:, chrome:, ...) — that floor is not a
+  // (javascript:, file:, data:, chrome:, ...) - that floor is not a
   // same-origin restriction, it's "this extension only ever navigates the
   // page to a real web page", which holds regardless of trust level.
   function resolveLiteralDestination(raw) {
@@ -43,10 +43,10 @@
     if (!s) return { ok: false, reason: 'empty destination' };
 
     // A leading `scheme:` (letter, then letters/digits/+/-/.) COULD mean the
-    // user supplied an explicit scheme — but a bare `word:1234` with an
+    // user supplied an explicit scheme - but a bare `word:1234` with an
     // all-digit remainder and no `//` is far more likely to be a
     // host:port (`localhost:8080`, `example.com:8080`) than someone
-    // typing an actual URI scheme — no real scheme is ever purely digits
+    // typing an actual URI scheme - no real scheme is ever purely digits
     // after the colon. `scheme://...` (an authority component present) is
     // always treated as a real explicit scheme, and so is any other
     // `scheme:something-non-numeric` (this is what correctly still catches
@@ -73,7 +73,7 @@
       return { ok: false, reason: `refusing to navigate to a non-http(s) destination: ${url.protocol}` };
     }
     // A bare word with no dot and no path/port very likely isn't a domain at
-    // all (e.g. "go the wiki") — reject it here so the ladder correctly
+    // all (e.g. "go the wiki") - reject it here so the ladder correctly
     // falls through to step 2 (alias) / step 3 (nav-lane) instead of
     // "successfully" resolving to https://the-wiki/ and confirming garbage.
     if (!hasScheme && !/\./.test(url.hostname) && url.hostname !== 'localhost') {
@@ -109,7 +109,7 @@
     if (literal.ok) return { ok: true, url: literal.url, step: 'literal' };
 
     // Step 2: alias/registry hit. The alias's own expansion is resolved
-    // through step 1 only (single level — aliases are not recursively
+    // through step 1 only (single level - aliases are not recursively
     // re-walked through the ladder, and per registry.js's setAlias/setMacro
     // an alias can never itself be a macro name or vice versa).
     if (typeof opts.aliasLookup === 'function') {
@@ -117,14 +117,14 @@
       if (expansion !== null && expansion !== undefined) {
         // An alias may be defined as `alias wiki = go en.wikipedia.org` (the
         // documented form) or as a bare destination (`alias wiki =
-        // en.wikipedia.org`) — strip a leading "go " if present either way.
+        // en.wikipedia.org`) - strip a leading "go " if present either way.
         const dest = expansion.replace(/^go\s+/i, '').trim();
         const aliasResolved = resolveLiteralDestination(dest);
         if (aliasResolved.ok) return { ok: true, url: aliasResolved.url, step: 'alias' };
       }
     }
 
-    // Step 3: nothing deterministic matched — the caller must fall back to
+    // Step 3: nothing deterministic matched - the caller must fall back to
     // the nav-lane model call.
     return { ok: false, needsNavLane: true };
   }
@@ -140,7 +140,7 @@
     if (currentOrigin === expectedOrigin) return { ok: true, message: null };
     return {
       ok: false,
-      message: `arrived at ${currentOrigin || '(unknown origin)'}, expected ${expectedOrigin} — queue halted`,
+      message: `arrived at ${currentOrigin || '(unknown origin)'}, expected ${expectedOrigin} - queue halted`,
     };
   }
 

@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * tests/sw_ratelimit_persistence.test.js — direct unit-level proof that the
+ * tests/sw_ratelimit_persistence.test.js - direct unit-level proof that the
  * M2.3 rate-limit counters AND the paused latch PERSIST across a simulated
  * content-script re-injection, closing the M2-independent-verify finding:
  * the old design kept this state only inside the per-page `Terminal`
  * instance, which is destroyed and rebuilt on every top-frame navigation /
- * `location.reload()` — silently resetting the budget to full and clearing
+ * `location.reload()` - silently resetting the budget to full and clearing
  * an active pause with no `continue` ever typed.
  *
  * The fix (see background/service-worker.js's header comment and
@@ -13,30 +13,30 @@
  * background service worker, keyed per tab id, backed by
  * `chrome.storage.session`. This test proves that specifically:
  *
- *   Part 0 — extension/content/ratelimit.js's exportState()/opts.initialState
+ *   Part 0 - extension/content/ratelimit.js's exportState()/opts.initialState
  *   round-trip (the mechanism the SW uses to rehydrate/persist a limiter),
  *   tested directly and in isolation from the SW.
  *
- *   Part 1 — the SW's actual RL_CHECK/RL_RECORD/RL_RESUME message handling,
+ *   Part 1 - the SW's actual RL_CHECK/RL_RECORD/RL_RESUME message handling,
  *   loaded via Node's `vm` module exactly the way
  *   tests/executor_credential.test.js loads guards.js/executor.js: the REAL,
  *   UNMODIFIED source of background/service-worker.js (which itself
- *   `importScripts()`s the REAL, UNMODIFIED content/ratelimit.js — no
+ *   `importScripts()`s the REAL, UNMODIFIED content/ratelimit.js - no
  *   reimplementation of either), run inside a sandbox that fakes only the
  *   browser-only surface it touches: `chrome.storage.session` (backed by a
- *   plain in-memory Map the test controls directly — this Map is what
+ *   plain in-memory Map the test controls directly - this Map is what
  *   stands in for the real chrome.storage.session's own persistence, which
  *   is exactly what's supposed to survive a re-injection), `chrome.tabs`,
  *   `chrome.runtime.onMessage`, and an injectable clock (patches this vm
- *   context's OWN separate `Date` built-in — proven not to leak to the
- *   outer Node process below — so the test never needs a real sleep).
+ *   context's OWN separate `Date` built-in - proven not to leak to the
+ *   outer Node process below - so the test never needs a real sleep).
  *
  *   The "simulated content-script re-injection" is built literally: a
  *   SECOND, completely independent sandbox/vm context/service-worker
  *   instance is constructed (simulating the browser tearing down and
- *   restarting the extension's JS around a navigation/reload — a fresh
+ *   restarting the extension's JS around a navigation/reload - a fresh
  *   `Terminal`, and in principle even a fresh/evicted-and-restarted SW),
- *   sharing only the SAME backing storage Map — exactly the one thing that
+ *   sharing only the SAME backing storage Map - exactly the one thing that
  *   is actually guaranteed to survive that in the real extension
  *   (chrome.storage.session, not any in-process JS state). If the budget
  *   and the paused latch are still correct when read from that second,
@@ -86,13 +86,13 @@ async function acheck(name, fn) {
 }
 
 // =====================================================================
-// Part 0 — ratelimit.js exportState()/opts.initialState round-trip. Pure,
-// no vm/sandbox needed — loaded directly the same way m2_security.test.js
+// Part 0 - ratelimit.js exportState()/opts.initialState round-trip. Pure,
+// no vm/sandbox needed - loaded directly the same way m2_security.test.js
 // already does.
 // =====================================================================
 
 function testRatelimitStateRoundTrip() {
-  console.log('\n[0] ratelimit.js exportState()/opts.initialState — the persistence primitive itself');
+  console.log('\n[0] ratelimit.js exportState()/opts.initialState - the persistence primitive itself');
 
   check('exportState() on a fresh limiter is the documented empty shape', () => {
     const rl = rateLimitModule.createRateLimiter({ now: () => 0 });
@@ -112,7 +112,7 @@ function testRatelimitStateRoundTrip() {
     assert.strictEqual(exported.paused, true);
     assert.match(exported.pauseReason, /budget exceeded/);
 
-    // A brand new limiter instance — no calls made on IT at all — seeded
+    // A brand new limiter instance - no calls made on IT at all - seeded
     // from that exported state. This is exactly what the SW does on every
     // message: build a fresh createRateLimiter() and hand it yesterday's
     // (or one-message-ago's) exported state.
@@ -145,15 +145,15 @@ function testRatelimitStateRoundTrip() {
 }
 
 // =====================================================================
-// Part 1 — the SW's real RL_CHECK/RL_RECORD/RL_RESUME message handling,
+// Part 1 - the SW's real RL_CHECK/RL_RECORD/RL_RESUME message handling,
 // loaded via vm from the actual, unmodified source files.
 // =====================================================================
 
 // Confirms the Date-patching technique used below does not leak into the
-// real Node process's global Date — load-bearing for trusting the rest of
+// real Node process's global Date - load-bearing for trusting the rest of
 // this file's "no real sleeps" claim.
 function testVmClockIsolation() {
-  console.log('\n[1] sandbox setup sanity — injected vm clock does not leak to the outer process');
+  console.log('\n[1] sandbox setup sanity - injected vm clock does not leak to the outer process');
   check('patching Date.now() inside a vm context leaves the outer Date.now() untouched', () => {
     const sandbox = {};
     vm.createContext(sandbox);
@@ -166,7 +166,7 @@ function testVmClockIsolation() {
 
 // Builds one independent "service worker instance": its own vm context, its
 // own fresh load of the real service-worker.js (which importScripts()s the
-// real ratelimit.js), its own injectable clock — but sharing the SAME
+// real ratelimit.js), its own injectable clock - but sharing the SAME
 // `storageMap` object the caller passes in, which is what stands in for the
 // one thing that's actually persistent in the real browser
 // (chrome.storage.session). Two calls to this function with the same
@@ -217,8 +217,8 @@ function buildSwInstance(storageMap, nowRef) {
   };
 
   // importScripts: mirrors the REAL relative-path resolution a classic
-  // service worker does — '../content/ratelimit.js', resolved relative to
-  // this file's own location (extension/background/) — loading the actual
+  // service worker does - '../content/ratelimit.js', resolved relative to
+  // this file's own location (extension/background/) - loading the actual
   // unmodified ratelimit.js source, not a reimplementation of its algorithm.
   sandbox.importScripts = function importScripts(...urls) {
     urls.forEach((u) => {
@@ -232,7 +232,7 @@ function buildSwInstance(storageMap, nowRef) {
   vm.createContext(sandbox);
 
   // Injectable clock (see testVmClockIsolation above for the isolation
-  // proof) — this is what lets Part 1's checks below use a fake, hand-
+  // proof) - this is what lets Part 1's checks below use a fake, hand-
   // advanced clock instead of real setTimeout/sleep.
   sandbox.__nowRef = nowRef;
   vm.runInContext('Date.now = function () { return __nowRef.value; };', sandbox);
@@ -267,7 +267,7 @@ function buildSwInstance(storageMap, nowRef) {
 }
 
 async function testSwPersistence() {
-  console.log('\n[2] background/service-worker.js RL_* handling — real source, vm-sandboxed browser APIs, injected clock/storage');
+  console.log('\n[2] background/service-worker.js RL_* handling - real source, vm-sandboxed browser APIs, injected clock/storage');
 
   // ---- persistence-across-reinjection + paused-latch-survives ----
   await acheck('LLM budget: burst of RL_CHECK+RL_RECORD trips the pause on the FIRST sw instance', async () => {
@@ -292,7 +292,7 @@ async function testSwPersistence() {
     assert.match(overBudget.reason, /budget exceeded/);
   });
 
-  await acheck('SIMULATED RE-INJECTION: a brand-new sw instance (fresh vm context/module state), SAME storage — the pause is STILL latched, budget is NOT reset to full', async () => {
+  await acheck('SIMULATED RE-INJECTION: a brand-new sw instance (fresh vm context/module state), SAME storage - the pause is STILL latched, budget is NOT reset to full', async () => {
     const storageMap = new Map();
     const nowRef = { value: 0 };
     const TAB = 42;
@@ -310,14 +310,14 @@ async function testSwPersistence() {
 
     // "Re-injection": this is NOT swA again. It is a completely independent
     // vm context, with its own fresh copy of ratelimit.js loaded via its
-    // own importScripts() call, its own onMessage listener closure — the
+    // own importScripts() call, its own onMessage listener closure - the
     // only thing it shares with swA is `storageMap`, which stands in for
     // chrome.storage.session (the one thing that's real-browser-persistent
     // across a content-script re-injection / SW eviction+restart).
     const swB = buildSwInstance(storageMap, nowRef);
     assert.notStrictEqual(swB.send, swA.send, 'sanity: swB must be a genuinely separate instance, not swA reused');
 
-    // Advance time far past the 60s window — proves this isn't merely "the
+    // Advance time far past the 60s window - proves this isn't merely "the
     // pruned-array length happens to still be nonzero", it specifically
     // proves the PAUSED LATCH survived (a pure window-based reset would
     // have cleared by now, per the existing "no silent auto-recovery" M2.3
@@ -326,7 +326,7 @@ async function testSwPersistence() {
 
     const checkOnB = await swB.send({ type: 'RL_CHECK', kind: 'llm' }, TAB);
     assert.strictEqual(checkOnB.ok, true, JSON.stringify(checkOnB));
-    assert.strictEqual(checkOnB.allowed, false, 'a freshly (re-)injected instance reading the SAME persisted tab state must still see the pause — this is the headline fix');
+    assert.strictEqual(checkOnB.allowed, false, 'a freshly (re-)injected instance reading the SAME persisted tab state must still see the pause - this is the headline fix');
     assert.strictEqual(checkOnB.paused, true);
     assert.match(checkOnB.reason, /budget exceeded/, 'the paused reason itself must also survive, not just a bare boolean');
 
@@ -345,7 +345,7 @@ async function testSwPersistence() {
     const TAB = 7;
 
     const swA = buildSwInstance(storageMap, nowRef);
-    // Default actionMax is 10 (ratelimit.js DEFAULTS) — drain it.
+    // Default actionMax is 10 (ratelimit.js DEFAULTS) - drain it.
     for (let i = 0; i < 10; i++) {
       const c = await swA.send({ type: 'RL_CHECK', kind: 'action' }, TAB);
       assert.strictEqual(c.allowed, true, `action ${i} should be allowed`);
@@ -361,17 +361,17 @@ async function testSwPersistence() {
 
     // By design (see ratelimit.js's header comment and
     // tests/m2_security.test.js's "executed-action budget is INDEPENDENT of
-    // the LLM-call budget" case), the single `paused` latch is SHARED —
+    // the LLM-call budget" case), the single `paused` latch is SHARED -
     // exceeding EITHER budget blocks BOTH kinds of check, on purpose ("stop
     // everything until the human types continue", not "stop only the thing
     // that tripped"). So canCallLlm() on this same tab is also correctly
     // blocked here. What's actually independent is the underlying COUNT:
     // the LLM timestamp array on this tab was never touched, which the
-    // persisted budget snapshot proves directly — it reports the full LLM
+    // persisted budget snapshot proves directly - it reports the full LLM
     // allowance untouched, even though the shared latch blocks the check.
     const llmCheck = await swB.send({ type: 'RL_CHECK', kind: 'llm' }, TAB);
-    assert.strictEqual(llmCheck.allowed, false, 'the shared pause latch (tripped via the action budget) correctly blocks the LLM check too — same tab, same latch, by design');
-    assert.strictEqual(llmCheck.budget.llmRemaining, rateLimitModule.DEFAULTS.llmMax, 'the LLM budget COUNT itself must be untouched — proves the two counters are independently tracked even though the pause latch they can both trip is shared');
+    assert.strictEqual(llmCheck.allowed, false, 'the shared pause latch (tripped via the action budget) correctly blocks the LLM check too - same tab, same latch, by design');
+    assert.strictEqual(llmCheck.budget.llmRemaining, rateLimitModule.DEFAULTS.llmMax, 'the LLM budget COUNT itself must be untouched - proves the two counters are independently tracked even though the pause latch they can both trip is shared');
   });
 
   await acheck('per-tab isolation: tab A being paused does not affect tab B\'s budget, even reading through a re-injected instance', async () => {
@@ -394,7 +394,7 @@ async function testSwPersistence() {
     assert.strictEqual(freshB.budget.llmRemaining, 20);
   });
 
-  await acheck('chrome.tabs.onRemoved clears that tab\'s persisted state (no permission needed — callback receives only tabId/removeInfo)', async () => {
+  await acheck('chrome.tabs.onRemoved clears that tab\'s persisted state (no permission needed - callback receives only tabId/removeInfo)', async () => {
     const storageMap = new Map();
     const nowRef = { value: 0 };
     const TAB = 55;
@@ -406,7 +406,7 @@ async function testSwPersistence() {
     }
     assert.strictEqual(storageMap.has(`ratelimit:${TAB}`), true, 'sanity: something was actually persisted for this tab');
 
-    // Simulate the tab closing — call the real registered listener directly,
+    // Simulate the tab closing - call the real registered listener directly,
     // exactly as Chrome would invoke it: (tabId, removeInfo).
     await swA.tabRemovedListener(TAB, { windowId: 1, isWindowClosing: false });
 
@@ -446,7 +446,7 @@ async function testSwPersistence() {
 // ---- run everything ----
 
 async function main() {
-  console.log('tests/sw_ratelimit_persistence.test.js — M2.3 SW-authoritative persistence proof');
+  console.log('tests/sw_ratelimit_persistence.test.js - M2.3 SW-authoritative persistence proof');
   testRatelimitStateRoundTrip();
   testVmClockIsolation();
   await testSwPersistence();

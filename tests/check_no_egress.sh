@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# tests/check_no_egress.sh — static grep gate: network-capable APIs must
+# tests/check_no_egress.sh - static grep gate: network-capable APIs must
 # appear ONLY in the one file allowed to make a network call
 # (extension/background/service-worker.js). Everything else in extension/
 # must be free of them. Exits nonzero on any violation.
 #
-# Pattern coverage (2026-07 security review SHOULD-FIX #6 — widened from the
+# Pattern coverage (2026-07 security review SHOULD-FIX #6 - widened from the
 # original fetch/XMLHttpRequest/WebSocket/sendBeacon-only grep, which missed
 # several other network-capable browser APIs and common fetch-aliasing
 # tricks):

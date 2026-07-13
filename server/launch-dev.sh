@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# server/launch-dev.sh — start the LOCAL llama.cpp server for lfl-terminal M1.
+# server/launch-dev.sh - start the LOCAL llama.cpp server for lfl-terminal M1.
 #
 # CPU only (-ngl 0): the GPU is running production services on this box and is
-# off-limits for this spike. Binds 127.0.0.1:1238 ONLY — never touch/restart
+# off-limits for this spike. Binds 127.0.0.1:1238 ONLY - never touch/restart
 # anything on 1234/1236/1237/4101.
 #
-# Configure via env vars (no defaults are baked in — this is deliberate, so
+# Configure via env vars (no defaults are baked in - this is deliberate, so
 # the script fails closed instead of silently pointing at someone else's
 # path):
-#   LLAMA_SERVER_DIR  — directory containing the llama-server binary
-#   LLAMA_MODEL_PATH  — path to the GGUF model file
+#   LLAMA_SERVER_DIR  - directory containing the llama-server binary
+#   LLAMA_MODEL_PATH  - path to the GGUF model file
 #
 # For local dev convenience, if a gitignored server/.env.local exists next to
-# this script, it is sourced automatically (put your real paths there —
+# this script, it is sourced automatically (put your real paths there -
 # never commit it):
 #   LLAMA_SERVER_DIR=/path/to/llama-server-dir
 #   LLAMA_MODEL_PATH=/path/to/model.gguf
@@ -29,14 +29,14 @@ if [[ -z "${LLAMA_SERVER_DIR:-}" ]]; then
   echo "ERROR: LLAMA_SERVER_DIR is not set." >&2
   echo "       Set it to the directory containing your llama-server binary, e.g.:" >&2
   echo "         export LLAMA_SERVER_DIR=/path/to/llama-vulkan-2.24.0" >&2
-  echo "       (or create server/.env.local with LLAMA_SERVER_DIR=... — gitignored, never committed)" >&2
+  echo "       (or create server/.env.local with LLAMA_SERVER_DIR=... - gitignored, never committed)" >&2
   exit 1
 fi
 if [[ -z "${LLAMA_MODEL_PATH:-}" ]]; then
   echo "ERROR: LLAMA_MODEL_PATH is not set." >&2
   echo "       Set it to the path of your GGUF model file, e.g.:" >&2
   echo "         export LLAMA_MODEL_PATH=/path/to/gguf/Qwen3-4B-Instruct-2507-Q5_K_M.gguf" >&2
-  echo "       (or create server/.env.local with LLAMA_MODEL_PATH=... — gitignored, never committed)" >&2
+  echo "       (or create server/.env.local with LLAMA_MODEL_PATH=... - gitignored, never committed)" >&2
   exit 1
 fi
 
@@ -57,7 +57,7 @@ if [[ ! -f "${MODEL_PATH}" ]]; then
 fi
 
 if ss -ltn 2>/dev/null | grep -q ":${PORT} "; then
-  echo "ERROR: something is already bound to :${PORT} — refusing to start a second server." >&2
+  echo "ERROR: something is already bound to :${PORT} - refusing to start a second server." >&2
   echo "       (this script only ever targets 127.0.0.1:${PORT}; it will not touch any other port)" >&2
   exit 1
 fi
@@ -97,6 +97,6 @@ if [[ "${HEALTHY}" -eq 1 ]]; then
   echo ""
   echo "server is up, pid ${SERVER_PID}. Stop it with: kill ${SERVER_PID}"
 else
-  echo "health check: FAILED after 60s — check ${LOG_FILE}" >&2
+  echo "health check: FAILED after 60s - check ${LOG_FILE}" >&2
   exit 1
 fi

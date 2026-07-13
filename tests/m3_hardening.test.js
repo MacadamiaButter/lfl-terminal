@@ -1,32 +1,32 @@
 #!/usr/bin/env node
 /**
- * tests/m3_hardening.test.js — unit proof of the M3 hardening items from
+ * tests/m3_hardening.test.js - unit proof of the M3 hardening items from
  * design doc §8:
  *
- *   H1 — event.isTrusted gate. guards.isTrustedInputEvent() is a pure
+ *   H1 - event.isTrusted gate. guards.isTrustedInputEvent() is a pure
  *   predicate (unit-tested directly here); the actual DOM wiring lives in
  *   terminal.js's _onGlobalKeydown/_onInputKeydown/approve-button/
  *   reject-button handlers, which is browser-only code with no practical
  *   Node harness in this project (terminal.js has never been directly
- *   loaded by any unit test — see its own header comment on why: it needs
+ *   loaded by any unit test - see its own header comment on why: it needs
  *   attachShadow/popover/elementsFromPoint, a much heavier DOM surface than
  *   guards.js/executor.js need). This file makes up for that with a static
  *   source-shape check: every one of the four listed handlers must call
  *   isTrustedInputEvent() as (effectively) its first guard. This is weaker
- *   than a full behavioral DOM test, and is documented as such — but it IS
+ *   than a full behavioral DOM test, and is documented as such - but it IS
  *   a real regression guard: a future edit that silently drops the guard
  *   from one of these handlers fails this test.
  *
- *   H2 — dev-hook gating shape. Confirms terminal.js's test-hook attribute
+ *   H2 - dev-hook gating shape. Confirms terminal.js's test-hook attribute
  *   is conditioned on `_devHooksEnabled` (not emitted unconditionally), and
  *   that the `dev on`/`dev off` command exists as the documented toggle.
  *   Same static-shape-check caveat as H1 for the actual runtime behavior.
  *
- *   registry-cannot-extend-model-vocabulary — the REAL proof, loaded via vm
+ *   registry-cannot-extend-model-vocabulary - the REAL proof, loaded via vm
  *   the same way tests/m3_nav_lane_isolation.test.js does: both LLM lanes'
  *   response_format schema enums are captured from a live request and
  *   checked to be EXACTLY the fixed, documented sets, with no registry
- *   command name (go/alias/macro/man/origins/dev/...) present in either —
+ *   command name (go/alias/macro/man/origins/dev/...) present in either -
  *   proving the DSL registry cannot, even accidentally, grow the set of
  *   actions either model is allowed to emit.
  *
@@ -74,17 +74,17 @@ async function acheck(name, fn) {
 }
 
 // =====================================================================
-// Part 1 — H1: guards.isTrustedInputEvent() pure predicate.
+// Part 1 - H1: guards.isTrustedInputEvent() pure predicate.
 // =====================================================================
 
 function testIsTrustedPredicate() {
-  console.log('\n[1] H1 — guards.isTrustedInputEvent() pure predicate');
+  console.log('\n[1] H1 - guards.isTrustedInputEvent() pure predicate');
 
   check('a real (isTrusted:true) event -> true', () => {
     assert.strictEqual(guards.isTrustedInputEvent({ isTrusted: true }), true);
   });
 
-  check('a synthetic (isTrusted:false) event -> false — the exact page-forged-KeyboardEvent case', () => {
+  check('a synthetic (isTrusted:false) event -> false - the exact page-forged-KeyboardEvent case', () => {
     assert.strictEqual(guards.isTrustedInputEvent({ isTrusted: false }), false);
   });
 
@@ -97,15 +97,15 @@ function testIsTrustedPredicate() {
     assert.strictEqual(guards.isTrustedInputEvent(undefined), false);
   });
 
-  check('isTrusted as a truthy non-boolean (e.g. the string "true") -> false — must be the literal boolean true, not merely truthy (defends against a forged event object with isTrusted set as a plain writable property)', () => {
+  check('isTrusted as a truthy non-boolean (e.g. the string "true") -> false - must be the literal boolean true, not merely truthy (defends against a forged event object with isTrusted set as a plain writable property)', () => {
     assert.strictEqual(guards.isTrustedInputEvent({ isTrusted: 'true' }), false);
     assert.strictEqual(guards.isTrustedInputEvent({ isTrusted: 1 }), false);
   });
 }
 
 // =====================================================================
-// Part 2 — H1/H2 static source-shape checks on terminal.js. Documented
-// as a WEAKER substitute for a full DOM-level behavioral test — see this
+// Part 2 - H1/H2 static source-shape checks on terminal.js. Documented
+// as a WEAKER substitute for a full DOM-level behavioral test - see this
 // file's header comment for why terminal.js has no such harness in this
 // project. Still a real regression guard: this fails if the guard call is
 // ever silently removed from one of these four sites, or if the test hook
@@ -113,7 +113,7 @@ function testIsTrustedPredicate() {
 // =====================================================================
 
 function testTerminalSourceShape() {
-  console.log('\n[2] H1/H2 static source-shape checks on terminal.js (documented DOM-test-harness limitation — see header)');
+  console.log('\n[2] H1/H2 static source-shape checks on terminal.js (documented DOM-test-harness limitation - see header)');
 
   const src = fs.readFileSync(TERMINAL_PATH, 'utf8');
 
@@ -161,7 +161,7 @@ function testTerminalSourceShape() {
 }
 
 // =====================================================================
-// Part 3 — registry-cannot-extend-model-vocabulary. Loads the real
+// Part 3 - registry-cannot-extend-model-vocabulary. Loads the real
 // service-worker.js via vm (same pattern as m3_nav_lane_isolation.test.js)
 // and captures BOTH lanes' actual request bodies, checking their schema
 // enums are exactly the fixed, documented sets with zero registry command
@@ -228,17 +228,17 @@ function buildSwInstance() {
 }
 
 // The M3-NEW command surface (design §6/§11's registry entries added by
-// this build — deliberately excludes the pre-existing M1/M2 page-lane
+// this build - deliberately excludes the pre-existing M1/M2 page-lane
 // primitives like "scroll" that legitimately, coincidentally, share a word
 // with a deterministic engine verb name; that overlap predates M3 and is
 // not what this test is guarding against). None of these strings may EVER
-// appear as a value in either schema's `action` enum — if one did, it would
+// appear as a value in either schema's `action` enum - if one did, it would
 // mean the DSL registry had somehow grown the set of actions a model is
 // allowed to emit, exactly the thing design doc §6's hard DSL locks forbid.
 const M3_NEW_COMMAND_NAMES = ['go', 'alias', 'unalias', 'macro', 'unmacro', 'origins', 'dev', 'man'];
 
 async function testVocabularyLock() {
-  console.log('\n[3] registry-cannot-extend-model-vocabulary — both lanes\' schema enums, captured live from the real service worker');
+  console.log('\n[3] registry-cannot-extend-model-vocabulary - both lanes\' schema enums, captured live from the real service worker');
 
   await acheck('page-lane schema enum is EXACTLY the 8 fixed primitives, unchanged from M1/M2, no NEW M3 command name present', async () => {
     const sw = buildSwInstance();
@@ -265,7 +265,7 @@ async function testVocabularyLock() {
     }
   });
 
-  check('neither RESPONSE_SCHEMA source in service-worker.js references LFL.registry or LFL.commandRegistry at all — the model-facing schema is a hardcoded constant, structurally decoupled from the DSL registry', () => {
+  check('neither RESPONSE_SCHEMA source in service-worker.js references LFL.registry or LFL.commandRegistry at all - the model-facing schema is a hardcoded constant, structurally decoupled from the DSL registry', () => {
     const src = fs.readFileSync(SW_PATH, 'utf8');
     assert.ok(!src.includes('LFL.registry'), 'service-worker.js must not reference the DSL registry module');
     assert.ok(!src.includes('commandRegistry'), 'service-worker.js must not reference the command registry instance');
@@ -275,7 +275,7 @@ async function testVocabularyLock() {
 // ---- run everything ----
 
 async function main() {
-  console.log('tests/m3_hardening.test.js — H1 isTrusted + H2 dev-hook + vocabulary lock (M3)');
+  console.log('tests/m3_hardening.test.js - H1 isTrusted + H2 dev-hook + vocabulary lock (M3)');
   testIsTrustedPredicate();
   testTerminalSourceShape();
   await testVocabularyLock();

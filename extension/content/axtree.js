@@ -1,5 +1,5 @@
 /**
- * axtree.js — indexed interactive-element extractor.
+ * axtree.js - indexed interactive-element extractor.
  *
  * Walks the DOM for interactive elements, filters to visible-only, and produces
  * a numbered list ("axtree") the local LLM can reference by integer index instead
@@ -9,7 +9,7 @@
  *
  * Visibility/interactivity heuristics are a deliberately simplified reimplementation
  * of the ideas in nanobrowser's content script DOM indexer
- * (reference/nanobrowser/chrome-extension/public/buildDomTree.js — Apache-2.0):
+ * (reference/nanobrowser/chrome-extension/public/buildDomTree.js - Apache-2.0):
  *   - isElementVisible: offsetWidth/offsetHeight + computed display/visibility/opacity
  *   - isTopElement: elementFromPoint occlusion check at the element's center, so an
  *     element hidden behind a modal/overlay is not offered to the model
@@ -20,17 +20,17 @@
  * M2.4 (iframe / shadow-DOM aware extraction): the extractor now also walks
  * SAME-ORIGIN iframes and OPEN shadow roots reachable from the top document,
  * recursively, so the model isn't blind to real controls living inside them
- * (and so the credential/click guards — which re-resolve against the live
- * element's OWN document/window, see frameOptsFor() below — apply there too).
+ * (and so the credential/click guards - which re-resolve against the live
+ * element's OWN document/window, see frameOptsFor() below - apply there too).
  * HARD RULE, unchanged from the M1 scope note this replaces: cross-origin
  * iframes are never entered (same-origin policy makes this both correct and
- * unavoidable — `iframe.contentDocument` is null for them); a marker note is
+ * unavoidable - `iframe.contentDocument` is null for them); a marker note is
  * emitted instead so the model/human at least knows one exists. CLOSED shadow
- * roots are never entered either — `el.shadowRoot` is null from outside a
+ * roots are never entered either - `el.shadowRoot` is null from outside a
  * closed root by design, so there is nothing to walk into; this extractor
  * only ever sees what `el.shadowRoot` actually exposes, same as any other
  * page script would. We do NOT reimplement nanobrowser's getEventListeners()
- * introspection or highlight-overlay rendering — out of scope.
+ * introspection or highlight-overlay rendering - out of scope.
  */
 (function () {
   'use strict';
@@ -67,7 +67,7 @@
   // ---- per-element document/window resolution (M2.4) ----
   //
   // Elements reached through a same-origin iframe belong to THAT iframe's own
-  // Document/Window, not the top document's — using the ambient `document`/
+  // Document/Window, not the top document's - using the ambient `document`/
   // `window`/`getComputedStyle`/`location` globals against such an element
   // would silently read/compare against the WRONG frame's viewport size,
   // baseURI, and origin. Every DOM-reading helper below that used to assume
@@ -99,13 +99,13 @@
           !el.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true })) {
         return false;
       }
-    } catch (_e) { /* checkVisibility unsupported — rely on the checks above */ }
+    } catch (_e) { /* checkVisibility unsupported - rely on the checks above */ }
     return true;
   }
 
   // nanobrowser's isTopElement, simplified to a single center-point occlusion
   // check. M2.4: the point/viewport/hit-test now all come from the element's
-  // OWN document/window — getBoundingClientRect() on an in-iframe element is
+  // OWN document/window - getBoundingClientRect() on an in-iframe element is
   // relative to THAT iframe's viewport, not the top document's, so mixing
   // coordinate spaces (e.g. top-level elementFromPoint against an iframe-
   // relative rect) would silently misclassify occlusion for framed content.
@@ -202,7 +202,7 @@
     return '';
   }
 
-  // Accessible-name approximation (not a full ARIA accname computation — good
+  // Accessible-name approximation (not a full ARIA accname computation - good
   // enough to disambiguate elements for the model without shipping page text
   // beyond the token budget).
   function accessibleName(el) {
@@ -218,7 +218,7 @@
       if (placeholder) return placeholder;
       // Deliberately NO el.value fallback here (see security review SHOULD-FIX
       // #5): an unlabeled field's live value would otherwise leak into the
-      // prompt sent to the local model — worst case a password-manager-filled
+      // prompt sent to the local model - worst case a password-manager-filled
       // password field with no aria-label/placeholder. type/placeholder/name
       // are enough to disambiguate a field for the model without ever
       // shipping its current value.
@@ -249,7 +249,7 @@
       try {
         const abs = new URL(href, ownerDoc(el).baseURI);
         bits.push(`href-origin=${abs.origin}`);
-      } catch (_e) { /* relative/invalid href, e.g. javascript: or # — skip */ }
+      } catch (_e) { /* relative/invalid href, e.g. javascript: or # - skip */ }
     }
     if (el.ownerDocument !== document) bits.push('in-iframe');
     if (el.getRootNode && el.getRootNode() !== el.ownerDocument && el.getRootNode() !== document) bits.push('in-shadow-root');
@@ -278,7 +278,7 @@
   }
 
   // Recursively collects interactive elements from `root` (a Document or
-  // ShadowRoot), then its open shadow roots, then its same-origin iframes —
+  // ShadowRoot), then its open shadow roots, then its same-origin iframes -
   // appending to the shared `rawEntries`/`notes` arrays in document order so
   // the later index-assignment pass stays simple and stable.
   function collectFrom(root, rawEntries, notes, depth) {
@@ -291,8 +291,8 @@
     }
 
     // Open shadow roots reachable from this root. `el.shadowRoot` is null
-    // for closed roots when read from outside — including from our own
-    // content script, which never attached them — so this walk naturally
+    // for closed roots when read from outside - including from our own
+    // content script, which never attached them - so this walk naturally
     // never enters a closed root; there is nothing more to do to "skip" it.
     const allEls = root.querySelectorAll('*');
     for (const el of allEls) {
@@ -309,7 +309,7 @@
         try {
           doc = f.contentDocument;
         } catch (_e) {
-          doc = null; // cross-origin — SecurityError or null, either way: skip
+          doc = null; // cross-origin - SecurityError or null, either way: skip
         }
         if (doc) {
           collectFrom(doc, rawEntries, notes, depth + 1);
@@ -352,7 +352,7 @@
    * iframe markers) to the numbered-list text the LLM sees, hard-capped at
    * maxChars (~800 tokens ≈ 3200 chars per spec), with explicit truncation
    * notice. Notes are only appended if the indexed-element list itself
-   * wasn't already truncated — actionable elements take priority over
+   * wasn't already truncated - actionable elements take priority over
    * informational markers within the fixed budget.
    */
   function serialize(entries, maxChars, notes) {
@@ -404,7 +404,7 @@
 
   // M2.4: per-frame guard context. An element resolved from inside a
   // same-origin iframe must have click/fill/select guards (guards.js) run
-  // against THAT iframe's own baseURI/origin, not the top page's — this is
+  // against THAT iframe's own baseURI/origin, not the top page's - this is
   // the "re-run the guard on the live element in its own document context"
   // requirement. Elements from the top document (the overwhelmingly common
   // case) get identical values to the old ambient-global behavior, so this

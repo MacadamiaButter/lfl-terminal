@@ -1,19 +1,19 @@
 /**
- * terminal.css — canonical source for the overlay's dark amber/slate terminal
+ * terminal.css - canonical source for the overlay's dark amber/slate terminal
  * aesthetic. Because the overlay renders inside a CLOSED shadow root (to limit
- * page CSS interference — see terminal.js), this file is not loaded by the
+ * page CSS interference - see terminal.js), this file is not loaded by the
  * manifest against the page; terminal.js carries a synced copy in its CSS_TEXT
  * constant that it injects directly into the shadow root via a <style> element.
  * TODO(M2): eliminate the duplication (e.g. constructable stylesheet shared via
- * a tiny build step) — no-build-step is a hard M1 constraint, so a manual sync
+ * a tiny build step) - no-build-step is a hard M1 constraint, so a manual sync
  * is the pragmatic tradeoff for the spike. Keep this file and CSS_TEXT in sync.
  *
  * M2.1: the host element (:host) also carries a `popover="manual"` attribute
  * (set in terminal.js) to promote it into the browser top layer. The popover
  * UA stylesheet's own defaults (border/padding/background/margin/inset/width/
  * height, plus a `display:none !important` while not shown) are overridden
- * here by explicit author-origin values on :host, which — because this rule
- * targets the host element from inside its OWN shadow tree — wins the
+ * here by explicit author-origin values on :host, which - because this rule
+ * targets the host element from inside its OWN shadow tree - wins the
  * cascade against the UA popover defaults for that same element.
  */
 
@@ -48,7 +48,7 @@
 
 /**
  * funpack v1 `theme` command (extension/content/funpack.js + terminal.js's
- * _applyTheme()) — a `.lfl-theme-<name>` class toggled on THIS element (the
+ * _applyTheme()) - a `.lfl-theme-<name>` class toggled on THIS element (the
  * shadow root's own top-level container, .lfl-panel) that overrides the
  * --lfl-* custom properties every rule below reads (with the original
  * hardcoded colors kept as the var() fallback, so "default"/no class == the
@@ -57,9 +57,9 @@
  * them needing its own override block.
  */
 /* M4b verify fix (LOW-3): --lfl-dim-input exists because the ORIGINAL
-   (pre-theme, 05b1f40) styling used TWO different dim colors — #5d7290 for
+   (pre-theme, 05b1f40) styling used TWO different dim colors - #5d7290 for
    the titlebar budget text and #4b5768 for the input placeholder/readonly
-   states — and funpack v1's single --lfl-dim variable collapsed them,
+   states - and funpack v1's single --lfl-dim variable collapsed them,
    silently shifting the default theme's placeholder to #5d7290 at steady
    state (the theme class is always applied by _loadTheme()). Splitting the
    input dim back out restores the default theme to a byte-identical match
@@ -217,7 +217,7 @@
   color: var(--lfl-ok, #7ee787);
 }
 
-/* funpack v1 MOTD (terminal.js's _maybeShowMotd()) — one dim, italic line,
+/* funpack v1 MOTD (terminal.js's _maybeShowMotd()) - one dim, italic line,
    shown at most once per calendar day on overlay open. */
 .lfl-line.lfl-motd {
   color: var(--lfl-dim, #5d7290);
@@ -225,9 +225,9 @@
 }
 
 /* M4b fun pack v2 (snake/2048, extension/content/games.js + terminal.js's
-   _enterProgram()) — the single <pre> element a running program's frame
+   _enterProgram()) - the single <pre> element a running program's frame
    text is written into (frameEl.textContent = ...) on every redraw. Plain
-   monospace/pre-wrap, no extra decoration — the game's own box-drawing
+   monospace/pre-wrap, no extra decoration - the game's own box-drawing
    characters/ASCII grid supply all the visual structure. */
 .lfl-frame {
   margin: 0 0 4px 0;

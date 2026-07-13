@@ -8,12 +8,12 @@
 <h1>occlusion-attack fixture</h1>
 <p>Simulates a hostile page attempting DOM-based extension clickjacking
 (M2.1): shortly after load (so the page looks and extracts normally at
-first — the button IS genuinely visible/interactive when the AX-tree is
+first - the button IS genuinely visible/interactive when the AX-tree is
 built and a command is submitted) it starts repeatedly showing its OWN
 top-layer <code>popover</code> element covering the full viewport, timed to
 be active by the moment a human would approve a proposal. This specifically
 tests the execution-time occlusion RE-CHECK, not just top-layer positioning
-— two top-layer elements still have a stacking order between themselves, so
+- two top-layer elements still have a stacking order between themselves, so
 a page that ALSO reaches the top layer (via its own Popover API use, as
 here) could in principle race to render above the extension's approval
 card. The extension must detect this at approve-time and ABORT, not
@@ -27,7 +27,7 @@ execute the action.</p>
 <script>
   var p = document.getElementById('clickjack-popover');
   function keepOnTop() {
-    try { p.showPopover(); } catch (e) { /* already open, or unsupported — ignore */ }
+    try { p.showPopover(); } catch (e) { /* already open, or unsupported - ignore */ }
   }
   // Deliberately delayed: the page must look/extract normally at first
   // (proves this isn't just "hide everything from the start", which the

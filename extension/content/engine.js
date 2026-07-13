@@ -1,12 +1,12 @@
 /**
- * engine.js — deterministic command engine.
+ * engine.js - deterministic command engine.
  *
  * Every command handled here NEVER touches the LLM. tryDeterministic() returns
  * null when the command doesn't match a known verb, which tells terminal.js to
  * fall through to the LLM path (engine.js knows nothing about the LLM).
  *
  * M3: tryDeterministic()'s dispatch chain below is DELIBERATELY unchanged
- * from M1/M2 — same regex branches, same handlers, same behavior — see
+ * from M1/M2 - same regex branches, same handlers, same behavior - see
  * registry.js's header comment for why (it's the one part of this build
  * with no direct unit-test coverage of its own; only the separately-run
  * Playwright battery exercises it end to end, and rewriting its dispatch
@@ -16,11 +16,11 @@
  * createRegistry()) that every command below registers itself into, used
  * ONLY for `help`/`man <cmd>` text generation and for the
  * registry-cannot-extend-model-vocabulary unit test's enumeration of known
- * command names — it never drives dispatch. New M3 Terminal-level commands
+ * command names - it never drives dispatch. New M3 Terminal-level commands
  * (go/alias/unalias/macro/unmacro/origins/dev/man) are registered here too,
  * for the same documentation purpose, even though terminal.js dispatches
  * them itself (they need chrome.* / async access this file's synchronous
- * tryDeterministic() contract doesn't have — see terminal.js's header
+ * tryDeterministic() contract doesn't have - see terminal.js's header
  * comment).
  */
 (function () {
@@ -44,50 +44,50 @@
   reg.register({ name: 'help', argSpec: 'help', help: 'this text' });
   reg.register({ name: 'man', argSpec: 'man <cmd>', help: 'detailed usage for one command (M3)' });
   reg.register({ name: 'clear', argSpec: 'clear', help: 'clear the output pane' });
-  // M3 terminal-browser commands (design doc §2/§5/§6) — dispatched by
+  // M3 terminal-browser commands (design doc §2/§5/§6) - dispatched by
   // terminal.js, see this file's header comment.
-  reg.register({ name: 'go', argSpec: 'go <destination>', help: 'navigate anywhere — literal URL/domain, a defined alias, or (as a last resort) the local model resolves a destination from your typed words alone. First visit to a new origin (or any model-resolved destination) asks for confirmation.' });
+  reg.register({ name: 'go', argSpec: 'go <destination>', help: 'navigate anywhere - literal URL/domain, a defined alias, or (as a last resort) the local model resolves a destination from your typed words alone. First visit to a new origin (or any model-resolved destination) asks for confirmation.' });
   reg.register({ name: 'alias', argSpec: 'alias <name> = <command>', help: 'define a single-command shortcut, e.g. alias wiki = go en.wikipedia.org (M3)' });
   reg.register({ name: 'unalias', argSpec: 'unalias <name>', help: 'remove a defined alias (M3)' });
   reg.register({ name: 'macro', argSpec: 'macro <name> = <cmd1> && <cmd2>...', help: 'define a named && chain, depth-1 (a macro may not reference another macro) (M3)' });
   reg.register({ name: 'unmacro', argSpec: 'unmacro <name>', help: 'remove a defined macro (M3)' });
   reg.register({ name: 'origins', argSpec: 'origins', help: 'list origins visited by this tab this session (M3)' });
-  reg.register({ name: 'dev', argSpec: 'dev on | dev off', help: 'toggle the data-lfl-state test hook (off by default — see docs/threat-model.md H2) (M3)' });
-  // M4a "friction trio" — three deterministic tools that never call the
+  reg.register({ name: 'dev', argSpec: 'dev on | dev off', help: 'toggle the data-lfl-state test hook (off by default - see docs/threat-model.md H2) (M3)' });
+  // M4a "friction trio" - three deterministic tools that never call the
   // local model, registered here for help/man text same as everything
   // above; dispatched inside tryDeterministic() below except `here`, which
   // is chain-compatible and ALSO dispatched inside tryDeterministic() (it
   // only needs the terminal's already-cached rate-limit budget snapshot via
-  // state.rlBudgetCache — see doHere()'s comment — not a fresh async call,
+  // state.rlBudgetCache - see doHere()'s comment - not a fresh async call,
   // so unlike go/alias/macro/dev/origins it does NOT need terminal.js's
   // chrome.*-capable dispatch path).
   reg.register({ name: 'ls', argSpec: 'ls | ls links [filter] | ls buttons [filter] | ls fields [filter]', help: 'numbered listing of visible links/buttons/fields on the page (M4a)' });
-  reg.register({ name: 'click', argSpec: 'click <N>', help: 'click the ls-listing item numbered N — same hard blocks as an approved LLM click, no approval card (M4a)' });
-  reg.register({ name: 'fill', argSpec: 'fill <N> with <text> | fill <label> with <text>', help: 'fill the ls-listing field numbered N, or matched by its label — credential fields still blocked (M4a)' });
+  reg.register({ name: 'click', argSpec: 'click <N>', help: 'click the ls-listing item numbered N - same hard blocks as an approved LLM click, no approval card (M4a)' });
+  reg.register({ name: 'fill', argSpec: 'fill <N> with <text> | fill <label> with <text>', help: 'fill the ls-listing field numbered N, or matched by its label - credential fields still blocked (M4a)' });
   reg.register({ name: 'read', argSpec: 'read', help: 'extract the page\'s main readable content (article/main, or the largest visible text block) (M4a)' });
   reg.register({ name: 'find', argSpec: 'find <text> | find', help: 'search visible page text and scroll to it; bare find advances to the next match (M4a)' });
   reg.register({ name: 'here', argSpec: 'here', help: 'compact orientation: origin, element counts, search/pagination hints, suggested next commands (M4a)' });
-  // funpack v1 (extension/content/funpack.js) — fortune/stats/theme/cowsay
+  // funpack v1 (extension/content/funpack.js) - fortune/stats/theme/cowsay
   // are dispatched by terminal.js, not this file's tryDeterministic() chain,
   // because they need chrome.storage.local access (persisted theme choice,
   // stats counters, MOTD day) this file's synchronous DOM-only contract
-  // doesn't have — same posture as go/alias/macro/unmacro/origins/dev above.
+  // doesn't have - same posture as go/alias/macro/unmacro/origins/dev above.
   // Registered here purely for help/man text and vocabulary enumeration
   // (including did-you-mean's candidate list, via LFL.commandRegistry.names()).
-  // MOTD itself has no typed command name to register — it is shown
+  // MOTD itself has no typed command name to register - it is shown
   // automatically, at most once per calendar day, when the overlay is opened.
   reg.register({ name: 'fortune', argSpec: 'fortune', help: 'print one local-first/privacy one-liner or command tip (funpack v1)' });
   reg.register({ name: 'stats', argSpec: 'stats', help: 'this session\'s command counters, including the share that never touched the model (funpack v1)' });
   reg.register({ name: 'theme', argSpec: 'theme [name]', help: 'switch (or list) the overlay color theme: default, phosphor, amber, paper (funpack v1)' });
   reg.register({ name: 'cowsay', argSpec: 'cowsay <text>', help: 'classic ASCII cow with a word-wrapped, 40-col speech bubble (funpack v1)' });
-  // M4b fun pack v2 (extension/content/games.js) — snake/2048 are
+  // M4b fun pack v2 (extension/content/games.js) - snake/2048 are
   // dispatched by terminal.js's program-mode runner (_enterProgram, design
   // doc §3), not this file's tryDeterministic() chain, for the same reason
   // go/alias/dev/fortune/etc. above are: they need chrome.storage.local
   // (high scores) and setInterval (the tick), neither of which this file's
   // synchronous DOM-only contract has. Registered here purely for help/man
   // text and vocabulary enumeration, same as the funpack v1 block above.
-  // Never allowed inside a `&&` chain or a macro body — see registry.js's
+  // Never allowed inside a `&&` chain or a macro body - see registry.js's
   // GAME_NAMES/RESERVED_NAMES and terminal.js's _handleGameCommand().
   reg.register({ name: 'snake', argSpec: 'snake', help: 'classic snake - arrows to move, q or Esc to quit (fun pack v2)' });
   reg.register({ name: '2048', argSpec: '2048', help: '2048 - arrows to slide/merge, q or Esc to quit (fun pack v2)' });
@@ -97,14 +97,14 @@
     'deterministic commands (never call the local model):',
     reg.helpText(),
     '',
-    '`cmd1 && cmd2 && ...` chains up to 5 ordinary commands (M3) — quote-aware,',
+    '`cmd1 && cmd2 && ...` chains up to 5 ordinary commands (M3) - quote-aware,',
     'any error/block/rejection/Esc clears the rest of the chain.',
     '',
     'a bare number (e.g. "3") after `ls` opens a link, clicks a button, or',
     'names a field to fill, by its listed number (M4a).',
     '',
     'a mistyped command name (e.g. "serach") gets a "did you mean" suggestion',
-    'instead of being sent to the local model (M4a) — prefix with "ask" to',
+    'instead of being sent to the local model (M4a) - prefix with "ask" to',
     'force something to the model regardless of how close it looks to a',
     'known command name.',
     '',
@@ -136,30 +136,30 @@
   function doSearch(query) {
     const input = findSearchInput();
     if (!input) {
-      return { output: 'no search box found — try: ask <what you want>' };
+      return { output: 'no search box found - try: ask <what you want>' };
     }
     LFL.executor.fillNative(input, query);
     const form = input.form;
     if (form) {
       // Same posture as doOpen()'s cross-origin handling: a search form can
       // point `action` at a different origin than the page it's on. Don't
-      // auto-submit that silently — print it instead. See SHOULD-FIX #7 in
+      // auto-submit that silently - print it instead. See SHOULD-FIX #7 in
       // the security review. form.action (the property, not the attribute)
       // is always an absolute URL, defaulting to the page's own URL when no
       // action attribute is set.
       let actionOrigin = null;
       try {
         actionOrigin = new URL(form.action).origin;
-      } catch (_e) { /* unparseable action — treat as same-origin, browser would too */ }
+      } catch (_e) { /* unparseable action - treat as same-origin, browser would too */ }
       if (actionOrigin && actionOrigin !== location.origin) {
         return {
-          output: `filled search box with "${query}" but the form submits cross-origin (${actionOrigin}) — not auto-submitting; press Enter in the field yourself if you want to proceed`,
+          output: `filled search box with "${query}" but the form submits cross-origin (${actionOrigin}) - not auto-submitting; press Enter in the field yourself if you want to proceed`,
         };
       }
       if (typeof form.requestSubmit === 'function') form.requestSubmit();
       else form.submit();
       // FIX 1: form submission is a navigation-initiating action (same
-      // reasoning as doOpen's same-origin branch above) — tag it. The
+      // reasoning as doOpen's same-origin branch above) - tag it. The
       // cross-origin-form branch just above this one does NOT submit (it
       // only prints a message), so it is left untagged.
       return { output: `submitted search for "${query}"`, navInitiated: true };
@@ -168,7 +168,7 @@
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', bubbles: true }));
     input.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', bubbles: true }));
     // FIX 1: the synthetic Enter dispatch is the documented mechanism a
-    // JS-driven (formless) search box uses to submit-and-navigate — treated
+    // JS-driven (formless) search box uses to submit-and-navigate - treated
     // identically to the form.requestSubmit()/form.submit() branch above.
     return { output: `filled search box with "${query}" and pressed Enter`, navInitiated: true };
   }
@@ -211,7 +211,7 @@
       // actually initiates a same-document-unloading navigation. Tag the
       // result so terminal.js's _dispatchSegment() skips the synchronous
       // queue advance and instead lets the arrival check on the NEXT
-      // injection drive continuation — same posture `go` already has. The
+      // injection drive continuation - same posture `go` already has. The
       // cross-origin branch below does NOT navigate (it only stores a
       // pending confirm and prints a message), so it is deliberately left
       // untagged. See docs/threat-model.md's "Queue risks" section for the
@@ -228,10 +228,10 @@
     state.pendingCrossOriginUrl = null;
     location.href = url;
     // FIX 1: navigates (possibly cross-origin, confirming a previously-seen
-    // cross-origin link) — tag it. Unlike `open`'s same-origin branch, this
+    // cross-origin link) - tag it. Unlike `open`'s same-origin branch, this
     // does NOT update the queue's recorded expectedOrigin, so a cross-origin
     // `open!` inside a chain halts the queue fail-closed on the next
-    // injection's arrival check (same outcome as a chain-internal `back` —
+    // injection's arrival check (same outcome as a chain-internal `back` -
     // see docs/threat-model.md).
     return { output: `opening ${url}`, navInitiated: true };
   }
@@ -276,12 +276,12 @@
   }
 
   // =====================================================================
-  // M4a friction trio — three deterministic tools (`ls`+numbered actions,
+  // M4a friction trio - three deterministic tools (`ls`+numbered actions,
   // `read`/`find`, `here`+did-you-mean). Reuses axtree.js's index->element
   // map verbatim (LFL.axtree.build()/resolve()) and executor.js's
-  // execute() verbatim for click/fill-by-index — no parallel element-
+  // execute() verbatim for click/fill-by-index - no parallel element-
   // indexing or guard logic is introduced here. Functions below are split
-  // into PURE helpers (no DOM reads — directly unit-testable, see
+  // into PURE helpers (no DOM reads - directly unit-testable, see
   // tests/m4_friction.test.js) and DOM-touching handlers that call them.
   // =====================================================================
 
@@ -301,7 +301,7 @@
   // taxonomy: anything not a link or button-like control falls into
   // "fields" (textbox/combobox/checkbox/radio/switch/searchbox/select/
   // textarea/contenteditable and other less-common interactive roles like
-  // tab/menuitem/slider). This is a build decision, not an axtree change —
+  // tab/menuitem/slider). This is a build decision, not an axtree change -
   // fill's own tag/isContentEditable/isPasswordField checks in executor.js
   // remain the real gate on what's actually fillable; ls's "fields" bucket
   // is only a display grouping.
@@ -388,14 +388,14 @@
       `links: ${s.linkCount || 0}  buttons: ${s.buttonCount || 0}  fields: ${s.fieldCount || 0}  forms: ${s.formCount || 0}  tables: ${s.tableCount || 0}`,
       `search box: ${s.searchBoxPresent ? 'yes' : 'no'}`,
       `pagination: ${s.paginationHint ? 'next-page link detected' : 'none detected'}`,
-      `listing context: ${s.listingActive ? `active (${s.listingCount} items — see \`ls\`)` : 'none — run `ls`'}`,
+      `listing context: ${s.listingActive ? `active (${s.listingCount} items - see \`ls\`)` : 'none - run `ls`'}`,
       `budget: llm ${b.llmRemaining}/${b.llmMax} · actions ${b.actionRemaining}/${b.actionMax}${b.paused ? ' · PAUSED' : ''}`,
       `try: ${(suggestions || []).join(' | ')}`,
     ].join('\n');
   }
 
   // =====================================================================
-  // DOM-touching handlers (thin — delegate real work to the pure helpers
+  // DOM-touching handlers (thin - delegate real work to the pure helpers
   // above wherever possible)
   // =====================================================================
 
@@ -433,28 +433,28 @@
   }
 
   function resolveListingEntry(state, n) {
-    if (!state.listingContext) return { error: 'no listing — run `ls` first' };
+    if (!state.listingContext) return { error: 'no listing - run `ls` first' };
     const entry = state.listingContext.entries.find((e) => e.index === n);
-    if (!entry) return { error: `no such item: [${n}] — run \`ls\` again` };
+    if (!entry) return { error: `no such item: [${n}] - run \`ls\` again` };
     return { entry };
   }
 
-  // `open <N>` — mirrors doOpen()'s same-origin/cross-origin/non-http(s)
-  // posture exactly (same navInitiated/pendingCrossOriginUrl semantics —
+  // `open <N>` - mirrors doOpen()'s same-origin/cross-origin/non-http(s)
+  // posture exactly (same navInitiated/pendingCrossOriginUrl semantics -
   // reused, not reimplemented), resolved against the LIVE element from the
   // listing context's map instead of a fresh link-text search. A link
   // living inside a same-origin iframe is intentionally still navigated via
   // the TOP document's location (same posture as doOpen(), which only ever
-  // considered top-document links in the first place) — a build decision,
+  // considered top-document links in the first place) - a build decision,
   // not an oversight; see this build's final report.
   function doOpenIndex(n, state) {
     const found = resolveListingEntry(state, n);
     if (found.error) return { output: found.error };
     if (classifyEntry(found.entry) !== 'link') {
-      return { output: `[${n}] is not a link — try \`click ${n}\`` };
+      return { output: `[${n}] is not a link - try \`click ${n}\`` };
     }
     const el = LFL.axtree.resolve(state.listingContext.map, n);
-    if (!el) return { output: `[${n}] is stale or no longer visible — re-run \`ls\`` };
+    if (!el) return { output: `[${n}] is stale or no longer visible - re-run \`ls\`` };
     const href = typeof el.getAttribute === 'function' ? el.getAttribute('href') : null;
     if (!href) return { output: `[${n}] has no usable href` };
     const opts = (window.LFL.axtree && typeof LFL.axtree.frameOptsFor === 'function') ? LFL.axtree.frameOptsFor(el) : undefined;
@@ -472,7 +472,7 @@
     if (url.origin === origin) {
       location.href = url.href;
       // Same reasoning as doOpen()'s same-origin branch (see its own
-      // comment) — this initiates a real navigation, so the chain queue
+      // comment) - this initiates a real navigation, so the chain queue
       // must defer its advance to the next injection's arrival check.
       return { output: `opening [${n}] "${found.entry.name}" -> ${url.href}`, navInitiated: true };
     }
@@ -480,14 +480,14 @@
     return { output: `cross-origin link: ${url.href}\ntype "open!" to confirm navigation off this site` };
   }
 
-  // `click <N>` — reuses LFL.executor.execute() verbatim, so every hard
+  // `click <N>` - reuses LFL.executor.execute() verbatim, so every hard
   // block (credential guard is fill/select-only, but the click-target
   // scheme/origin guard and nav-watch arming) applies exactly as it does
   // for an APPROVED LLM click. Deliberately no approval card: a
   // deterministic, user-typed `click <N>` is direct user intent (same
-  // posture `search`/`open` already have) — the hard blocks are what stay
+  // posture `search`/`open` already have) - the hard blocks are what stay
   // unconditional, not the approval card. NOT tagged navInitiated even when
-  // the click happens to navigate — executor.js's click branch has no way
+  // the click happens to navigate - executor.js's click branch has no way
   // to know in advance whether el.click() will trigger a navigation (unlike
   // engine.js's own doOpen(), which controls location.href directly), so
   // chain continuation is left to nav-watch's re-injection + the queue's own
@@ -508,18 +508,18 @@
   }
 
   function doFillLabel(label, text, state) {
-    if (!state.listingContext) return { output: 'no listing — run `ls` first' };
+    if (!state.listingContext) return { output: 'no listing - run `ls` first' };
     const fields = fillableFieldEntries(state.listingContext.entries);
     const res = pickLabelMatch(fields, label);
-    if (res.none) return { output: `no fillable field matching "${label}" — try \`ls fields\`` };
+    if (res.none) return { output: `no fillable field matching "${label}" - try \`ls fields\`` };
     if (res.ambiguous) {
       const candidates = res.ambiguous.map(formatListingEntry).join('\n');
-      return { output: `ambiguous field "${label}" — candidates:\n${candidates}\nbe more specific, or use \`fill <N> with ...\`` };
+      return { output: `ambiguous field "${label}" - candidates:\n${candidates}\nbe more specific, or use \`fill <N> with ...\`` };
     }
     return doFillIndex(res.match.index, text, state);
   }
 
-  // Bare `<N>` — default action by the listing entry's type. Never reached
+  // Bare `<N>` - default action by the listing entry's type. Never reached
   // while awaiting approval: the input is readonly in that mode (see
   // terminal.js's proposalEl/inputEl.readOnly handling), so this branch is
   // only ever dispatched from idle mode by construction, not by an explicit
@@ -543,10 +543,10 @@
       const el = document.querySelector(sel);
       if (el && LFL.axtree.isElementVisible(el)) return el;
     }
-    // Fallback: largest-visible-text-block heuristic — simple and honest,
+    // Fallback: largest-visible-text-block heuristic - simple and honest,
     // not a real readability algorithm. Deliberately does not try to dedupe
     // nested candidates (a child block's text is also counted inside its
-    // parent's) — picking by raw textContent length still tends to find the
+    // parent's) - picking by raw textContent length still tends to find the
     // real content region on ordinary pages, and overengineering this was
     // explicitly out of scope for M4a.
     const candidates = document.querySelectorAll('div,section,td');
@@ -611,7 +611,7 @@
   }
 
   // Scrolls the match into view and applies a temporary inline style
-  // highlight, restored after FIND_HIGHLIGHT_MS — no stylesheet is injected
+  // highlight, restored after FIND_HIGHLIGHT_MS - no stylesheet is injected
   // into the page (H3-style posture: this extension never writes markup/CSS
   // rules a page could observe as a persistent artifact).
   function highlightAndScrollMatch(node) {
@@ -633,7 +633,7 @@
     if (!q) {
       const ctx = state.findContext;
       if (!ctx || !ctx.matches || ctx.matches.length === 0) {
-        return { output: 'no active find — try: find <text>' };
+        return { output: 'no active find - try: find <text>' };
       }
       ctx.idx = (ctx.idx + 1) % ctx.matches.length;
       highlightAndScrollMatch(ctx.matches[ctx.idx]);
@@ -682,8 +682,8 @@
     };
   }
 
-  // `here` needs the rate-limit budget line, but — unlike go/alias/macro/
-  // dev/origins — does NOT need a fresh async SW round trip to get it:
+  // `here` needs the rate-limit budget line, but - unlike go/alias/macro/
+  // dev/origins - does NOT need a fresh async SW round trip to get it:
   // terminal.js mirrors its already-cached snapshot onto state.rlBudgetCache
   // (see terminal.js's constructor / _rlSend()) precisely so `here` can stay
   // fully synchronous and chain-compatible, going through this file's
@@ -707,10 +707,10 @@
     if (/^help$/i.test(trimmed)) return { output: HELP_TEXT };
     if (/^clear$/i.test(trimmed)) {
       // M4a: the ls-listing context and any active find are page-scoped,
-      // human-visible state — `clear` is an explicit "start fresh" gesture,
+      // human-visible state - `clear` is an explicit "start fresh" gesture,
       // so reset both here too (they also naturally die on navigation, since
       // `state` itself is rebuilt from scratch by the next content-script
-      // injection — see terminal.js's constructor).
+      // injection - see terminal.js's constructor).
       state.listingContext = null;
       state.findContext = null;
       return { output: '', clear: true };
@@ -719,13 +719,13 @@
     if (/^back$/i.test(trimmed)) {
       history.back();
       // FIX 1: history.back()'s destination is statically UNKNOWABLE here
-      // (browser history, not a URL this code ever sees) — tag it as
+      // (browser history, not a URL this code ever sees) - tag it as
       // navigation-initiated anyway so _dispatchSegment() defers to the
       // arrival check on the next injection rather than advancing the
       // queue synchronously against the old document. Because `back` never
       // updates the queue's recorded expectedOrigin, that arrival check
       // fails closed for a cross-origin `back` (halts the queue) and
-      // passes for a same-origin one (continues) — see
+      // passes for a same-origin one (continues) - see
       // docs/threat-model.md's "Queue risks" section.
       return { output: 'back', navInitiated: true };
     }
@@ -758,7 +758,7 @@
     m = trimmed.match(/^click\s+(\d+)$/i);
     if (m) return doClickIndex(parseInt(m[1], 10), state);
 
-    // `fill <N> with <text>` (index form) checked before the label form —
+    // `fill <N> with <text>` (index form) checked before the label form -
     // an all-digit first token is unambiguously an index, never a label.
     m = trimmed.match(/^fill\s+(\d+)\s+with\s+([\s\S]*)$/i);
     if (m) return doFillIndex(parseInt(m[1], 10), m[2], state);
@@ -777,7 +777,7 @@
     m = trimmed.match(/^search\s+(.+)$/i);
     if (m) return doSearch(m[1]);
 
-    // ---- M4a: bare `<N>` — default action by the ls-listing entry's type ----
+    // ---- M4a: bare `<N>` - default action by the ls-listing entry's type ----
     m = trimmed.match(/^(\d+)$/);
     if (m) return doBareNumber(parseInt(m[1], 10), state);
 
@@ -787,13 +787,13 @@
   window.LFL.engine = {
     tryDeterministic, HELP_TEXT, findSearchInput, visibleLinks,
     // M4a pure helpers, exported for direct unit testing (tests/m4_friction.test.js)
-    // without needing a DOM — see this file's "friction trio" section above.
+    // without needing a DOM - see this file's "friction trio" section above.
     capLines, classifyEntry, formatListingEntry, filterEntriesByText,
     pickLabelMatch, fillableFieldEntries, textIncludesQuery,
     suggestCommands, formatHereReport, computeHereStats,
     // M4a DOM-touching handlers, exported so a test can drive them directly
     // against a constructed state.listingContext without going through `ls`
-    // itself (which needs a full DOM/axtree.build() call — see
+    // itself (which needs a full DOM/axtree.build() call - see
     // tests/m4_friction.test.js's header comment).
     doOpenIndex, doClickIndex, doFillIndex, doFillLabel, doBareNumber,
   };

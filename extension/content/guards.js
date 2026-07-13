@@ -1,5 +1,5 @@
 /**
- * guards.js — pure, DOM-light security guard functions shared by the content
+ * guards.js - pure, DOM-light security guard functions shared by the content
  * scripts (executor.js, terminal.js) and the Node unit test
  * (tests/executor_credential.test.js).
  *
@@ -10,11 +10,11 @@
  * REAL guard code the extension ships, not a reimplementation of it.
  *
  * Dual-mode: attaches to window.LFL.guards in the browser; exports via
- * module.exports under Node (CommonJS). No build step, no bundler — this
+ * module.exports under Node (CommonJS). No build step, no bundler - this
  * file is loaded directly both ways.
  *
  * Hard blocks built on these functions are NOT bypassable by human approval
- * — see docs/threat-model.md and the header comment in executor.js.
+ * - see docs/threat-model.md and the header comment in executor.js.
  */
 (function (root, factory) {
   if (typeof module !== 'undefined' && module.exports) {
@@ -34,7 +34,7 @@
   //   - one-time-code (SMS/TOTP one-time-passcode fields)
   //
   // SCOPE LIMIT (documented, not a bug): a generic `type=text` PIN/OTP field
-  // with no `autocomplete` hint is NOT detectable by this check — there is no
+  // with no `autocomplete` hint is NOT detectable by this check - there is no
   // reliable DOM signal to key off in that case. See docs/threat-model.md.
   function isPasswordField(el) {
     if (!el) return false;
@@ -48,7 +48,7 @@
     // The autocomplete-token check, however, must NOT be input-only: this
     // guard also gates executor.js's `select` action (native <select>), and
     // restricting the check to tag==='input' made that branch's guard dead
-    // code — a <select> can never be type=password, so a select-based OTP or
+    // code - a <select> can never be type=password, so a select-based OTP or
     // password-manager widget with autocomplete="one-time-code" (or, in
     // principle, current-password/new-password) would have sailed through
     // unblocked. Found while writing tests/executor_credential.test.js.
@@ -91,36 +91,36 @@
   // executor.js can apply the same scheme/origin guard to click that it
   // already applies to navigate (see MUST-FIX #1 in the 2026-07 security
   // review, and the 2026-07-12 verifier follow-up that found this list was
-  // incomplete — see below).
+  // incomplete - see below).
   //
   //   - <a href> on the element itself, OR an ancestor <a href> (covers event
-  //     bubbling — the model may target a child of the actual anchor).
+  //     bubbling - the model may target a child of the actual anchor).
   //   - an SVG <a> (self or ancestor) whose link target lives in the
   //     XLink-namespaced `xlink:href` attribute / `.href.baseVal` rather than
-  //     a plain `href` attribute — SVGAElement doesn't expose `href` the way
+  //     a plain `href` attribute - SVGAElement doesn't expose `href` the way
   //     HTMLAnchorElement does, so it isn't caught by the case above unless
   //     the page also mirrors a plain `href` (SVG2).
   //   - <button>/<input> with a `formaction` attribute (overrides the
-  //     enclosing form's `action` per the HTML spec — checked first).
+  //     enclosing form's `action` per the HTML spec - checked first).
   //   - a submit control (`<button>` with type=submit or no `type` attribute
-  //     at all — that's the default — or `<input type=submit|image>`) with
+  //     at all - that's the default - or `<input type=submit|image>`) with
   //     no `formaction`: resolves the enclosing form's `action` via the
   //     `.form` property (correctly follows `form=` attribute association,
   //     not just DOM nesting), falling back to `closest('form')`. Found by
   //     the 2026-07-12 verifier: a submit click inside
   //     `<form action="https://evil.com">` reached `el.click()` with no
   //     guard at all before this fix. An absent/empty `action` resolves to
-  //     the current document URL per spec (same-origin) — that's the correct
+  //     the current document URL per spec (same-origin) - that's the correct
   //     ALLOW case, not a hole; only a resolved cross-origin or non-http(s)
   //     (e.g. `javascript:`) form action blocks.
-  //   - <area href> (image-map hotspot) — never nested inside an anchor, so
+  //   - <area href> (image-map hotspot) - never nested inside an anchor, so
   //     not caught by the anchor case above.
   //   - anything else (plain buttons, checkboxes, non-navigating elements)
   //     has no navigation target -> { hasTarget: false }.
   //
   // Always reads LIVE attributes/properties off the passed-in element (and,
-  // for forms, the live associated <form>) — never cached extraction-time
-  // data — so a page cannot swap a target between when the proposal was made
+  // for forms, the live associated <form>) - never cached extraction-time
+  // data - so a page cannot swap a target between when the proposal was made
   // and when the human approves it (TOCTOU).
   function resolveClickNavTarget(el) {
     if (!el) return null;
@@ -138,7 +138,7 @@
       return { rawUrl: anchor.getAttribute('href'), source: 'a' };
     }
 
-    // SVG <a xlink:href> (self or ancestor) — only reached when the case
+    // SVG <a xlink:href> (self or ancestor) - only reached when the case
     // above found no plain `href` attribute.
     let svgAnchor = null;
     if (typeof el.closest === 'function') {
@@ -183,7 +183,7 @@
   // the underlying attribute in non-SVG2 markup is XLink-namespaced rather
   // than a bare `href`. Try the IDL property first, then the namespaced
   // attribute lookup, then the literal `xlink:href` attribute name (some
-  // element shapes — including this repo's own Node-test fakes — don't
+  // element shapes - including this repo's own Node-test fakes - don't
   // implement getAttributeNS). Returns null (no target) if none apply.
   function _svgAnchorHref(el) {
     if (el.href && typeof el.href === 'object' && typeof el.href.baseVal === 'string') {
@@ -202,7 +202,7 @@
 
   // A click on one of these, absent a `formaction` override, submits its
   // associated form (if any) to that form's `action`. Per the HTML spec a
-  // <button> with no `type` attribute defaults to type=submit — that
+  // <button> with no `type` attribute defaults to type=submit - that
   // default-submit case is exactly the gap the 2026-07-12 verifier found, so
   // it's checked via getAttribute (attribute presence), not the `.type`
   // property (which always normalizes to a value and would obscure whether
@@ -224,11 +224,11 @@
   // Resolves a <form>'s effective submission target. Prefers the `.action`
   // IDL property when it's a string (per spec, the getter resolves an
   // absent/empty `action` attribute to the current document URL, which is
-  // exactly the correct same-origin ALLOW result — no special-casing needed
+  // exactly the correct same-origin ALLOW result - no special-casing needed
   // here), falling back to the raw `action` attribute for element shapes
   // (e.g. this repo's own Node-test fakes) that don't implement the IDL
   // resolution. A totally absent attribute in that fallback path yields ''
-  // which `safeSameOriginHttpUrl` resolves against `document.baseURI` —
+  // which `safeSameOriginHttpUrl` resolves against `document.baseURI` -
   // same-origin, same correct result.
   function _formAction(form) {
     if (typeof form.action === 'string') return form.action;
@@ -257,13 +257,13 @@
   // ---- M2.2 runtime navigation-interception classifier ----
   //
   // Pure decision function: given the destination a navigation is actually
-  // headed to (only obtainable at runtime — e.g. from the Navigation API's
+  // headed to (only obtainable at runtime - e.g. from the Navigation API's
   // `navigate` event, see nav-watch.js's header comment for why
   // `beforeunload` cannot supply this), the page origin at the moment the
   // extension executed the click, and the destination (if any) that was
   // shown on the approval card for that click, decide allow/block.
   //
-  // Same-origin navigations always proceed (plan §13 M2.2 — friction only
+  // Same-origin navigations always proceed (plan §13 M2.2 - friction only
   // applies to a navigation that ends up crossing origin, or off-http(s),
   // that was NOT what the human approved).
   function classifyRuntimeNavigation(opts) {
@@ -296,7 +296,7 @@
 
   // ---- M2.1 execution-time occlusion decision ----
   //
-  // Pure comparison logic only — the actual DOM sampling (elementsFromPoint,
+  // Pure comparison logic only - the actual DOM sampling (elementsFromPoint,
   // getBoundingClientRect, the pointer-events probe) is impure/browser-only
   // and lives in terminal.js's _probeApprovalOcclusion(), which calls this
   // function with the samples it collected. Keeping the decision itself pure
@@ -309,7 +309,7 @@
     if (sample.outsideTopmost !== sample.host) {
       return {
         occluded: true,
-        reason: 'topmost element at the approval control is not the extension overlay — page content (or another surface) is covering it',
+        reason: 'topmost element at the approval control is not the extension overlay - page content (or another surface) is covering it',
       };
     }
     const innerOk = sample.innerTopmost === sample.approveEl ||
@@ -320,20 +320,20 @@
     return { occluded: false, reason: null };
   }
 
-  // ---- M3 H1 — event.isTrusted gate ----
+  // ---- M3 H1 - event.isTrusted gate ----
   //
   // "Terminal input = trusted because a human typed it" only holds if every
   // handler that reacts to a keydown/click on our own overlay actually
   // checks the event came from a real input device. A page can dispatch
   // synthetic KeyboardEvent/MouseEvent objects at our host element (it
-  // lives in the light DOM, retargeted from inside the closed shadow root —
+  // lives in the light DOM, retargeted from inside the closed shadow root -
   // see terminal.js's _onGlobalKeydown) with e.isTrusted === false; without
   // this check a page could, at minimum, synthesize an Escape keydown to
   // reject a pending proposal (harmless-direction DoS, not a mutation
-  // hole — the M1/M2 threat model already covers this), but M3 leans much
+  // hole - the M1/M2 threat model already covers this), but M3 leans much
   // harder on "an approve control was really clicked/Entered by a human",
   // so this is made an explicit, unit-tested invariant rather than an
-  // implicit one. Pure predicate — the event-listener wiring itself lives
+  // implicit one. Pure predicate - the event-listener wiring itself lives
   // in terminal.js (_onGlobalKeydown, _onInputKeydown, the approve/reject
   // button click handlers all call this first and return early on false),
   // which is what a real DOM/event object is needed to exercise; this

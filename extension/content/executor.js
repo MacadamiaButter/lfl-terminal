@@ -1,14 +1,14 @@
 /**
- * executor.js — applies one action (deterministic or LLM-proposed) to the page.
+ * executor.js - applies one action (deterministic or LLM-proposed) to the page.
  *
  * Hard blocks in here are NOT bypassable by approval: they run regardless of
  * whether a human clicked "approve". This is the file that must never be relaxed
- * without a design review — see docs/threat-model.md.
+ * without a design review - see docs/threat-model.md.
  *
  * The actual guard predicates (isPasswordField, safeSameOriginHttpUrl, the
  * click-target resolver) live in guards.js, loaded before this file, so the
  * Node unit test (tests/executor_credential.test.js) can load and exercise
- * the exact same guard code this file calls — see that file's header.
+ * the exact same guard code this file calls - see that file's header.
  */
 (function () {
   'use strict';
@@ -53,7 +53,7 @@
     }
 
     if (kind === 'answer' || kind === 'extract' || kind === 'abort') {
-      // Read-only / informational — nothing to execute against the page.
+      // Read-only / informational - nothing to execute against the page.
       return { ok: true, message: action.value || action.reason || '(no content)' };
     }
 
@@ -69,18 +69,18 @@
     // click / fill / select all require resolving an element index.
     const el = LFL.axtree.resolve(elementMap, action.element);
     if (!el) {
-      return { ok: false, message: `abort: element [${action.element}] is stale or no longer visible — re-run the command` };
+      return { ok: false, message: `abort: element [${action.element}] is stale or no longer visible - re-run the command` };
     }
 
     if (kind === 'click') {
       // A click can navigate exactly like a `navigate` action does (via an
-      // <a href>, an ancestor <a> due to event bubbling, or a formaction) —
+      // <a href>, an ancestor <a> due to event bubbling, or a formaction) -
       // apply the SAME scheme/origin guard here, re-resolved from the live
       // element right now (closes the TOCTOU where a page swaps href between
       // proposal and approval). See MUST-FIX #1 in the security review.
       //
       // M2.4: guardOpts is derived from the LIVE element's OWN document/
-      // window (guards.js is re-run "in its own document context") — for a
+      // window (guards.js is re-run "in its own document context") - for a
       // top-document element this is identical to the old ambient-global
       // defaults; for a same-origin-iframe element it's that iframe's own
       // baseURI/origin, not the top page's.
@@ -92,7 +92,7 @@
         const dest = nav.url ? nav.url.href : nav.rawUrl;
         return {
           ok: false,
-          message: `click blocked — target is ${nav.classification} (${nav.reason}). Destination (not followed): ${dest}`,
+          message: `click blocked - target is ${nav.classification} (${nav.reason}). Destination (not followed): ${dest}`,
         };
       }
 
@@ -101,7 +101,7 @@
       // targets (href/formaction/form-action/area/svg-a); a plain element
       // whose page-supplied onclick handler navigates programmatically has
       // no such target (hasTarget:false reaches here) and is otherwise
-      // invisible to the click-target guard — this is the M1 residual M2.2
+      // invisible to the click-target guard - this is the M1 residual M2.2
       // closes. See nav-watch.js for exactly what is prevented vs only
       // detected/logged.
       const approvedDestinationHref = (nav.hasTarget && !nav.blocked && nav.url) ? nav.url.href : null;
@@ -111,7 +111,7 @@
           originAtClick,
           approvedDestinationHref,
           onBlocked: (info) => {
-            const msg = `click triggered an unapproved off-site navigation — ${info.prevented ? 'blocked' : 'DETECTED (could not be prevented by this browser)'} (destination ${info.destinationHref}: ${info.verdict.reason})`;
+            const msg = `click triggered an unapproved off-site navigation - ${info.prevented ? 'blocked' : 'DETECTED (could not be prevented by this browser)'} (destination ${info.destinationHref}: ${info.verdict.reason})`;
             if (window.LFL.terminal && typeof LFL.terminal.reportAsync === 'function') {
               LFL.terminal.reportAsync(msg, info.prevented ? 'error' : 'error');
             }
@@ -130,7 +130,7 @@
 
     if (kind === 'fill') {
       if (LFL.guards.isPasswordField(el)) {
-        return { ok: false, message: 'credentials never go through the model — use your password manager' };
+        return { ok: false, message: 'credentials never go through the model - use your password manager' };
       }
       const tag = el.tagName.toLowerCase();
       if (tag !== 'input' && tag !== 'textarea' && !el.isContentEditable) {
@@ -147,7 +147,7 @@
 
     if (kind === 'select') {
       if (LFL.guards.isPasswordField(el)) {
-        return { ok: false, message: 'credentials never go through the model — use your password manager' };
+        return { ok: false, message: 'credentials never go through the model - use your password manager' };
       }
       if (el.tagName.toLowerCase() !== 'select') {
         return { ok: false, message: `abort: [${action.element}] is not a native <select> element (M1 limitation)` };

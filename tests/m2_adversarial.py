@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-tests/m2_adversarial.py — end-to-end adversarial proof for M2.1 (execution-
+tests/m2_adversarial.py - end-to-end adversarial proof for M2.1 (execution-
 time occlusion abort) and M2.2 (runtime navigation interception), driving
 the REAL unpacked extension against the fixture pages, reusing
 tests/run_battery.py's harness pattern (Playwright persistent context with
@@ -9,7 +9,7 @@ shadow root is closed, the data-lfl-state test hook on the host element).
 
 Requires:
   - server/launch-dev.sh already running and healthy on 127.0.0.1:1238
-    (or the ad-hoc GPU launch documented in README.md / this task's brief —
+    (or the ad-hoc GPU launch documented in README.md / this task's brief -
     either way, this script just needs :1238/health to answer "ok").
   - Nothing else manual: this script starts its own `python3 -m http.server`
     instances on 8998 (tests/fixtures, same-origin target) and 8999 (the
@@ -24,7 +24,7 @@ Writes screenshots to tests/m2-shots/ and prints PASS/FAIL per case, exiting
 nonzero if any adversarial case did not produce the expected ABORT/block.
 
 M3 update (2026-07-12 battery pass): the data-lfl-state test hook this
-script reads is now off by default (H2) — seeded on via the extension's own
+script reads is now off by default (H2) - seeded on via the extension's own
 background service worker before any page navigates. See
 tests/run_battery.py's module docstring / seed_dev_hooks() for the full
 rationale (same helper, duplicated here so this script stays standalone
@@ -56,7 +56,7 @@ def port_open(port):
 
 def ensure_http_server(port):
     if port_open(port):
-        print(f"[setup] :{port} already serving — reusing it")
+        print(f"[setup] :{port} already serving - reusing it")
         return None
     proc = subprocess.Popen(
         ["python3", "-m", "http.server", str(port), "--directory", str(FIXTURES_DIR)],
@@ -97,10 +97,10 @@ def seed_dev_hooks(context):
 
 def open_terminal(page):
     # M3: terminal open/closed state persists per-tab across navigation and
-    # auto-reopens on re-injection (design §4) — check before toggling, or a
+    # auto-reopens on re-injection (design §4) - check before toggling, or a
     # Backquote press here can CLOSE an already-auto-reopened panel instead
     # of opening it. See tests/run_battery.py's open_terminal() for the full
-    # comment (same fix, duplicated here to keep this script standalone) —
+    # comment (same fix, duplicated here to keep this script standalone) -
     # including the second-order bug where an unconditional blur() stole
     # focus back from the auto-reopen's own inputEl.focus() with nothing
     # left to re-focus it, so blur/Backquote only happen in the
@@ -160,7 +160,7 @@ def run():
             seed_dev_hooks(context)
             page = context.pages[0] if context.pages else context.new_page()
 
-            # ---- Case (a): occlusion-attack.html — M2.1 execution-time
+            # ---- Case (a): occlusion-attack.html - M2.1 execution-time
             # occlusion abort. A page that races its own top-layer popover
             # on top of the approval card; approving a click must ABORT.
             print("\n=== Case (a): occlusion-attack.html (M2.1) ===")
@@ -175,7 +175,7 @@ def run():
             print("proposal after ask:", json.dumps(proposal))
             if not proposal or proposal.get("action") != "click":
                 results["occlusion"] = False
-                print("FAIL: model did not propose a click action — cannot exercise the occlusion abort path")
+                print("FAIL: model did not propose a click action - cannot exercise the occlusion abort path")
             else:
                 page.screenshot(path=str(SHOTS_DIR / "a1-occlusion-before-approve.png"))
                 seq1 = state.get("seq", 0)
@@ -188,7 +188,7 @@ def run():
                 results["occlusion"] = aborted
                 print("PASS" if aborted else "FAIL", "- occlusion abort")
 
-            # ---- Case (b): onclick-evil-nav.html — M2.2 runtime navigation
+            # ---- Case (b): onclick-evil-nav.html - M2.2 runtime navigation
             # interception. Approving a click whose onclick handler does
             # location.href = <cross-origin> must be blocked; the tab must
             # NOT end up on the cross-origin page.
@@ -203,7 +203,7 @@ def run():
             print("proposal after ask:", json.dumps(proposalb))
             if not proposalb or proposalb.get("action") != "click":
                 results["nav_intercept"] = False
-                print("FAIL: model did not propose a click action — cannot exercise the nav-intercept path")
+                print("FAIL: model did not propose a click action - cannot exercise the nav-intercept path")
             else:
                 page.screenshot(path=str(SHOTS_DIR / "b1-onclick-evil-before-approve.png"))
                 page.keyboard.press("Enter")  # approve

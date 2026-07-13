@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * tests/funpack.test.js — unit proof of the "fun pack v1" pure functions in
+ * tests/funpack.test.js - unit proof of the "fun pack v1" pure functions in
  * `extension/content/funpack.js` (fortune picker, MOTD once-per-day gate,
  * stats math incl. streak rollover, theme name validation, cowsay wrapping).
  *
  * funpack.js is dual-mode (window.LFL.funpack in the browser, module.exports
- * under Node — same convention as registry.js), and every function in it is
- * pure (no DOM, no chrome.*, no network, no Math.random — see the file's own
- * header comment) — so unlike tests/m4_friction.test.js this suite needs no
+ * under Node - same convention as registry.js), and every function in it is
+ * pure (no DOM, no chrome.*, no network, no Math.random - see the file's own
+ * header comment) - so unlike tests/m4_friction.test.js this suite needs no
  * `vm` sandbox at all; it just requires the real, unmodified source directly.
  *
  * Run: node tests/funpack.test.js
@@ -36,11 +36,11 @@ function check(name, fn) {
 }
 
 // =====================================================================
-// Part 1 — fortune picker (pure function of an integer index)
+// Part 1 - fortune picker (pure function of an integer index)
 // =====================================================================
 
 function testFortunePicker() {
-  console.log('\n[1] fortune — pickFortuneIndex()/getFortune() are pure functions of an integer, never Math.random');
+  console.log('\n[1] fortune - pickFortuneIndex()/getFortune() are pure functions of an integer, never Math.random');
 
   check('FORTUNES has at least 30 entries', () => {
     assert.ok(funpack.FORTUNES.length >= 30, `only ${funpack.FORTUNES.length} entries`);
@@ -48,7 +48,7 @@ function testFortunePicker() {
 
   check('FORTUNES contains no em dash character in any entry (house style)', () => {
     for (const f of funpack.FORTUNES) {
-      assert.ok(!f.includes('—'), `entry contains an em dash: "${f}"`);
+      assert.ok(!f.includes('\u2014'), `entry contains an em dash: "${f}"`);
     }
   });
 
@@ -68,7 +68,7 @@ function testFortunePicker() {
     assert.strictEqual(i, 9);
   });
 
-  check('pickFortuneIndex is deterministic — same input always gives same output', () => {
+  check('pickFortuneIndex is deterministic - same input always gives same output', () => {
     const a = funpack.pickFortuneIndex(12345, funpack.FORTUNES.length);
     const b = funpack.pickFortuneIndex(12345, funpack.FORTUNES.length);
     assert.strictEqual(a, b);
@@ -92,11 +92,11 @@ function testFortunePicker() {
 }
 
 // =====================================================================
-// Part 2 — date helpers + MOTD once-per-day gate
+// Part 2 - date helpers + MOTD once-per-day gate
 // =====================================================================
 
 function testDatesAndMotd() {
-  console.log('\n[2] dayOfYear()/todayStr()/isConsecutiveDay()/shouldShowMotd() — MOTD once-per-day logic');
+  console.log('\n[2] dayOfYear()/todayStr()/isConsecutiveDay()/shouldShowMotd() - MOTD once-per-day logic');
 
   check('dayOfYear: Jan 1 -> 1', () => {
     assert.strictEqual(funpack.dayOfYear(new Date('2026-01-01T12:00:00Z')), 1);
@@ -159,12 +159,12 @@ function testDatesAndMotd() {
 }
 
 // =====================================================================
-// Part 3 — stats math: mergeStats/applyStatsIncrement/applyDailyStreak/
+// Part 3 - stats math: mergeStats/applyStatsIncrement/applyDailyStreak/
 // percentOf/formatStatsSummary
 // =====================================================================
 
 function testStatsMath() {
-  console.log('\n[3] stats — mergeStats/applyStatsIncrement/applyDailyStreak/percentOf/formatStatsSummary');
+  console.log('\n[3] stats - mergeStats/applyStatsIncrement/applyDailyStreak/percentOf/formatStatsSummary');
 
   check('mergeStats: missing/undefined stored -> DEFAULT_STATS shape', () => {
     const s = funpack.mergeStats(undefined);
@@ -290,11 +290,11 @@ function testStatsMath() {
 }
 
 // =====================================================================
-// Part 4 — theme name validation
+// Part 4 - theme name validation
 // =====================================================================
 
 function testThemes() {
-  console.log('\n[4] theme — isValidTheme()/themeListText()');
+  console.log('\n[4] theme - isValidTheme()/themeListText()');
 
   check('THEMES has exactly the four required entries', () => {
     assert.deepStrictEqual(funpack.THEMES.slice().sort(), ['amber', 'default', 'paper', 'phosphor']);
@@ -343,11 +343,11 @@ function testThemes() {
 }
 
 // =====================================================================
-// Part 5 — cowsay: wrapCowText()/buildCowBubble()/cowsay()
+// Part 5 - cowsay: wrapCowText()/buildCowBubble()/cowsay()
 // =====================================================================
 
 function testCowsay() {
-  console.log('\n[5] cowsay — wrapCowText() word-wrap + buildCowBubble() + cowsay()');
+  console.log('\n[5] cowsay - wrapCowText() word-wrap + buildCowBubble() + cowsay()');
 
   check('wrapCowText: short text (well under 40 cols) -> a single line, unchanged', () => {
     const lines = funpack.wrapCowText('hello there', 40);
@@ -449,7 +449,7 @@ function testCowsay() {
 
 // ---- run everything ----
 
-console.log('tests/funpack.test.js — funpack v1: fortune, MOTD, stats, theme, cowsay');
+console.log('tests/funpack.test.js - funpack v1: fortune, MOTD, stats, theme, cowsay');
 testFortunePicker();
 testDatesAndMotd();
 testStatsMath();

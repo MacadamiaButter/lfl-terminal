@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-tests/run_battery.py — drives the unpacked lfl-terminal extension against the
+tests/run_battery.py - drives the unpacked lfl-terminal extension against the
 battery in tests/battery.json using a real Chrome instance (Playwright
 persistent context, channel="chrome"), and writes tests/results.json plus a
 summary table to stdout.
@@ -14,31 +14,31 @@ Requires: server/launch-dev.sh already running and healthy on 127.0.0.1:1238.
 Browser note (deviation from the original spec): channel="chrome" (the real
 /usr/bin/google-chrome, "Google Chrome 150") REFUSES both --load-extension and
 --disable-extensions-except on the command line ("... is not allowed in Google
-Chrome, ignoring." — verified empirically). That lockdown is specific to the
+Chrome, ignoring." - verified empirically). That lockdown is specific to the
 Google-branded stable build; it is not present in Playwright's own bundled
 Chromium (a "Google Chrome for Testing" build), which this script uses
 instead via a plain launch_persistent_context() with no `channel=` argument.
 It also needs --no-sandbox in this container (no working setuid/userns
-sandbox here) — verified as the actual failure mode via --enable-logging.
+sandbox here) - verified as the actual failure mode via --enable-logging.
 
 Latency note: this box runs the local model on CPU (-ngl 0) for this spike, per
 spec. CPU latency will very likely miss any <3s gate; this script MEASURES AND
-REPORTS latency honestly — it does not tune or hide the gate. A GPU run is a
+REPORTS latency honestly - it does not tune or hide the gate. A GPU run is a
 follow-up, not part of this script.
 
 M3 update (2026-07-12 battery pass): the `data-lfl-state` test hook this
-whole harness reads is now OFF by default (design doc §8 H2 — see
+whole harness reads is now OFF by default (design doc §8 H2 - see
 terminal.js's `_updateTestHook()`/`_loadDevHooksFlag()`). Seeding it from
 page-context JS isn't possible (storage.local isn't reachable from a content
 script's page world the way this harness drives pages), and driving it via a
 typed `dev on` command has a chicken-and-egg problem: open_terminal() itself
 polls the SAME attribute to know the panel opened. See seed_dev_hooks()
-below — it sets `lflDevHooks` directly through the extension's own
+below - it sets `lflDevHooks` directly through the extension's own
 background service worker (Playwright's `context.service_workers`), before
 any page in this run ever navigates. The default-off behavior itself (H2
 gating) is separately, explicitly proven in tests/m3_battery.py, which
 starts from a clean profile and asserts the attribute is ABSENT before
-enabling it — this file only needs the hook ON to do its job.
+enabling it - this file only needs the hook ON to do its job.
 """
 import json
 import time
@@ -71,7 +71,7 @@ def seed_dev_hooks(context):
 
 
 class Navigated(Exception):
-    """Raised by read_lfl_state when the page navigated out from under us —
+    """Raised by read_lfl_state when the page navigated out from under us -
     which for this extension is a real, valid outcome: a deterministic
     `search`/`open` command or an approved click/navigate proposal is
     SUPPOSED to navigate the page. It just means the poll loop's execution
@@ -80,7 +80,7 @@ class Navigated(Exception):
 
 def read_lfl_state(page):
     """Read the data-lfl-state attribute off the overlay host (outside the
-    closed shadow root — this is the test hook the spec asks for)."""
+    closed shadow root - this is the test hook the spec asks for)."""
     try:
         raw = page.evaluate(
             "() => { const h = document.getElementById('lfl-terminal-host'); "
@@ -101,18 +101,18 @@ def read_lfl_state(page):
 def open_terminal(page):
     # The overlay's shadow root is CLOSED by design (spec: limit page CSS/JS
     # interference), which also means page.evaluate cannot reach `.shadowRoot`
-    # or query/dispatch synthetic events into it from outside — that property
+    # or query/dispatch synthetic events into it from outside - that property
     # is hidden by the browser regardless of extension privilege. Real
     # `page.keyboard` input, however, is delivered by Chrome's Input domain to
     # whatever element actually has focus, independent of shadow-root
-    # visibility/closedness — so keyboard-only driving is what this script
+    # visibility/closedness - so keyboard-only driving is what this script
     # uses throughout instead of DOM piercing.
     #
     # M3 update: terminal open/closed state now persists per-tab across
     # navigation and auto-reopens on content-script re-injection if it was
     # open before (design §4). Since this harness reuses the SAME tab across
     # every battery entry, the panel may already be open by the time this
-    # runs (auto-reopened) — blindly pressing Backquote in that case would
+    # runs (auto-reopened) - blindly pressing Backquote in that case would
     # TOGGLE IT CLOSED instead of opening it, which is exactly what caused
     # every other entry to time out waiting for open:true before this fix.
     # Check first; only press Backquote if it's actually closed.
@@ -120,7 +120,7 @@ def open_terminal(page):
     # Second-order bug found while fixing the first one: the pre-existing
     # blur() call (to clear any accidental page-field focus before Backquote
     # so the global keydown handler's `inEditable` check doesn't swallow it)
-    # must NOT run when the panel is already auto-reopened — the SW-driven
+    # must NOT run when the panel is already auto-reopened - the SW-driven
     # auto-reopen path (_restoreTerminalState() -> open() -> inputEl.focus())
     # runs asynchronously and had usually already focused the terminal input
     # by the time this function runs; blurring unconditionally stole that
@@ -147,7 +147,7 @@ def open_terminal(page):
 
 def submit_command(page, command):
     """Type the command into the (really-focused) terminal input and press
-    Enter, via real keyboard events — see the note in open_terminal()."""
+    Enter, via real keyboard events - see the note in open_terminal()."""
     page.keyboard.type(command, delay=8)
     page.keyboard.press("Enter")
 
@@ -223,7 +223,7 @@ def main():
                         seq_before_verdict = state.get("seq", 0)
                         # Approve everything requires_approval_if allows (including the
                         # deliberate fill-password-field regression probes, so we can
-                        # confirm the executor's hard block — not just approval-gating —
+                        # confirm the executor's hard block - not just approval-gating -
                         # actually refuses it); reject anything else to avoid mutating
                         # the page unexpectedly.
                         approve = ("fill-password-field" in must_not) or (action in expect.get("requires_approval_if", []))
@@ -234,7 +234,7 @@ def main():
                             try:
                                 s2 = read_lfl_state(page)
                             except Navigated:
-                                # approving click/navigate is expected to leave the page —
+                                # approving click/navigate is expected to leave the page -
                                 # that IS the successful outcome for those two actions.
                                 row["navigated"] = True
                                 page.wait_for_load_state("domcontentloaded", timeout=10000)
@@ -253,7 +253,7 @@ def main():
                     row["last_result"] = state.get("lastResult") if state else None
 
                 row["ok"] = True
-            except Exception as e:  # noqa: BLE001 — battery must keep going on a single bad entry
+            except Exception as e:  # noqa: BLE001 - battery must keep going on a single bad entry
                 row["ok"] = False
                 row["error"] = str(e)
             results.append(row)
