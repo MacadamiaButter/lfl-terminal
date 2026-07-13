@@ -458,6 +458,28 @@ function testRegistryLocks() {
     const res = store.setMacro('w', 'go example.com && ls');
     assert.strictEqual(res.ok, true);
   });
+
+  // ---- verify fix MED-2: funpack quartet blocked in macro bodies at write time ----
+
+  check('verify MED-2: a macro body containing "fortune" is rejected at WRITE time', () => {
+    const store = registry.createAliasStore(null);
+    const res = store.setMacro('morning', 'go example.com && fortune');
+    assert.strictEqual(res.ok, false);
+    assert.match(res.reason, /does not run in chains or macros/);
+  });
+
+  check('verify MED-2: macro bodies containing stats/theme/cowsay are rejected at WRITE time too', () => {
+    const store = registry.createAliasStore(null);
+    assert.strictEqual(store.setMacro('a1', 'stats && go example.com').ok, false);
+    assert.strictEqual(store.setMacro('a2', 'go example.com && theme phosphor').ok, false);
+    assert.strictEqual(store.setMacro('a3', 'go example.com && cowsay hi').ok, false);
+  });
+
+  check('verify MED-2 scope: pre-existing meta-commands (budget/continue) in macro bodies keep their ORIGINAL posture (still accepted at write time)', () => {
+    const store = registry.createAliasStore(null);
+    assert.strictEqual(store.setMacro('b1', 'go example.com && budget').ok, true);
+    assert.strictEqual(store.setMacro('b2', 'go example.com && continue').ok, true);
+  });
 }
 
 // =====================================================================
@@ -1070,6 +1092,167 @@ async function testRunnerLifecycle() {
   });
 }
 
+// =====================================================================
+// Part 8 — Fable-verify fixes (2026-07-13 PASS-with-notes follow-up):
+// MED-1 program/proposal mutual exclusion (reverse arm), MED-2 funpack
+// chain/macro rejection, LOW-4 stopPropagation, plus the two coverage
+// gaps flagged as finding 6 (bare-number precedence, alias-inside-macro
+// indirection).
+// =====================================================================
+
+async function testVerifyFixes() {
+  console.log('\n[8] verify fixes — MED-1 mutual exclusion, MED-2 funpack chain posture, LOW-4 stopPropagation, finding-6 coverage');
+
+  await acheck('MED-1: a mutating proposal arriving mid-game force-exits the program FIRST (interval cleared, "game ended" printed), THEN presents', async () => {
+    const { terminal, intervals } = buildTerminalSandbox();
+    await flush();
+    terminal._submitCommand('snake');
+    await flush();
+    const intervalId = terminal._activeProgram.intervalId;
+    assert.ok(intervals.has(intervalId));
+    terminal._presentProposal({ action: 'click', element: 1, value: '', reason: '' }, 42);
+    assert.strictEqual(terminal._activeProgram, null, 'program must have been force-exited');
+    assert.ok(!intervals.has(intervalId), 'the game tick interval must be cleared, not left running under the proposal');
+    assert.strictEqual(terminal.state.mode, 'awaiting-approval', 'the proposal must still present normally after the forced exit');
+    const printed = terminal.outputEl.children.map((c) => c.textContent).join('\n');
+    assert.match(printed, /game ended: a proposal arrived/);
+    assert.match(printed, /snake: game over - score \d+/, 'the ordinary onExit score summary must still print');
+  });
+
+  await acheck('MED-1: after rejecting that proposal, state.mode is idle and NO interval is still registered (the pre-fix inconsistency)', async () => {
+    const { terminal, intervals } = buildTerminalSandbox();
+    await flush();
+    terminal._submitCommand('snake');
+    await flush();
+    terminal._presentProposal({ action: 'fill', element: 2, value: 'x', reason: '' }, 10);
+    assert.strictEqual(terminal.state.mode, 'awaiting-approval');
+    terminal._rejectProposal();
+    assert.strictEqual(terminal.state.mode, 'idle');
+    assert.strictEqual(terminal.state.pendingProposal, null);
+    assert.strictEqual(intervals.size, 0, 'no orphaned interval may survive the exit+reject sequence');
+    assert.strictEqual(terminal._activeProgram, null);
+  });
+
+  await acheck('MED-1: an auto-run (non-approval) proposal arriving mid-game also exits the program cleanly first', async () => {
+    const { terminal, intervals } = buildTerminalSandbox();
+    await flush();
+    terminal._submitCommand('2048');
+    await flush();
+    terminal._presentProposal({ action: 'answer', element: null, value: 'hi', reason: '' }, 5);
+    await flush();
+    assert.strictEqual(terminal._activeProgram, null);
+    assert.strictEqual(terminal.state.mode, 'idle');
+    assert.strictEqual(intervals.size, 0);
+    const printed = terminal.outputEl.children.map((c) => c.textContent).join('\n');
+    assert.match(printed, /game ended: a proposal arrived/);
+  });
+
+  await acheck('MED-1: a navigation confirm (_confirmOrNavigate) arriving mid-game force-exits the program first, then awaits confirmation', async () => {
+    const { terminal, sandbox, intervals } = buildTerminalSandbox();
+    await flush();
+    terminal._submitCommand('snake');
+    await flush();
+    const intervalId = terminal._activeProgram.intervalId;
+    await terminal._confirmOrNavigate(new sandbox.URL('https://newsite.example/'), { modelResolved: false });
+    assert.strictEqual(terminal._activeProgram, null, 'program must have been force-exited');
+    assert.ok(!intervals.has(intervalId));
+    assert.strictEqual(terminal.state.mode, 'awaiting-nav-confirm');
+    const printed = terminal.outputEl.children.map((c) => c.textContent).join('\n');
+    assert.match(printed, /game ended: a proposal arrived/);
+    terminal._rejectNav();
+    await flush();
+    assert.strictEqual(terminal.state.mode, 'idle');
+    assert.strictEqual(intervals.size, 0);
+  });
+
+  await acheck('MED-2: "clear && fortune" rejects the fortune segment at dispatch — no page-lane model call, no "model offline" error', async () => {
+    const { terminal } = buildTerminalSandbox();
+    await flush();
+    terminal._submitCommand('clear && fortune');
+    await flush(12);
+    const printed = terminal.outputEl.children.map((c) => c.textContent).join('\n');
+    assert.match(printed, /"fortune" does not run in chains or macros/);
+    assert.ok(!printed.includes('asking the local model'), 'the model must never have been consulted');
+    assert.ok(!printed.includes('model offline'), 'the segment must be rejected, not fall through to the LLM path');
+    assert.strictEqual(terminal.state.mode, 'idle');
+  });
+
+  await acheck('MED-2: stats/theme/cowsay in a chain are rejected the same way', async () => {
+    const { terminal } = buildTerminalSandbox();
+    await flush();
+    // Asserted via _lastResult per iteration ("clear" as the first segment
+    // wipes the output pane, so a printed-lines check would only ever see
+    // the final iteration).
+    for (const [seg, name] of [['stats', 'stats'], ['theme phosphor', 'theme'], ['cowsay hi', 'cowsay']]) {
+      terminal._submitCommand(`clear && ${seg}`);
+      await flush(12);
+      assert.strictEqual(terminal._lastResult.ok, false, `${name} in a chain must be rejected`);
+      assert.match(terminal._lastResult.message, new RegExp(`"${name}" does not run in chains or macros`));
+    }
+  });
+
+  await acheck('MED-2: an alias for "fortune" typed ALONE routes to the real handler (prints a fortune), never to the model', async () => {
+    const { terminal, sandbox } = buildTerminalSandbox();
+    await flush();
+    terminal._submitCommand('alias f = fortune');
+    await flush();
+    terminal._submitCommand('f');
+    await flush();
+    assert.strictEqual(terminal._lastResult.ok, true);
+    assert.ok(sandbox.window.LFL.funpack.FORTUNES.includes(terminal._lastResult.message),
+      `expected a real FORTUNES entry, got: "${terminal._lastResult.message}"`);
+    const printed = terminal.outputEl.children.map((c) => c.textContent).join('\n');
+    assert.ok(!printed.includes('asking the local model'));
+  });
+
+  await acheck('LOW-4: keys are stopPropagation\'d while a program is active (and only then)', async () => {
+    const { terminal } = buildTerminalSandbox();
+    await flush();
+    terminal._submitCommand('snake');
+    await flush();
+    let stopped = 0;
+    terminal._onInputKeydown({ isTrusted: true, key: 'ArrowUp', preventDefault() {}, stopPropagation() { stopped += 1; } });
+    assert.strictEqual(stopped, 1, 'program-mode keys must not bubble to page document listeners');
+    // Exit and confirm ordinary typing does NOT gain a stopPropagation call
+    // (unchanged general semantics).
+    terminal._onInputKeydown({ isTrusted: true, key: 'q', preventDefault() {}, stopPropagation() { stopped += 1; } });
+    assert.strictEqual(terminal._activeProgram, null);
+    const afterExit = stopped;
+    terminal._onInputKeydown({ isTrusted: true, key: 'x', preventDefault() {}, stopPropagation() { stopped += 1; } });
+    assert.strictEqual(stopped, afterExit, 'ordinary (non-program) typing must keep its original propagation semantics');
+  });
+
+  await acheck('finding 6a: "2048" typed while an ls-listing is active runs the GAME, not the bare-number listing action', async () => {
+    const { terminal } = buildTerminalSandbox();
+    await flush();
+    // A live listing context — the shape engine.js's doLs() builds. A bare
+    // number would normally act on it; the game name must win precedence.
+    terminal.state.listingContext = { entries: [], map: new Map(), notes: [] };
+    terminal._submitCommand('2048');
+    await flush();
+    assert.ok(terminal._activeProgram, 'a program must be running');
+    assert.strictEqual(terminal._activeProgram.prog.name, '2048');
+    assert.strictEqual(terminal.state.mode, 'program');
+  });
+
+  await acheck('finding 6b: alias-inside-macro indirection reaching a game name is caught at RUNTIME with chain context (write-time cannot see it)', async () => {
+    const { terminal } = buildTerminalSandbox();
+    await flush();
+    terminal._submitCommand('alias s = snake');
+    await flush();
+    // Write time only sees the head word "s" — this MUST be accepted
+    // (proving the runtime check below is load-bearing, not redundant).
+    terminal._submitCommand('macro m = clear && s');
+    await flush();
+    assert.match(terminal._lastResult.message, /macro defined/, 'the macro must be accepted at write time (head word is "s", not a game name)');
+    terminal._submitCommand('m');
+    await flush(16);
+    assert.strictEqual(terminal._activeProgram, null, 'the game must NOT have started via the alias-in-macro indirection');
+    const printed = terminal.outputEl.children.map((c) => c.textContent).join('\n');
+    assert.match(printed, /"snake" cannot run inside a chain or macro/);
+  });
+}
+
 // ---- run everything ----
 
 async function main() {
@@ -1081,6 +1264,7 @@ async function main() {
   testDidYouMeanPickup();
   testManifestAndCss();
   await testRunnerLifecycle();
+  await testVerifyFixes();
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);

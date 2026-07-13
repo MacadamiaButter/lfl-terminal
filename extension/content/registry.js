@@ -151,6 +151,18 @@
   // chain together).
   const GAME_NAMES = new Set(['snake', '2048', 'games']);
 
+  // M4b verify fix (MED-2): the funpack-v1 quartet gets the same
+  // macro-body write-time block as the games — previously
+  // `macro morning = go example.com && fortune` was accepted at write time
+  // and the `fortune` segment then silently fell through to the page-lane
+  // model at run time (burning an LLM budget slot on a command that is
+  // supposed to be free and local). See terminal.js's FUNPACK_NAMES for
+  // the matching dispatch-time half of this lock. Scope is deliberately
+  // ONLY the four names funpack v1 added — the posture of pre-existing
+  // meta-commands (budget/dev/origins/continue/...) in macro bodies is
+  // unchanged.
+  const FUNPACK_NAMES = new Set(['fortune', 'stats', 'theme', 'cowsay']);
+
   function firstWord(s) {
     const m = (s || '').trim().match(/^(\S+)/);
     return m ? m[1] : '';
@@ -235,6 +247,11 @@
         // rather than only when the macro is later invoked.
         if (GAME_NAMES.has(head)) {
           return { ok: false, reason: `macro "${name}" cannot include "${head}" - games cannot run inside a macro` };
+        }
+        // M4b verify fix (MED-2): same for the funpack quartet — see
+        // FUNPACK_NAMES's own comment above.
+        if (FUNPACK_NAMES.has(head)) {
+          return { ok: false, reason: `macro "${name}" cannot include "${head}" - "${head}" does not run in chains or macros` };
         }
       }
       macros[name] = chainText.trim();

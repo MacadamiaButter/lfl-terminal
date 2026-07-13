@@ -56,6 +56,16 @@
  * ordinary CSS cascade to every descendant selector below without each of
  * them needing its own override block.
  */
+/* M4b verify fix (LOW-3): --lfl-dim-input exists because the ORIGINAL
+   (pre-theme, 05b1f40) styling used TWO different dim colors — #5d7290 for
+   the titlebar budget text and #4b5768 for the input placeholder/readonly
+   states — and funpack v1's single --lfl-dim variable collapsed them,
+   silently shifting the default theme's placeholder to #5d7290 at steady
+   state (the theme class is always applied by _loadTheme()). Splitting the
+   input dim back out restores the default theme to a byte-identical match
+   with 05b1f40 for EVERY element; the other three themes set both
+   variables to the same value, exactly matching how they already rendered
+   (their placeholder color was designed as their --lfl-dim). */
 .lfl-panel.lfl-theme-default {
   --lfl-bg: #0b0e14;
   --lfl-fg: #dbe4f0;
@@ -64,6 +74,7 @@
   --lfl-titlebar-bg: #151a24;
   --lfl-titlebar-fg: #8fa3c0;
   --lfl-dim: #5d7290;
+  --lfl-dim-input: #4b5768;
   --lfl-cmd: #8fd0ff;
   --lfl-info: #9fb0c3;
   --lfl-error: #ff6b6b;
@@ -85,6 +96,7 @@
   --lfl-titlebar-bg: #001a00;
   --lfl-titlebar-fg: #22cc22;
   --lfl-dim: #177217;
+  --lfl-dim-input: #177217;
   --lfl-cmd: #33ff33;
   --lfl-info: #2ecc2e;
   --lfl-error: #ff5555;
@@ -106,6 +118,7 @@
   --lfl-titlebar-bg: #241500;
   --lfl-titlebar-fg: #cc8b00;
   --lfl-dim: #805800;
+  --lfl-dim-input: #805800;
   --lfl-cmd: #ffcc66;
   --lfl-info: #e0a339;
   --lfl-error: #ff6b4a;
@@ -127,6 +140,7 @@
   --lfl-titlebar-bg: #ece7dc;
   --lfl-titlebar-fg: #4a4a4a;
   --lfl-dim: #8a8a8a;
+  --lfl-dim-input: #8a8a8a;
   --lfl-cmd: #0b5fa5;
   --lfl-info: #4a4a4a;
   --lfl-error: #b3261e;
@@ -312,9 +326,9 @@
 }
 
 .lfl-input::placeholder {
-  color: var(--lfl-dim, #4b5768);
+  color: var(--lfl-dim-input, #4b5768);
 }
 
 .lfl-input[readonly] {
-  color: var(--lfl-dim, #4b5768);
+  color: var(--lfl-dim-input, #4b5768);
 }

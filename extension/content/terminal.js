@@ -53,6 +53,18 @@
   // names. Kept in sync with registry.js's RESERVED_NAMES/GAME_NAMES and
   // engine.js's reg.register() calls for these three names.
   const GAME_NAMES = new Set(['snake', '2048', 'games']);
+  // M4b verify fix (MED-2): the four funpack-v1 names get the same
+  // chain/macro posture as the games. Directly-typed, they are matched in
+  // _submitCommand() and never reach _dispatchSegment() at all — but a
+  // chain segment (`go x && fortune`) or an alias expansion DOES reach it,
+  // and previously fell through to the page-lane model (burning an LLM
+  // budget slot and popping an unrelated proposal for a command that is
+  // supposed to be free and local). Kept in sync with registry.js's
+  // FUNPACK_NAMES (the macro write-time half of the same lock).
+  // Deliberately does NOT include the pre-existing meta-commands
+  // (budget/dev/origins/continue/alias/macro/...) — their posture is
+  // unchanged by this fix, per the verify scope.
+  const FUNPACK_NAMES = new Set(['fortune', 'stats', 'theme', 'cowsay']);
   // Storage-key form of each playable game's name, used only for the
   // chrome.storage.local `lflGameScores` object's keys (design §4) — "2048"
   // is not a valid property to reach via dot-notation and reads oddly as a
@@ -68,10 +80,10 @@
 :host{all:initial;position:fixed;inset:auto 0 0 0;margin:0;padding:0;border:none;width:auto;height:auto;background:transparent;color:inherit;overflow:visible;z-index:2147483647;display:block;}
 .lfl-panel{display:none;flex-direction:column;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.45;color:var(--lfl-fg,#dbe4f0);background:var(--lfl-bg,#0b0e14);border-top:2px solid var(--lfl-accent,#e0a339);box-shadow:0 -8px 24px rgba(0,0,0,.55);max-height:46vh;}
 .lfl-panel.lfl-open{display:flex;}
-.lfl-panel.lfl-theme-default{--lfl-bg:#0b0e14;--lfl-fg:#dbe4f0;--lfl-accent:#e0a339;--lfl-accent-bright:#f5a623;--lfl-titlebar-bg:#151a24;--lfl-titlebar-fg:#8fa3c0;--lfl-dim:#5d7290;--lfl-cmd:#8fd0ff;--lfl-info:#9fb0c3;--lfl-error:#ff6b6b;--lfl-ok:#7ee787;--lfl-border:#2a3140;--lfl-proposal-bg:#1a1408;--lfl-proposal-fg:#f2d9a8;--lfl-proposal-detail:#c9b28a;--lfl-approve-bg:#1c3a1c;--lfl-reject-bg:#3a1c1c;--lfl-input-bg:#0e131c;}
-.lfl-panel.lfl-theme-phosphor{--lfl-bg:#000000;--lfl-fg:#33ff33;--lfl-accent:#33ff33;--lfl-accent-bright:#66ff66;--lfl-titlebar-bg:#001a00;--lfl-titlebar-fg:#22cc22;--lfl-dim:#177217;--lfl-cmd:#33ff33;--lfl-info:#2ecc2e;--lfl-error:#ff5555;--lfl-ok:#33ff33;--lfl-border:#0a3d0a;--lfl-proposal-bg:#001a00;--lfl-proposal-fg:#33ff33;--lfl-proposal-detail:#22aa22;--lfl-approve-bg:#003300;--lfl-reject-bg:#330000;--lfl-input-bg:#000000;}
-.lfl-panel.lfl-theme-amber{--lfl-bg:#1a0f00;--lfl-fg:#ffb000;--lfl-accent:#ffb000;--lfl-accent-bright:#ffd166;--lfl-titlebar-bg:#241500;--lfl-titlebar-fg:#cc8b00;--lfl-dim:#805800;--lfl-cmd:#ffcc66;--lfl-info:#e0a339;--lfl-error:#ff6b4a;--lfl-ok:#ffb000;--lfl-border:#3a2200;--lfl-proposal-bg:#241500;--lfl-proposal-fg:#ffd166;--lfl-proposal-detail:#cc8b00;--lfl-approve-bg:#332200;--lfl-reject-bg:#3a1400;--lfl-input-bg:#1a0f00;}
-.lfl-panel.lfl-theme-paper{--lfl-bg:#f7f5f0;--lfl-fg:#1c1c1c;--lfl-accent:#a15c00;--lfl-accent-bright:#c97a00;--lfl-titlebar-bg:#ece7dc;--lfl-titlebar-fg:#4a4a4a;--lfl-dim:#8a8a8a;--lfl-cmd:#0b5fa5;--lfl-info:#4a4a4a;--lfl-error:#b3261e;--lfl-ok:#1e7b34;--lfl-border:#d8d2c4;--lfl-proposal-bg:#fff8e6;--lfl-proposal-fg:#3a3a3a;--lfl-proposal-detail:#6b5c3f;--lfl-approve-bg:#e3f3e6;--lfl-reject-bg:#f8e4e2;--lfl-input-bg:#ffffff;}
+.lfl-panel.lfl-theme-default{--lfl-bg:#0b0e14;--lfl-fg:#dbe4f0;--lfl-accent:#e0a339;--lfl-accent-bright:#f5a623;--lfl-titlebar-bg:#151a24;--lfl-titlebar-fg:#8fa3c0;--lfl-dim:#5d7290;--lfl-dim-input:#4b5768;--lfl-cmd:#8fd0ff;--lfl-info:#9fb0c3;--lfl-error:#ff6b6b;--lfl-ok:#7ee787;--lfl-border:#2a3140;--lfl-proposal-bg:#1a1408;--lfl-proposal-fg:#f2d9a8;--lfl-proposal-detail:#c9b28a;--lfl-approve-bg:#1c3a1c;--lfl-reject-bg:#3a1c1c;--lfl-input-bg:#0e131c;}
+.lfl-panel.lfl-theme-phosphor{--lfl-bg:#000000;--lfl-fg:#33ff33;--lfl-accent:#33ff33;--lfl-accent-bright:#66ff66;--lfl-titlebar-bg:#001a00;--lfl-titlebar-fg:#22cc22;--lfl-dim:#177217;--lfl-dim-input:#177217;--lfl-cmd:#33ff33;--lfl-info:#2ecc2e;--lfl-error:#ff5555;--lfl-ok:#33ff33;--lfl-border:#0a3d0a;--lfl-proposal-bg:#001a00;--lfl-proposal-fg:#33ff33;--lfl-proposal-detail:#22aa22;--lfl-approve-bg:#003300;--lfl-reject-bg:#330000;--lfl-input-bg:#000000;}
+.lfl-panel.lfl-theme-amber{--lfl-bg:#1a0f00;--lfl-fg:#ffb000;--lfl-accent:#ffb000;--lfl-accent-bright:#ffd166;--lfl-titlebar-bg:#241500;--lfl-titlebar-fg:#cc8b00;--lfl-dim:#805800;--lfl-dim-input:#805800;--lfl-cmd:#ffcc66;--lfl-info:#e0a339;--lfl-error:#ff6b4a;--lfl-ok:#ffb000;--lfl-border:#3a2200;--lfl-proposal-bg:#241500;--lfl-proposal-fg:#ffd166;--lfl-proposal-detail:#cc8b00;--lfl-approve-bg:#332200;--lfl-reject-bg:#3a1400;--lfl-input-bg:#1a0f00;}
+.lfl-panel.lfl-theme-paper{--lfl-bg:#f7f5f0;--lfl-fg:#1c1c1c;--lfl-accent:#a15c00;--lfl-accent-bright:#c97a00;--lfl-titlebar-bg:#ece7dc;--lfl-titlebar-fg:#4a4a4a;--lfl-dim:#8a8a8a;--lfl-dim-input:#8a8a8a;--lfl-cmd:#0b5fa5;--lfl-info:#4a4a4a;--lfl-error:#b3261e;--lfl-ok:#1e7b34;--lfl-border:#d8d2c4;--lfl-proposal-bg:#fff8e6;--lfl-proposal-fg:#3a3a3a;--lfl-proposal-detail:#6b5c3f;--lfl-approve-bg:#e3f3e6;--lfl-reject-bg:#f8e4e2;--lfl-input-bg:#ffffff;}
 .lfl-titlebar{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:4px 10px;background:var(--lfl-titlebar-bg,#151a24);border-bottom:1px solid var(--lfl-border,#2a3140);color:var(--lfl-titlebar-fg,#8fa3c0);font-size:11px;letter-spacing:.04em;text-transform:uppercase;}
 .lfl-titlebar .lfl-badge{color:var(--lfl-accent,#e0a339);}
 .lfl-titlebar .lfl-budget{margin-left:auto;color:var(--lfl-dim,#5d7290);letter-spacing:normal;text-transform:none;font-size:10px;}
@@ -98,8 +110,8 @@
 .lfl-inputrow{display:flex;align-items:center;padding:6px 10px;border-top:1px solid var(--lfl-border,#2a3140);background:var(--lfl-input-bg,#0e131c);}
 .lfl-prompt{color:var(--lfl-accent,#e0a339);margin-right:6px;}
 .lfl-input{flex:1;background:transparent;border:none;outline:none;color:var(--lfl-fg,#dbe4f0);font:inherit;}
-.lfl-input::placeholder{color:var(--lfl-dim,#4b5768);}
-.lfl-input[readonly]{color:var(--lfl-dim,#4b5768);}
+.lfl-input::placeholder{color:var(--lfl-dim-input,#4b5768);}
+.lfl-input[readonly]{color:var(--lfl-dim-input,#4b5768);}
 `;
 
   function createAuditLog() {
@@ -949,6 +961,30 @@
         return;
       }
 
+      // M4b verify fix (MED-2): funpack commands in a chain/macro segment
+      // are rejected (previously they silently fell through to _runLlm()
+      // below — see FUNPACK_NAMES's own comment). Reached only via a chain
+      // segment or an alias expansion; a directly-typed `fortune` never
+      // gets here (matched in _submitCommand()). The non-chain case (an
+      // alias like `alias f = fortune`, typed alone) routes to the real
+      // handler instead of the model — same outcome as typing the name
+      // directly, which is what an alias is supposed to mean.
+      if (FUNPACK_NAMES.has(firstTok)) {
+        if (opts.fromChain) {
+          const msg = `"${firstTok}" does not run in chains or macros - type it directly instead`;
+          this.printError(msg);
+          this._auditPush({ action: 'funpack' }, 'blocked', msg);
+          this._settle(false, msg);
+          this._afterSettle(false);
+          return;
+        }
+        if (firstTok === 'fortune') { this._handleFortune(); return; }
+        if (firstTok === 'stats') { this._handleStats(); return; }
+        if (firstTok === 'theme') { this._handleTheme(resolved); return; }
+        this._handleCowsay(resolved);
+        return;
+      }
+
       const det = LFL.engine.tryDeterministic(resolved, this.state);
       if (det !== null) {
         // funpack v1 stats: this is the "resolved deterministically, never
@@ -1434,6 +1470,12 @@
     // the active program doesn't otherwise use, so the underlying page
     // never scrolls out from under a running game.
     _routeProgramKey(e) {
+      // M4b verify fix (LOW-4): while a program is active, no keystroke
+      // aimed at the game should bubble out to page document listeners
+      // (shadow-root events retarget but still propagate to the document).
+      // Scoped ONLY to this program-mode path — ordinary typing keeps the
+      // terminal's original propagation semantics untouched.
+      if (typeof e.stopPropagation === 'function') e.stopPropagation();
       const key = e.key;
       if (Object.prototype.hasOwnProperty.call(ARROW_KEY_DIRS, key)) {
         e.preventDefault();
@@ -1478,6 +1520,26 @@
       this._auditPush({ action: 'game' }, reason, `${active.prog.name} exited (${reason})`);
       this._settle(true, `${active.prog.name} exited (${reason})`);
       this._updateTestHook();
+    }
+
+    // M4b verify fix (MED-1): the reverse arm of the program/proposal
+    // mutual exclusion. _enterProgram() refuses to start while a proposal/
+    // nav-confirm is pending; this closes the OTHER direction — a proposal
+    // or navigation confirm arriving (from an async model round trip that
+    // was already in flight when the game started) while a program is
+    // active. Called at the very top of _presentProposal() and
+    // _confirmOrNavigate(), BEFORE either touches state.mode/the approval
+    // card/approveBtn.focus(): the program is force-exited through the
+    // ordinary _exitProgram() choke point (interval cleared, score summary
+    // printed, mode back to 'idle'), with restoreFocus:false since the
+    // approval flow is about to claim focus for its own Approve control
+    // anyway. Guarantees a proposal can never render over a still-ticking
+    // game, and Enter can never be swallowed ambiguously between "game
+    // input" and "approve a mutating action".
+    _maybeExitProgramForProposal() {
+      if (!this._activeProgram) return;
+      this._exitProgram('proposal', { restoreFocus: false });
+      this.printInfo('game ended: a proposal arrived');
     }
 
     // Fire-and-forget lflStats bump, called from _dispatchSegment/
@@ -1647,6 +1709,19 @@
     // rather than overloading `state.pendingProposal` (which stays an LLM
     // action object shape — see _normalizeAction()/executor.execute()).
     async _confirmOrNavigate(url, opts) {
+      // M4b verify fix (MED-1): the program/proposal mutual exclusion must
+      // hold in BOTH directions. _enterProgram() already refuses to start
+      // while a confirm/approval is pending; this is the reverse arm — a
+      // navigation confirm arriving while a game is running (possible via
+      // the async nav-lane round trip: `go <words>` was typed, the model
+      // answer is still in flight, the human starts a game meanwhile) must
+      // force-exit the program FIRST, through the same _exitProgram()
+      // choke point every other exit path uses. Without this, the
+      // approval-card state below would clobber state.mode while the tick
+      // interval kept running, and approveBtn.focus() would yank focus
+      // onto Approve mid-keymash — an Enter meant as game input could
+      // approve a navigation unread.
+      this._maybeExitProgramForProposal();
       const originStr = url.origin;
       this.printInfo(`go → ${url.href}`);
       const visitedResp = await this._tsSend('TS_VISITED_CHECK', { origin: originStr });
@@ -1852,6 +1927,14 @@
     }
 
     _presentProposal(action, latencyMs) {
+      // M4b verify fix (MED-1): force-exit any active program BEFORE
+      // presenting — see _confirmOrNavigate()'s twin call and
+      // _maybeExitProgramForProposal()'s own comment for the full race
+      // (an in-flight _runLlm() answer landing while a game runs).
+      // Unconditional (before the requiresApproval split below), so an
+      // auto-run answer/extract landing mid-game also exits cleanly
+      // instead of printing its result under a still-ticking frame.
+      this._maybeExitProgramForProposal();
       // funpack v1 stats: one proposed action came back from the model --
       // counted here regardless of whether it turns out to require approval
       // or auto-runs (answer/extract/scroll/abort), same scope as the
