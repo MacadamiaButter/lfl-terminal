@@ -1,4 +1,4 @@
-# lfl-terminal threat model — M1 seed, M2 hardening applied, M3 command browser
+# lfl-terminal threat model — M1 seed, M2 hardening applied, M3 command browser, M4a friction trio
 
 This is the seed threat model for the M1 feasibility spike: the 13 design
 requirements the product is built against, honest implementation status for
@@ -31,6 +31,19 @@ total across all seven suites including the pre-existing M1/M2 ones — see
 README.md for the exact per-file counts); the Playwright battery proof of
 the live browser flows is a separate, subsequent verification pass, not
 part of this build.
+
+**2026-07-13 M4a build ("friction trio"):** three more deterministic,
+never-call-the-model tools — `ls`/numbered actions (`open <N>`/`click <N>`/
+`fill <N> with ...`/`fill <label> with ...`/bare `<N>`), `read`/`find`, and
+`here` + a "did you mean" typo interceptor. Registry/deterministic-layer
+work only — no model-vocabulary change, no manifest change, no new
+permission, no guard relaxation, no service-worker protocol change. See the
+"M4a — friction trio" section near the end of this file for the full
+writeup. Unit-verified (Node, `tests/m4_friction.test.js`, 61 assertions
+against the real, unmodified `engine.js`/`executor.js`/`guards.js`/
+`registry.js` loaded via `vm`); all seven pre-existing suites re-verified
+passing byte-for-byte unchanged (211 assertions total across all eight
+suites — see README.md for the exact per-file counts).
 
 ## The 13 design requirements
 
@@ -1006,3 +1019,193 @@ never `eval`'d, and it was never anything other than previously-typed text
 to begin with (see the trust-split section above). There is no code path in
 this build that constructs a DOM subtree, a `Function`, or a dynamic
 `import()` from a TS_* response field.
+
+## M4a — friction trio (2026-07-13)
+
+Three deterministic tools, all built inside `extension/content/engine.js`
+(dispatched from `tryDeterministic()`, the same synchronous, chrome.*-free
+contract every M1/M2 built-in verb already uses) plus one addition to
+`extension/content/registry.js`. Nothing here changes the model's fixed
+action vocabulary, the manifest, any permission, any guard predicate in
+`guards.js`, or the service-worker message protocol — `git diff` on
+`guards.js`/`executor.js`/`service-worker.js`/`manifest.json` shows only the
+one-line `RESERVED_NAMES` addition in `registry.js` (the new built-in verb
+names — see below) and, in `executor.js`, no changes at all: `ls`'s
+click-by-index/fill-by-index verbs call `LFL.executor.execute()` completely
+unmodified.
+
+### Listing-context lifecycle — page-scoped, model-never-sees-it
+
+`ls` builds an index→element map by calling `LFL.axtree.build()` — the
+EXACT same function the LLM page-lane already calls before every model
+request (`terminal.js`'s `_runLlm()`) — and stores the result verbatim as
+`state.listingContext = { entries, map, notes }`. This is a deliberate
+reuse, not a parallel structure: `open <N>`/`click <N>`/`fill <N> with
+...`/bare `<N>` all resolve against `state.listingContext.map` via
+`LFL.axtree.resolve()`, and `click <N>`/`fill <N>` hand that SAME map,
+unmodified, to `LFL.executor.execute()` — the identical map shape and
+resolution path an approved LLM `click`/`fill` action already goes through.
+`tests/m4_friction.test.js` Part 1 proves this directly: the map `ls`
+builds is handed to the real `executor.execute()` and a real (fake, but
+guard-realistic) element is actually clicked through it.
+
+This map/entries object is:
+- **Page-scoped, in-memory only.** It lives on `state` (the `Terminal`
+  instance's per-page state object, per `terminal.js`'s header comment) and
+  is never written to `chrome.storage.local`/`.session`, never has a
+  `TS_*` message type of its own, and is REPLACED (never merged) by every
+  fresh `ls`/`ls links`/`ls buttons`/`ls fields` call. It dies naturally on
+  navigation (a fresh content-script injection constructs a fresh `state`
+  from scratch, same as `pendingCrossOriginUrl`/`pendingProposal` already
+  do), and is additionally cleared by an explicit `clear` command
+  (`engine.js`'s `clear` branch now resets `state.listingContext` and
+  `state.findContext` too, not just the output pane).
+- **Never sent to either LLM lane.** Neither `buildPayload()` (page-lane)
+  nor `buildNavLanePayload()` (nav-lane) in `service-worker.js` reads
+  anything resembling a listing context — both were UNCHANGED by this
+  build (see the M3 section above for the nav-lane isolation proof this
+  build did not touch). The model has no channel to learn what number
+  `ls` assigned to anything; a human types the number back in themselves.
+- **Numbers shown == map indexes, always.** `ls`'s section caps (~40 per
+  section, `"(N more)"` marker) only affect what's PRINTED, never the
+  underlying map — an item not shown because its section was capped is
+  still resolvable by its real index if the human already knows it (e.g.
+  from a previous, unfiltered `ls`), same posture `extract links`'s
+  pre-existing 40-link cap already had.
+
+### Deterministic fill/click-without-approval-card — rationale, and what does NOT change
+
+`click <N>` and `fill <N> with <text>`/`fill <label> with <text>` execute
+immediately, with no approval card, exactly like `search`/`open`/`go`
+already do. This is a deliberate continuation of an existing product
+posture, not a new exception carved out for M4a: **a deterministic command
+IS the human's approval** — it was typed by a human, for this exact action,
+right now (same "TRUSTED: user-typed terminal input" framing the M3 trust
+split above already establishes for `go`/aliases/macros). The approval
+card exists to gate an action a MODEL proposed on the human's behalf, where
+the human is approving an interpretation of their intent; there is no
+interpretation gap to bridge when the human typed `click 3` themselves.
+
+**What stays unconditional regardless:** every hard block in `guards.js`/
+`executor.js` — the credential guard (`isPasswordField`, never bypassable
+by deterministic OR model-proposed fill/select), the click-target
+scheme/origin guard (`checkClickTarget`/`resolveClickNavTarget`, blocking
+`javascript:`/cross-origin targets identically), and `nav-watch.js`'s
+runtime navigation-interception arming (armed around every executor-level
+`click`, deterministic or LLM-approved, with the same honest limits
+documented under item #7/M2.2 above) — because `click <N>`/`fill <N>` call
+`LFL.executor.execute()` UNMODIFIED. `tests/m4_friction.test.js` Parts 3-4
+prove this directly: a `click <N>` against a `javascript:`/cross-origin
+target is blocked (`el.click()` never fires) exactly like an approved LLM
+click would be; a `fill <N>`/`fill <label>` against a password-type field
+is refused exactly like an approved LLM fill would be.
+
+### `click <N>` and the chain queue — no `navInitiated`, arrival check governs
+
+Unlike `open <N>` (which controls `location.href` directly and so CAN
+truthfully self-report whether it just initiated a navigation — same-origin
+branch is tagged `navInitiated: true`, cross-origin-pending branch is not,
+mirroring `doOpen()`'s existing FIX 1 posture exactly), `click <N>` calls
+`el.click()` through `executor.execute()` and has **no way to know in
+advance** whether that click will trigger a navigation — a page's own
+`onclick` handler might navigate, might not, might defer, might do
+something else entirely. `doClickIndex()` therefore never sets
+`navInitiated` on its result, for ANY click, allowed or blocked.
+
+This is an accepted, deliberate scope limit, not an oversight: if a
+`click <N>` inside a chain (`click 3 && ls`) DOES trigger a navigation, the
+chain queue's own existing machinery still governs correctly, the same way
+it already does for an approved LLM-proposed click (which has never had a
+`navInitiated` concept either — see `_presentProposal()`/`_approveProposal()`
+in `terminal.js`, neither of which tags LLM actions this way). Concretely:
+`_dispatchSegment()` runs its ordinary `_settle(true, ...)` →
+`_afterSettle(true)` → synchronous `_advanceQueue()` path for a `click <N>`
+result exactly like it does for `search`/`extract links`/every other
+existing deterministic verb with no navigation signal of its own (see the
+"Queue risks" item 2 residual above, which already documents this exact
+class of gap for the pre-existing engine.js handlers) — if the click DID
+just start an unloading navigation, `_advanceQueue()` may run the next
+queued segment a beat early, against the still-current document. This
+cannot cause cross-origin EXECUTION (the queue only ever holds previously
+typed text regardless of which document a segment runs against — same
+non-exploitability argument the pre-existing "Queue risks" section already
+makes), and any subsequent injection's OWN arrival check
+(`nav.checkArrival()`, run by `_restoreTerminalState()` → `_advanceQueue()`
+on the freshly re-injected page) still fail-closes a same-origin-vs-
+cross-origin mismatch the same way it always has. Net effect: a click that
+happens to navigate mid-chain is governed by the exact same arrival-check
+machinery `back`/`open!`/auto-submitting `search` already rely on for
+cross-origin cases, with the display-only worst case (a stale queued
+segment visibly re-running after a manual same-origin arrival) already
+disclosed and accepted under the pre-existing "Queue risks" section — M4a
+does not introduce a new failure mode here, it inherits an already-disclosed
+one. `fill <N>`/`fill <label>` are non-navigating by construction (a fill
+never triggers a page navigation on its own) and are likewise left
+untagged.
+
+### `open <N>` and iframe-indexed links — a build decision, not an oversight
+
+`LFL.axtree.build()` indexes interactive elements inside same-origin
+iframes too (M2.4, item #3 above) — so, in principle, `ls` can list a link
+that actually lives inside a same-origin iframe. `open <N>` on such an
+entry still navigates the TOP document's `location.href` (using
+`axtree.frameOptsFor(el)` only to resolve the link's own origin/baseURI
+for the same-origin/cross-origin classification, not to navigate that
+iframe specifically) — the same posture the pre-existing `doOpen()`
+text-search command has always had (it only ever considered top-document
+links via `document.querySelectorAll`, so this question never arose for
+it before). Navigating a specific same-origin iframe in place, rather than
+the whole tab, was out of scope for this build; `click <N>`/`fill <N>` DO
+work correctly against iframe-indexed elements (via `executor.execute()`,
+which already resolves/mutates the element in its own document — M2.4's
+existing guarantee, unchanged).
+
+### Did-you-mean narrows the model surface, it does not widen it
+
+`terminal.js`'s `_dispatchSegment()` now checks `LFL.registry.didYouMean()`
+(a new, pure, DOM-free function in `registry.js`) between "no deterministic
+command matched" and "send to the model" — a Damerau-Levenshtein distance
+≤2 (and ≥1) match, on the first token only (minimum 3 characters), against
+the real registered command surface (`LFL.commandRegistry.names()`),
+capped at 3 suggestions. When it fires, the input is REFUSED with a
+suggestion message — it is never sent to the model for that segment.
+
+This can only ever REMOVE inputs from the set that reaches `_runLlm()`;
+there is no code path by which it adds one. It is inert (returns `[]`,
+falls through exactly as before) for: an explicit `ask ...` (the
+unambiguous, always-to-the-model escape hatch — checked first and skips
+`didYouMean()` entirely), a bare integer (already fully handled inside
+`tryDeterministic()` — every bare-number input returns non-null there,
+either an action or a "no listing" error, so it never reaches this check
+in the first place; `didYouMean()` guards against it internally too, as a
+second, independent safety net for its own standalone contract), an exact
+registered verb name (already matched deterministically before this check
+runs), and anything more than distance-2 away from every known name (falls
+through to the model exactly as it did before this build).
+`tests/m4_friction.test.js` Part 8 proves all of these cases directly
+against the real, unmodified `didYouMean()`, including one integration
+check against the REAL `LFL.commandRegistry.names()` output (not a
+synthetic candidate list) to prove the suggestion is grounded in the
+actual registered command surface, not a hand-maintained duplicate of it.
+
+**Honest scope note:** this is a heuristic distance threshold, not a
+formally derived one — a legitimate short command the model was meant to
+receive that HAPPENS to be within edit-distance-2 of a real verb name
+(unlikely in practice, since real English commands sent via `ask` almost
+always start with a longer, more natural-language first word) would be
+intercepted and require the `ask` prefix to get through. This trades a
+small amount of friction for the common case (a genuine typo) against a
+rare false-positive (a short, verb-adjacent-looking `ask`-worthy phrase),
+and is disclosed here as a deliberate, reversible-by-typing-`ask` trade,
+not a claimed-perfect heuristic.
+
+### New reserved names
+
+`registry.js`'s `RESERVED_NAMES` set (the alias/macro shadowing guard —
+see the "Alias-poisoning analysis" section above) gained six entries:
+`ls`, `read`, `find`, `here`, `click`, `fill` — the same reasoning that
+protects `go`/`search`/`open` from being silently shadowed by a
+same-named alias/macro now protects these six too. No other change to
+the alias/macro write path (`setAlias`/`setMacro`, still the only two
+mutating functions, still only ever called from `terminal.js`'s typed-input
+handlers) was made.

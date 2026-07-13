@@ -124,6 +124,12 @@
     'go', 'alias', 'unalias', 'macro', 'unmacro', 'origins', 'dev', 'man',
     'search', 'open', 'open!', 'back', 'scroll', 'extract', 'log', 'budget',
     'continue', 'help', 'clear', 'ask',
+    // M4a friction-trio built-ins (extension/content/engine.js) — same
+    // shadowing footgun the original set was created to close: an
+    // `alias ls = ...`/`macro click = ...` would silently make the ls-listing
+    // tools (and their guard-inheriting click/fill-by-index verbs)
+    // unreachable by their own names.
+    'ls', 'read', 'find', 'here', 'click', 'fill',
   ]);
 
   function firstWord(s) {
@@ -304,5 +310,104 @@
     return body;
   }
 
-  return { createRegistry, createAliasStore, splitChain, expandAlias, expandMacro };
+  // ---- 4. did-you-mean (M4a friction trio, tool 3) ----
+  //
+  // Pure, DOM-free — used by terminal.js's `_dispatchSegment()` between "no
+  // deterministic command matched" and "fall through to the LLM", so a typo
+  // like `serach wikipedia` gets a suggestion instead of spending an LLM call
+  // (and a slice of the LLM-call rate-limit budget) on a command the human
+  // almost certainly meant to be deterministic. Deliberately narrow: this
+  // NARROWS the model surface (fewer accidental LLM calls for near-miss
+  // typos), it does not widen it — nothing here can route text TO the model
+  // that wouldn't already have gone there; it can only intercept some of what
+  // would have.
+  //
+  // Damerau-Levenshtein (adjacent-transposition-aware edit distance) rather
+  // than plain Levenshtein specifically because the canonical typo shape this
+  // exists for — two adjacent letters swapped ("serach" for "search",
+  // "operatinos" for... well, not a real command, but the shape generalizes)
+  // — costs 1 under Damerau-Levenshtein and 2 under plain Levenshtein; the
+  // distance<=2 threshold below is calibrated assuming transpositions are
+  // cheap, which only holds for the Damerau variant.
+  function damerauLevenshtein(a, b) {
+    a = String(a || '');
+    b = String(b || '');
+    const al = a.length;
+    const bl = b.length;
+    if (al === 0) return bl;
+    if (bl === 0) return al;
+    // (al+2) x (bl+2) table, the standard Damerau-Levenshtein construction
+    // (optimal string alignment would be simpler but doesn't allow a
+    // transposed pair to be edited again — the full DL table costs a little
+    // more code for a correctness edge case that doesn't matter at the
+    // string lengths command names ever reach, but is cheap to just do
+    // right).
+    const maxDist = al + bl;
+    const d = [];
+    for (let i = 0; i <= al + 1; i++) { d.push(new Array(bl + 2).fill(0)); }
+    d[0][0] = maxDist;
+    for (let i = 0; i <= al; i++) { d[i + 1][0] = maxDist; d[i + 1][1] = i; }
+    for (let j = 0; j <= bl; j++) { d[0][j + 1] = maxDist; d[1][j + 1] = j; }
+    const lastRow = {};
+    for (let i = 1; i <= al; i++) {
+      let lastMatchCol = 0;
+      const ai = a[i - 1];
+      for (let j = 1; j <= bl; j++) {
+        const bj = b[j - 1];
+        const i1 = lastRow[bj] || 0;
+        const j1 = lastMatchCol;
+        let cost = 1;
+        if (ai === bj) { cost = 0; lastMatchCol = j; }
+        const del = d[i][j + 1] + 1;
+        const ins = d[i + 1][j] + 1;
+        const sub = d[i][j] + cost;
+        const trans = d[i1][j1] + (i - i1 - 1) + 1 + (j - j1 - 1);
+        d[i + 1][j + 1] = Math.min(del, ins, sub, trans);
+      }
+      lastRow[ai] = i;
+    }
+    return d[al + 1][bl + 1];
+  }
+
+  const DID_YOU_MEAN_MIN_TOKEN_LEN = 3;
+  const DID_YOU_MEAN_MAX_DISTANCE = 2;
+  const DID_YOU_MEAN_MAX_CANDIDATES = 3;
+
+  // rawInput: the full segment text that already failed every deterministic
+  // match (caller's responsibility — this function does not re-check that).
+  // candidateNames: the registry's known verb/alias-target names (typically
+  // LFL.commandRegistry.names()) — pure array of strings in, pure array of
+  // strings (verb names, closest first) out. Never mutates or reads any
+  // global state.
+  function didYouMean(rawInput, candidateNames) {
+    const trimmed = (rawInput || '').trim();
+    if (!trimmed) return [];
+    // "ask ..." is the unambiguous, explicit model path — never second-guess
+    // it. A bare integer is handled entirely inside engine.js's tryDeterministic
+    // (it always returns non-null, action-or-gentle-error), so it never
+    // reaches this function in practice, but the guard is kept here too so
+    // this pure function's own contract holds regardless of caller wiring.
+    if (/^ask(\s|$)/i.test(trimmed)) return [];
+    if (/^\d+$/.test(trimmed)) return [];
+    const token = (trimmed.split(/\s+/)[0] || '').toLowerCase();
+    if (token.length < DID_YOU_MEAN_MIN_TOKEN_LEN) return [];
+    const seen = new Set();
+    const scored = [];
+    for (const name of candidateNames || []) {
+      const lower = String(name || '').toLowerCase();
+      if (!lower || lower === token || seen.has(lower)) continue;
+      seen.add(lower);
+      const dist = damerauLevenshtein(token, lower);
+      if (dist >= 1 && dist <= DID_YOU_MEAN_MAX_DISTANCE) {
+        scored.push({ name: lower, dist });
+      }
+    }
+    scored.sort((x, y) => (x.dist - y.dist) || x.name.localeCompare(y.name));
+    return scored.slice(0, DID_YOU_MEAN_MAX_CANDIDATES).map((s) => s.name);
+  }
+
+  return {
+    createRegistry, createAliasStore, splitChain, expandAlias, expandMacro,
+    damerauLevenshtein, didYouMean,
+  };
 });

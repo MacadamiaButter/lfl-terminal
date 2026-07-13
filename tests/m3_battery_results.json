@@ -31,7 +31,7 @@
       "chain's first segment (new-origin go) asked for confirm: True",
       "approved -> landed on saucedemo.com: True (url=https://www.saucedemo.com/)",
       "queued 'extract links' ran automatically post-arrival-check: True (lastResult={'ok': True, 'message': '(no visible links)'})",
-      "queued 'ask fill ...' segment stopped for its OWN approval (mutating steps individually gated): True (pendingProposal={'action': 'fill', 'element': 1, 'value': 'standard_user', 'reason': '', 'gloss': 'fill [1] <input> role=textbox name=\"Username\" with \"standard_user\"', 'latencyMs': 633})",
+      "queued 'ask fill ...' segment stopped for its OWN approval (mutating steps individually gated): True (pendingProposal={'action': 'fill', 'element': 1, 'value': 'standard_user', 'reason': '', 'gloss': 'fill [1] <input> role=textbox name=\"Username\" with \"standard_user\"', 'latencyMs': 649})",
       "approved fill actually landed in the page's username field: True (value='standard_user')"
     ],
     "c_redirect_halt": [
@@ -50,7 +50,7 @@
       "reject did NOT navigate: True (url unchanged=True)"
     ],
     "f_is_trusted": [
-      "a pending click proposal is up: True (pendingProposal={'action': 'click', 'element': 3, 'value': '', 'reason': '', 'gloss': 'click [3] <input> role=button name=\"login-button\" -> https://www.saucedemo.com/ (same-origin)', 'latencyMs': 491})",
+      "a pending click proposal is up: True (pendingProposal={'action': 'click', 'element': 3, 'value': '', 'reason': '', 'gloss': 'click [3] <input> role=button name=\"login-button\" -> https://www.saucedemo.com/ (same-origin)', 'latencyMs': 498})",
       "synthetic (isTrusted:false) Escape had NO effect (seq/mode unchanged): True (seq before=1, after=1, mode=awaiting-approval)",
       "synthetic (isTrusted:false) Enter had NO effect (seq/mode unchanged): True (seq before=1, after=1, mode=awaiting-approval)",
       "REAL Playwright keyboard Escape (isTrusted:true) DID reject: True (state={'open': True, 'mode': 'idle', 'seq': 2, 'lastResult': {'ok': None, 'message': 'rejected (not executed)'}, 'rateLimit': {'llmRemaining': 13, 'llmMax': 20, 'actionRemaining': 6, 'actionMax': 10, 'paused': False, 'pauseReason': None}, 'pendingProposal': None, 'pendingNav': None})"

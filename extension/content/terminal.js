@@ -116,6 +116,23 @@
         pendingNav: null, // M3: {url, origin, modelResolved} — see _handleGo/_confirmOrNavigate
         history: [],
         historyIdx: -1,
+        // M4a: the `ls`-built index->element listing context ({entries, map,
+        // notes}, EXACTLY axtree.build()'s own return shape — see
+        // engine.js's doLs()) and the active `find` match state
+        // ({query, matches, idx}). Both are page-scoped, human-visible-only
+        // memory: never persisted (no TS_* key), never sent to either LLM
+        // lane's payload, and cleared by `clear` (engine.js's clear branch)
+        // in addition to dying naturally with this whole `state` object on
+        // the next navigation's fresh content-script injection.
+        listingContext: null,
+        findContext: null,
+        // M4a: a live mirror of this._rlBudgetCache (see below) so
+        // engine.js's `here` handler — which only receives `state`, not this
+        // Terminal instance — can render the already-cached rate-limit
+        // budget synchronously, without needing terminal.js's separate
+        // chrome.*-capable async dispatch path the way go/alias/macro/dev/
+        // origins need. Kept in sync everywhere _rlBudgetCache is assigned.
+        rlBudgetCache: null,
       };
       // M3: the alias/macro store (registry.js) — chrome.storage.local
       // backed, loaded async below. The ONLY writers of it are
@@ -163,6 +180,7 @@
         paused: false,
         pauseReason: null,
       };
+      this.state.rlBudgetCache = this._rlBudgetCache; // M4a — see state's own comment above
       // Reentrancy guard for _approveProposal()'s async SW round trip — see
       // that method for why.
       this._approvalBusy = false;
@@ -253,7 +271,10 @@
         const reason = (resp && resp.error) || 'rate-limit check unavailable (service worker unreachable) — blocked for safety';
         return { ok: false, allowed: false, paused: true, reason, resumed: false, recorded: false, budget: this._rlBudgetCache };
       }
-      if (resp.budget) this._rlBudgetCache = resp.budget;
+      if (resp.budget) {
+        this._rlBudgetCache = resp.budget;
+        this.state.rlBudgetCache = resp.budget; // M4a — keep `here`'s synchronous view in sync
+      }
       return resp;
     }
 
@@ -791,6 +812,34 @@
         if (det.navInitiated) return;
         this._afterSettle(true);
         return;
+      }
+
+      // M4a — did-you-mean (tool 3, design note in engine.js's header):
+      // NOT an "ask ..." (that's the unambiguous, explicit model path) and
+      // NOT a bare number (engine.js's tryDeterministic() above always
+      // returns non-null for one — an action or a gentle "no listing"
+      // error — so det would never have been null in the first place; this
+      // second check is defense in depth for this function's own contract,
+      // not a case that can actually be reached via a bare-number input
+      // today). Deliberately narrows the model surface, never widens it —
+      // this can only intercept some inputs that would otherwise have
+      // reached _runLlm() below; nothing here ever routes text TO the model
+      // that wouldn't already have gone there.
+      const isAsk = /^ask(\s|$)/i.test(resolved);
+      if (!isAsk) {
+        const candidates = LFL.registry.didYouMean(resolved, LFL.commandRegistry.names());
+        if (candidates.length > 0) {
+          const token = (resolved.trim().split(/\s+/)[0] || '');
+          const suggestion = candidates.length === 1
+            ? candidates[0]
+            : candidates.join(', ');
+          const msg = `unknown command "${token}" — did you mean: ${suggestion}? (or prefix with "ask" to send to the local model)`;
+          this.printError(msg);
+          this._auditPush({ action: 'did-you-mean' }, 'blocked', msg);
+          this._settle(false, msg);
+          this._afterSettle(false);
+          return;
+        }
       }
 
       const command = resolved.replace(/^ask\s+/i, '');

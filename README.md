@@ -84,13 +84,19 @@ Deterministic commands never touch the model:
 
 ```
 search "query" | search query   fill+submit the page search box
-open <link text>                navigate a same-origin link by visible text
+open <link text> | open <N>     navigate a same-origin link, by text or by an `ls` number
 open!                           confirm the last cross-origin open
 go <destination>                navigate anywhere (see below)
 back                            browser back
 scroll up | scroll down         scroll the page
 extract links                   list visible links (text + href)
 extract table                   dump the first table as aligned text
+ls | ls links/buttons/fields    numbered listing of visible links/buttons/fields
+click <N>                       click ls-listing item N — no approval card, same hard blocks
+fill <N> with <text>            fill ls-listing field N, or by its label ("fill <label> with ...")
+read                            extract the page's main readable content
+find <text> | find              search visible page text; bare `find` goes to the next match
+here                            compact orientation: counts, hints, suggested next commands
 log                             this session's proposal/verdict audit log
 budget                          remaining LLM-call / executed-action budget
 continue                        resume after a rate-limit pause
@@ -108,6 +114,9 @@ clear                           clear the output pane
 `cmd1 && cmd2 && ...` chains up to 5 commands, quote-aware — any error,
 block, rejection, or Esc clears the rest of the chain.
 
+A bare number by itself (after `ls`) does the sensible default thing for
+that item: opens a link, clicks a button, or tells you how to fill a field.
+
 `go <destination>` tries, in order: a literal URL/domain, a defined alias,
 and only as a last resort, a second, narrower local-model call that sees
 **only your typed text** (no page content at all) and proposes a
@@ -115,10 +124,16 @@ destination. A model-resolved destination always asks for confirmation,
 every time — read it before approving.
 
 Anything else, or an explicit `ask <...>`, goes to the local model as one
-proposed action. `click`/`fill`/`select`/`navigate` render an approval card
-you have to explicitly approve (Enter or click Approve) or reject (Esc or
-click Reject); `answer`/`extract`/`scroll`/`abort` are read-only and
-auto-run.
+proposed action — unless what you typed looks like a typo of a known command
+name, in which case you get a "did you mean" suggestion instead of spending
+a model call on it (prefix with `ask` to force it to the model regardless).
+`click`/`fill`/`select`/`navigate` proposed by the model render an approval
+card you have to explicitly approve (Enter or click Approve) or reject (Esc
+or click Reject); `answer`/`extract`/`scroll`/`abort` are read-only and
+auto-run. The typed `click <N>`/`fill <N> with <text>` commands above skip
+that approval card — they're direct, deterministic user intent, the same
+way `search`/`open` always have been — but every hard block (credentials,
+unsafe click targets) still applies exactly the same either way.
 
 ## Security model
 
@@ -156,7 +171,7 @@ use.
 
 ## Development
 
-Seven Node unit-test suites, no framework, no `npm install`:
+Eight Node unit-test suites, no framework, no `npm install`:
 
 ```
 node tests/executor_credential.test.js
@@ -166,6 +181,7 @@ node tests/m3_nav_lane_isolation.test.js
 node tests/m3_go_resolution.test.js
 node tests/m3_chain_and_alias_macro.test.js
 node tests/m3_hardening.test.js
+node tests/m4_friction.test.js
 ```
 
 Static grep gates:
@@ -176,10 +192,11 @@ bash tests/check_no_leaks.sh    # no dev-machine identity/infra strings
 ```
 
 A Playwright battery also exists under `tests/` (`run_battery.py`,
-`m2_adversarial.py`, `m3_battery.py`) for end-to-end/live-browser
-verification — it needs `pip install playwright && playwright install
-chromium` (or another Chrome-for-Testing build) and a running model server;
-see the scripts themselves for details.
+`m2_adversarial.py`, `m3_battery.py`, and a small optional `m4_smoke.py` for
+the M4a friction trio) for end-to-end/live-browser verification — it needs
+`pip install playwright && playwright install chromium` (or another
+Chrome-for-Testing build) and a running model server; see the scripts
+themselves for details.
 
 ## License
 
