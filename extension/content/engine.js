@@ -67,6 +67,19 @@
   reg.register({ name: 'read', argSpec: 'read', help: 'extract the page\'s main readable content (article/main, or the largest visible text block) (M4a)' });
   reg.register({ name: 'find', argSpec: 'find <text> | find', help: 'search visible page text and scroll to it; bare find advances to the next match (M4a)' });
   reg.register({ name: 'here', argSpec: 'here', help: 'compact orientation: origin, element counts, search/pagination hints, suggested next commands (M4a)' });
+  // funpack v1 (extension/content/funpack.js) — fortune/stats/theme/cowsay
+  // are dispatched by terminal.js, not this file's tryDeterministic() chain,
+  // because they need chrome.storage.local access (persisted theme choice,
+  // stats counters, MOTD day) this file's synchronous DOM-only contract
+  // doesn't have — same posture as go/alias/macro/unmacro/origins/dev above.
+  // Registered here purely for help/man text and vocabulary enumeration
+  // (including did-you-mean's candidate list, via LFL.commandRegistry.names()).
+  // MOTD itself has no typed command name to register — it is shown
+  // automatically, at most once per calendar day, when the overlay is opened.
+  reg.register({ name: 'fortune', argSpec: 'fortune', help: 'print one local-first/privacy one-liner or command tip (funpack v1)' });
+  reg.register({ name: 'stats', argSpec: 'stats', help: 'this session\'s command counters, including the share that never touched the model (funpack v1)' });
+  reg.register({ name: 'theme', argSpec: 'theme [name]', help: 'switch (or list) the overlay color theme: default, phosphor, amber, paper (funpack v1)' });
+  reg.register({ name: 'cowsay', argSpec: 'cowsay <text>', help: 'classic ASCII cow with a word-wrapped, 40-col speech bubble (funpack v1)' });
 
   const HELP_TEXT = [
     'deterministic commands (never call the local model):',

@@ -20,6 +20,7 @@
         "content/nav.js",
         "content/engine.js",
         "content/executor.js",
+        "content/funpack.js",
         "content/terminal.js"
       ],
       "run_at": "document_idle",

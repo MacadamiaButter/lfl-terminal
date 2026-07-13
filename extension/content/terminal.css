@@ -39,11 +39,105 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 13px;
   line-height: 1.45;
-  color: #dbe4f0;
-  background: #0b0e14;
-  border-top: 2px solid #e0a339;
+  color: var(--lfl-fg, #dbe4f0);
+  background: var(--lfl-bg, #0b0e14);
+  border-top: 2px solid var(--lfl-accent, #e0a339);
   box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.55);
   max-height: 46vh;
+}
+
+/**
+ * funpack v1 `theme` command (extension/content/funpack.js + terminal.js's
+ * _applyTheme()) — a `.lfl-theme-<name>` class toggled on THIS element (the
+ * shadow root's own top-level container, .lfl-panel) that overrides the
+ * --lfl-* custom properties every rule below reads (with the original
+ * hardcoded colors kept as the var() fallback, so "default"/no class == the
+ * exact pre-funpack look, byte-for-byte). Custom properties inherit through
+ * ordinary CSS cascade to every descendant selector below without each of
+ * them needing its own override block.
+ */
+.lfl-panel.lfl-theme-default {
+  --lfl-bg: #0b0e14;
+  --lfl-fg: #dbe4f0;
+  --lfl-accent: #e0a339;
+  --lfl-accent-bright: #f5a623;
+  --lfl-titlebar-bg: #151a24;
+  --lfl-titlebar-fg: #8fa3c0;
+  --lfl-dim: #5d7290;
+  --lfl-cmd: #8fd0ff;
+  --lfl-info: #9fb0c3;
+  --lfl-error: #ff6b6b;
+  --lfl-ok: #7ee787;
+  --lfl-border: #2a3140;
+  --lfl-proposal-bg: #1a1408;
+  --lfl-proposal-fg: #f2d9a8;
+  --lfl-proposal-detail: #c9b28a;
+  --lfl-approve-bg: #1c3a1c;
+  --lfl-reject-bg: #3a1c1c;
+  --lfl-input-bg: #0e131c;
+}
+
+.lfl-panel.lfl-theme-phosphor {
+  --lfl-bg: #000000;
+  --lfl-fg: #33ff33;
+  --lfl-accent: #33ff33;
+  --lfl-accent-bright: #66ff66;
+  --lfl-titlebar-bg: #001a00;
+  --lfl-titlebar-fg: #22cc22;
+  --lfl-dim: #177217;
+  --lfl-cmd: #33ff33;
+  --lfl-info: #2ecc2e;
+  --lfl-error: #ff5555;
+  --lfl-ok: #33ff33;
+  --lfl-border: #0a3d0a;
+  --lfl-proposal-bg: #001a00;
+  --lfl-proposal-fg: #33ff33;
+  --lfl-proposal-detail: #22aa22;
+  --lfl-approve-bg: #003300;
+  --lfl-reject-bg: #330000;
+  --lfl-input-bg: #000000;
+}
+
+.lfl-panel.lfl-theme-amber {
+  --lfl-bg: #1a0f00;
+  --lfl-fg: #ffb000;
+  --lfl-accent: #ffb000;
+  --lfl-accent-bright: #ffd166;
+  --lfl-titlebar-bg: #241500;
+  --lfl-titlebar-fg: #cc8b00;
+  --lfl-dim: #805800;
+  --lfl-cmd: #ffcc66;
+  --lfl-info: #e0a339;
+  --lfl-error: #ff6b4a;
+  --lfl-ok: #ffb000;
+  --lfl-border: #3a2200;
+  --lfl-proposal-bg: #241500;
+  --lfl-proposal-fg: #ffd166;
+  --lfl-proposal-detail: #cc8b00;
+  --lfl-approve-bg: #332200;
+  --lfl-reject-bg: #3a1400;
+  --lfl-input-bg: #1a0f00;
+}
+
+.lfl-panel.lfl-theme-paper {
+  --lfl-bg: #f7f5f0;
+  --lfl-fg: #1c1c1c;
+  --lfl-accent: #a15c00;
+  --lfl-accent-bright: #c97a00;
+  --lfl-titlebar-bg: #ece7dc;
+  --lfl-titlebar-fg: #4a4a4a;
+  --lfl-dim: #8a8a8a;
+  --lfl-cmd: #0b5fa5;
+  --lfl-info: #4a4a4a;
+  --lfl-error: #b3261e;
+  --lfl-ok: #1e7b34;
+  --lfl-border: #d8d2c4;
+  --lfl-proposal-bg: #fff8e6;
+  --lfl-proposal-fg: #3a3a3a;
+  --lfl-proposal-detail: #6b5c3f;
+  --lfl-approve-bg: #e3f3e6;
+  --lfl-reject-bg: #f8e4e2;
+  --lfl-input-bg: #ffffff;
 }
 
 .lfl-panel.lfl-open {
@@ -56,21 +150,21 @@
   align-items: center;
   gap: 10px;
   padding: 4px 10px;
-  background: #151a24;
-  border-bottom: 1px solid #2a3140;
-  color: #8fa3c0;
+  background: var(--lfl-titlebar-bg, #151a24);
+  border-bottom: 1px solid var(--lfl-border, #2a3140);
+  color: var(--lfl-titlebar-fg, #8fa3c0);
   font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
 .lfl-titlebar .lfl-badge {
-  color: #e0a339;
+  color: var(--lfl-accent, #e0a339);
 }
 
 .lfl-titlebar .lfl-budget {
   margin-left: auto;
-  color: #5d7290;
+  color: var(--lfl-dim, #5d7290);
   letter-spacing: normal;
   text-transform: none;
   font-size: 10px;
@@ -89,32 +183,39 @@
 }
 
 .lfl-line.lfl-cmd {
-  color: #8fd0ff;
+  color: var(--lfl-cmd, #8fd0ff);
 }
 
 .lfl-line.lfl-cmd::before {
   content: 'lfl> ';
-  color: #e0a339;
+  color: var(--lfl-accent, #e0a339);
 }
 
 .lfl-line.lfl-info {
-  color: #9fb0c3;
+  color: var(--lfl-info, #9fb0c3);
 }
 
 .lfl-line.lfl-error {
-  color: #ff6b6b;
+  color: var(--lfl-error, #ff6b6b);
 }
 
 .lfl-line.lfl-ok {
-  color: #7ee787;
+  color: var(--lfl-ok, #7ee787);
+}
+
+/* funpack v1 MOTD (terminal.js's _maybeShowMotd()) — one dim, italic line,
+   shown at most once per calendar day on overlay open. */
+.lfl-line.lfl-motd {
+  color: var(--lfl-dim, #5d7290);
+  font-style: italic;
 }
 
 .lfl-proposal {
   margin: 0 10px 8px 10px;
   padding: 8px 10px;
-  border: 1px solid #e0a339;
-  background: #1a1408;
-  color: #f2d9a8;
+  border: 1px solid var(--lfl-accent, #e0a339);
+  background: var(--lfl-proposal-bg, #1a1408);
+  color: var(--lfl-proposal-fg, #f2d9a8);
 }
 
 .lfl-proposal[hidden] {
@@ -122,19 +223,19 @@
 }
 
 .lfl-proposal .lfl-gloss {
-  color: #f5a623;
+  color: var(--lfl-accent-bright, #f5a623);
   font-weight: 600;
 }
 
 .lfl-proposal .lfl-detail {
-  color: #c9b28a;
+  color: var(--lfl-proposal-detail, #c9b28a);
   font-size: 12px;
   margin-top: 4px;
   white-space: pre-wrap;
 }
 
 .lfl-proposal .lfl-hint {
-  color: #8fa3c0;
+  color: var(--lfl-titlebar-fg, #8fa3c0);
   font-size: 11px;
   margin-top: 6px;
 }
@@ -155,24 +256,24 @@
 }
 
 .lfl-approve-btn {
-  background: #1c3a1c;
-  border: 1px solid #7ee787;
-  color: #7ee787;
+  background: var(--lfl-approve-bg, #1c3a1c);
+  border: 1px solid var(--lfl-ok, #7ee787);
+  color: var(--lfl-ok, #7ee787);
 }
 
 .lfl-approve-btn:focus {
-  outline: 2px solid #7ee787;
+  outline: 2px solid var(--lfl-ok, #7ee787);
   outline-offset: 2px;
 }
 
 .lfl-reject-btn {
-  background: #3a1c1c;
-  border: 1px solid #ff6b6b;
-  color: #ff6b6b;
+  background: var(--lfl-reject-bg, #3a1c1c);
+  border: 1px solid var(--lfl-error, #ff6b6b);
+  color: var(--lfl-error, #ff6b6b);
 }
 
 .lfl-reject-btn:focus {
-  outline: 2px solid #ff6b6b;
+  outline: 2px solid var(--lfl-error, #ff6b6b);
   outline-offset: 2px;
 }
 
@@ -180,12 +281,12 @@
   display: flex;
   align-items: center;
   padding: 6px 10px;
-  border-top: 1px solid #2a3140;
-  background: #0e131c;
+  border-top: 1px solid var(--lfl-border, #2a3140);
+  background: var(--lfl-input-bg, #0e131c);
 }
 
 .lfl-prompt {
-  color: #e0a339;
+  color: var(--lfl-accent, #e0a339);
   margin-right: 6px;
 }
 
@@ -194,14 +295,14 @@
   background: transparent;
   border: none;
   outline: none;
-  color: #dbe4f0;
+  color: var(--lfl-fg, #dbe4f0);
   font: inherit;
 }
 
 .lfl-input::placeholder {
-  color: #4b5768;
+  color: var(--lfl-dim, #4b5768);
 }
 
 .lfl-input[readonly] {
-  color: #4b5768;
+  color: var(--lfl-dim, #4b5768);
 }

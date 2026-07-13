@@ -130,6 +130,9 @@
     // tools (and their guard-inheriting click/fill-by-index verbs)
     // unreachable by their own names.
     'ls', 'read', 'find', 'here', 'click', 'fill',
+    // funpack v1 (extension/content/funpack.js, dispatched by terminal.js) —
+    // same shadowing footgun as above.
+    'fortune', 'stats', 'theme', 'cowsay',
   ]);
 
   function firstWord(s) {

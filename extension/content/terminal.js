@@ -53,34 +53,39 @@
   // Kept in sync with content/terminal.css — see the TODO note there.
   const CSS_TEXT = `
 :host{all:initial;position:fixed;inset:auto 0 0 0;margin:0;padding:0;border:none;width:auto;height:auto;background:transparent;color:inherit;overflow:visible;z-index:2147483647;display:block;}
-.lfl-panel{display:none;flex-direction:column;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.45;color:#dbe4f0;background:#0b0e14;border-top:2px solid #e0a339;box-shadow:0 -8px 24px rgba(0,0,0,.55);max-height:46vh;}
+.lfl-panel{display:none;flex-direction:column;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.45;color:var(--lfl-fg,#dbe4f0);background:var(--lfl-bg,#0b0e14);border-top:2px solid var(--lfl-accent,#e0a339);box-shadow:0 -8px 24px rgba(0,0,0,.55);max-height:46vh;}
 .lfl-panel.lfl-open{display:flex;}
-.lfl-titlebar{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:4px 10px;background:#151a24;border-bottom:1px solid #2a3140;color:#8fa3c0;font-size:11px;letter-spacing:.04em;text-transform:uppercase;}
-.lfl-titlebar .lfl-badge{color:#e0a339;}
-.lfl-titlebar .lfl-budget{margin-left:auto;color:#5d7290;letter-spacing:normal;text-transform:none;font-size:10px;}
+.lfl-panel.lfl-theme-default{--lfl-bg:#0b0e14;--lfl-fg:#dbe4f0;--lfl-accent:#e0a339;--lfl-accent-bright:#f5a623;--lfl-titlebar-bg:#151a24;--lfl-titlebar-fg:#8fa3c0;--lfl-dim:#5d7290;--lfl-cmd:#8fd0ff;--lfl-info:#9fb0c3;--lfl-error:#ff6b6b;--lfl-ok:#7ee787;--lfl-border:#2a3140;--lfl-proposal-bg:#1a1408;--lfl-proposal-fg:#f2d9a8;--lfl-proposal-detail:#c9b28a;--lfl-approve-bg:#1c3a1c;--lfl-reject-bg:#3a1c1c;--lfl-input-bg:#0e131c;}
+.lfl-panel.lfl-theme-phosphor{--lfl-bg:#000000;--lfl-fg:#33ff33;--lfl-accent:#33ff33;--lfl-accent-bright:#66ff66;--lfl-titlebar-bg:#001a00;--lfl-titlebar-fg:#22cc22;--lfl-dim:#177217;--lfl-cmd:#33ff33;--lfl-info:#2ecc2e;--lfl-error:#ff5555;--lfl-ok:#33ff33;--lfl-border:#0a3d0a;--lfl-proposal-bg:#001a00;--lfl-proposal-fg:#33ff33;--lfl-proposal-detail:#22aa22;--lfl-approve-bg:#003300;--lfl-reject-bg:#330000;--lfl-input-bg:#000000;}
+.lfl-panel.lfl-theme-amber{--lfl-bg:#1a0f00;--lfl-fg:#ffb000;--lfl-accent:#ffb000;--lfl-accent-bright:#ffd166;--lfl-titlebar-bg:#241500;--lfl-titlebar-fg:#cc8b00;--lfl-dim:#805800;--lfl-cmd:#ffcc66;--lfl-info:#e0a339;--lfl-error:#ff6b4a;--lfl-ok:#ffb000;--lfl-border:#3a2200;--lfl-proposal-bg:#241500;--lfl-proposal-fg:#ffd166;--lfl-proposal-detail:#cc8b00;--lfl-approve-bg:#332200;--lfl-reject-bg:#3a1400;--lfl-input-bg:#1a0f00;}
+.lfl-panel.lfl-theme-paper{--lfl-bg:#f7f5f0;--lfl-fg:#1c1c1c;--lfl-accent:#a15c00;--lfl-accent-bright:#c97a00;--lfl-titlebar-bg:#ece7dc;--lfl-titlebar-fg:#4a4a4a;--lfl-dim:#8a8a8a;--lfl-cmd:#0b5fa5;--lfl-info:#4a4a4a;--lfl-error:#b3261e;--lfl-ok:#1e7b34;--lfl-border:#d8d2c4;--lfl-proposal-bg:#fff8e6;--lfl-proposal-fg:#3a3a3a;--lfl-proposal-detail:#6b5c3f;--lfl-approve-bg:#e3f3e6;--lfl-reject-bg:#f8e4e2;--lfl-input-bg:#ffffff;}
+.lfl-titlebar{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:4px 10px;background:var(--lfl-titlebar-bg,#151a24);border-bottom:1px solid var(--lfl-border,#2a3140);color:var(--lfl-titlebar-fg,#8fa3c0);font-size:11px;letter-spacing:.04em;text-transform:uppercase;}
+.lfl-titlebar .lfl-badge{color:var(--lfl-accent,#e0a339);}
+.lfl-titlebar .lfl-budget{margin-left:auto;color:var(--lfl-dim,#5d7290);letter-spacing:normal;text-transform:none;font-size:10px;}
 .lfl-output{flex:1;overflow-y:auto;padding:8px 10px;white-space:pre-wrap;word-break:break-word;}
 .lfl-line{margin:0 0 4px 0;}
-.lfl-line.lfl-cmd{color:#8fd0ff;}
-.lfl-line.lfl-cmd::before{content:'lfl> ';color:#e0a339;}
-.lfl-line.lfl-info{color:#9fb0c3;}
-.lfl-line.lfl-error{color:#ff6b6b;}
-.lfl-line.lfl-ok{color:#7ee787;}
-.lfl-proposal{margin:0 10px 8px 10px;padding:8px 10px;border:1px solid #e0a339;background:#1a1408;color:#f2d9a8;}
+.lfl-line.lfl-cmd{color:var(--lfl-cmd,#8fd0ff);}
+.lfl-line.lfl-cmd::before{content:'lfl> ';color:var(--lfl-accent,#e0a339);}
+.lfl-line.lfl-info{color:var(--lfl-info,#9fb0c3);}
+.lfl-line.lfl-error{color:var(--lfl-error,#ff6b6b);}
+.lfl-line.lfl-ok{color:var(--lfl-ok,#7ee787);}
+.lfl-line.lfl-motd{color:var(--lfl-dim,#5d7290);font-style:italic;}
+.lfl-proposal{margin:0 10px 8px 10px;padding:8px 10px;border:1px solid var(--lfl-accent,#e0a339);background:var(--lfl-proposal-bg,#1a1408);color:var(--lfl-proposal-fg,#f2d9a8);}
 .lfl-proposal[hidden]{display:none;}
-.lfl-proposal .lfl-gloss{color:#f5a623;font-weight:600;}
-.lfl-proposal .lfl-detail{color:#c9b28a;font-size:12px;margin-top:4px;white-space:pre-wrap;}
-.lfl-proposal .lfl-hint{color:#8fa3c0;font-size:11px;margin-top:6px;}
+.lfl-proposal .lfl-gloss{color:var(--lfl-accent-bright,#f5a623);font-weight:600;}
+.lfl-proposal .lfl-detail{color:var(--lfl-proposal-detail,#c9b28a);font-size:12px;margin-top:4px;white-space:pre-wrap;}
+.lfl-proposal .lfl-hint{color:var(--lfl-titlebar-fg,#8fa3c0);font-size:11px;margin-top:6px;}
 .lfl-approval-actions{display:flex;gap:8px;margin-top:8px;}
 .lfl-approve-btn,.lfl-reject-btn{font:inherit;font-size:12px;padding:4px 12px;border-radius:2px;cursor:pointer;}
-.lfl-approve-btn{background:#1c3a1c;border:1px solid #7ee787;color:#7ee787;}
-.lfl-approve-btn:focus{outline:2px solid #7ee787;outline-offset:2px;}
-.lfl-reject-btn{background:#3a1c1c;border:1px solid #ff6b6b;color:#ff6b6b;}
-.lfl-reject-btn:focus{outline:2px solid #ff6b6b;outline-offset:2px;}
-.lfl-inputrow{display:flex;align-items:center;padding:6px 10px;border-top:1px solid #2a3140;background:#0e131c;}
-.lfl-prompt{color:#e0a339;margin-right:6px;}
-.lfl-input{flex:1;background:transparent;border:none;outline:none;color:#dbe4f0;font:inherit;}
-.lfl-input::placeholder{color:#4b5768;}
-.lfl-input[readonly]{color:#4b5768;}
+.lfl-approve-btn{background:var(--lfl-approve-bg,#1c3a1c);border:1px solid var(--lfl-ok,#7ee787);color:var(--lfl-ok,#7ee787);}
+.lfl-approve-btn:focus{outline:2px solid var(--lfl-ok,#7ee787);outline-offset:2px;}
+.lfl-reject-btn{background:var(--lfl-reject-bg,#3a1c1c);border:1px solid var(--lfl-error,#ff6b6b);color:var(--lfl-error,#ff6b6b);}
+.lfl-reject-btn:focus{outline:2px solid var(--lfl-error,#ff6b6b);outline-offset:2px;}
+.lfl-inputrow{display:flex;align-items:center;padding:6px 10px;border-top:1px solid var(--lfl-border,#2a3140);background:var(--lfl-input-bg,#0e131c);}
+.lfl-prompt{color:var(--lfl-accent,#e0a339);margin-right:6px;}
+.lfl-input{flex:1;background:transparent;border:none;outline:none;color:var(--lfl-fg,#dbe4f0);font:inherit;}
+.lfl-input::placeholder{color:var(--lfl-dim,#4b5768);}
+.lfl-input[readonly]{color:var(--lfl-dim,#4b5768);}
 `;
 
   function createAuditLog() {
@@ -149,6 +154,11 @@
       // resolves, which is the safe default direction to fail in.
       this._devHooksEnabled = false;
       this._loadDevHooksFlag();
+      // funpack v1: persisted theme choice (storage.local `lflTheme`) --
+      // loaded async, applied via _applyTheme() as soon as it resolves;
+      // stays on the 'default' theme's fallback CSS values until then, the
+      // safe default direction. See _loadTheme()/_applyTheme() below.
+      this._loadTheme();
       this.elementMap = new Map();
       this._lastCommand = '';
       // Monotonic counter bumped at every "settle" point (deterministic result
@@ -515,6 +525,10 @@
       // M3: persist open state per tab so a later re-injection (navigation)
       // auto-reopens — see _restoreTerminalState(). Fire-and-forget.
       this._tsSend('TS_OPEN_SET', { open: true });
+      // funpack v1: at most one dim fortune line per calendar day, shown
+      // whenever the overlay is opened. Fire-and-forget, never delays the
+      // focus()/updateTestHook() calls above.
+      this._maybeShowMotd();
     }
 
     close() {
@@ -736,6 +750,15 @@
       if (/^unalias\s+\S+$/i.test(raw)) { this._handleUnaliasCommand(raw); return; }
       if (/^macro(\s|$)/i.test(raw)) { this._handleMacroCommand(raw); return; }
       if (/^unmacro\s+\S+$/i.test(raw)) { this._handleUnmacroCommand(raw); return; }
+      // funpack v1: fortune/stats/theme/cowsay -- same "standalone control
+      // command, no chain participation" posture as the M3 cluster just
+      // above (they need chrome.storage.local access engine.js's
+      // synchronous tryDeterministic() contract doesn't have; see
+      // engine.js's registration comment for these four names).
+      if (/^fortune$/i.test(raw)) { this._handleFortune(); return; }
+      if (/^stats$/i.test(raw)) { this._handleStats(); return; }
+      if (/^theme(\s|$)/i.test(raw)) { this._handleTheme(raw); return; }
+      if (/^cowsay(\s|$)/i.test(raw)) { this._handleCowsay(raw); return; }
 
       this._runChain(raw);
     }
@@ -777,6 +800,14 @@
     // then routes to `go` (§2's ladder), the deterministic engine registry,
     // or (unchanged) the page-lane LLM.
     async _dispatchSegment(segment) {
+      // funpack v1 stats: every dispatched, chain-eligible segment counts
+      // once toward `totalCommands` -- fire-and-forget, never awaited, never
+      // throws (see _bumpStats()). Meta-commands handled earlier in
+      // _submitCommand (continue/budget/alias/macro/fortune/stats/theme/
+      // cowsay/etc.) never reach this function, so they're deliberately NOT
+      // counted here -- `stats` is about page-driving commands.
+      this._bumpStats({ totalCommands: 1 });
+
       const resolved = LFL.registry.expandAlias(segment, this._aliasStore);
       const firstTok = (resolved.trim().split(/\s+/)[0] || '').toLowerCase();
 
@@ -787,6 +818,10 @@
 
       const det = LFL.engine.tryDeterministic(resolved, this.state);
       if (det !== null) {
+        // funpack v1 stats: this is the "resolved deterministically, never
+        // touched the model" point `stats`'s headline percentage is built
+        // from (formatStatsSummary() in funpack.js).
+        this._bumpStats({ deterministicHits: 1 });
         if (det.clear) this.clearOutput();
         this.printInfo(det.output);
         this._auditPush({ action: 'deterministic' }, 'auto', det.output ? det.output.slice(0, 160) : '');
@@ -904,6 +939,166 @@
       if (res.ok) this.printOk(msg); else this.printError(msg);
       this._auditPush({ action: 'unmacro' }, res.ok ? 'auto' : 'blocked', msg);
       this._settle(res.ok, msg);
+    }
+
+    // ---- funpack v1: fortune / stats / theme / cowsay ----
+    //
+    // All four are pure-data/pure-function driven by extension/content/
+    // funpack.js -- this class's job is only the chrome.storage.local round
+    // trip and the printing/DOM-class-toggling around them, same division of
+    // labor as the alias/macro handlers just above use for registry.js.
+
+    _handleFortune() {
+      const line = LFL.funpack.getFortune(Date.now());
+      this.printInfo(line);
+      this._auditPush({ action: 'fortune' }, 'auto', line);
+      this._settle(true, line);
+    }
+
+    _statsUnavailable() {
+      const msg = 'stats unavailable (storage error)';
+      this.printError(msg);
+      this._auditPush({ action: 'stats' }, 'n/a', msg);
+      this._settle(false, msg);
+    }
+
+    _handleStats() {
+      try {
+        chrome.storage.local.get(['lflStats'], (res) => {
+          if (chrome.runtime.lastError) { this._statsUnavailable(); return; }
+          try {
+            const stats = LFL.funpack.mergeStats(res && res.lflStats);
+            const msg = LFL.funpack.formatStatsSummary(stats);
+            this.printInfo(msg);
+            this._auditPush({ action: 'stats' }, 'auto', msg.slice(0, 160));
+            this._settle(true, msg);
+          } catch (_e) {
+            this._statsUnavailable();
+          }
+        });
+      } catch (_e) {
+        this._statsUnavailable();
+      }
+    }
+
+    // Toggles the `.lfl-theme-<name>` class on `this.panel` -- the shadow
+    // root's own top-level container, see terminal.css's funpack-v1 comment
+    // block for how the --lfl-* custom properties this switches cascade down
+    // to every color rule below it.
+    _applyTheme(name) {
+      LFL.funpack.THEMES.forEach((t) => this.panel.classList.remove(`lfl-theme-${t}`));
+      this.panel.classList.add(`lfl-theme-${name}`);
+    }
+
+    // Loads the persisted theme choice (storage.local `lflTheme`) once at
+    // construction and applies it -- fire-and-forget; any storage error just
+    // leaves the panel on its default (no-class) fallback CSS values, which
+    // is visually identical to `.lfl-theme-default` anyway.
+    _loadTheme() {
+      try {
+        chrome.storage.local.get(['lflTheme'], (res) => {
+          if (chrome.runtime.lastError) return;
+          const name = LFL.funpack.isValidTheme(res && res.lflTheme) ? res.lflTheme : LFL.funpack.THEME_DEFAULT;
+          this._applyTheme(name);
+        });
+      } catch (_e) { /* storage unavailable -- stays on the default theme's fallback CSS values */ }
+    }
+
+    _handleTheme(raw) {
+      const m = raw.match(/^theme\s+(\S+)$/i);
+      if (!m) {
+        try {
+          chrome.storage.local.get(['lflTheme'], (res) => {
+            const active = (!chrome.runtime.lastError && LFL.funpack.isValidTheme(res && res.lflTheme))
+              ? res.lflTheme
+              : LFL.funpack.THEME_DEFAULT;
+            const msg = LFL.funpack.themeListText(active);
+            this.printInfo(msg);
+            this._auditPush({ action: 'theme' }, 'auto', msg.slice(0, 160));
+            this._settle(true, msg);
+          });
+        } catch (_e) {
+          const msg = LFL.funpack.themeListText(LFL.funpack.THEME_DEFAULT);
+          this.printInfo(msg);
+          this._settle(true, msg);
+        }
+        return;
+      }
+      const name = m[1].toLowerCase();
+      if (!LFL.funpack.isValidTheme(name)) {
+        const msg = `theme: unknown theme "${name}" - try: ${LFL.funpack.THEMES.join(', ')}`;
+        this.printError(msg);
+        this._auditPush({ action: 'theme' }, 'blocked', msg);
+        this._settle(false, msg);
+        return;
+      }
+      this._applyTheme(name);
+      try { chrome.storage.local.set({ lflTheme: name }); } catch (_e) { /* best-effort */ }
+      const msg = `theme set: ${name}`;
+      this.printOk(msg);
+      this._auditPush({ action: 'theme' }, 'auto', msg);
+      this._settle(true, msg);
+    }
+
+    _handleCowsay(raw) {
+      const m = raw.match(/^cowsay\s+([\s\S]+)$/i);
+      const text = m ? m[1].trim() : '';
+      if (!text) {
+        const msg = 'usage: cowsay <text>';
+        this.printError(msg);
+        this._auditPush({ action: 'cowsay' }, 'blocked', msg);
+        this._settle(false, msg);
+        return;
+      }
+      const out = LFL.funpack.cowsay(text);
+      this.printInfo(out);
+      this._auditPush({ action: 'cowsay' }, 'auto', 'cowsay');
+      this._settle(true, out);
+    }
+
+    // Fire-and-forget lflStats bump, called from _dispatchSegment/
+    // _presentProposal/_approveProposal above -- never awaited from the
+    // command path, and every failure mode here is swallowed (a dropped
+    // stats increment is harmless; blocking or throwing on the command path
+    // would not be). See funpack.js's mergeStats()/applyDailyStreak()/
+    // applyStatsIncrement() for the pure math this wraps.
+    _bumpStats(fields) {
+      try {
+        chrome.storage.local.get(['lflStats'], (res) => {
+          try {
+            if (chrome.runtime.lastError) return;
+            const today = LFL.funpack.todayStr();
+            let stats = LFL.funpack.mergeStats(res && res.lflStats);
+            stats = LFL.funpack.applyDailyStreak(stats, today);
+            stats = LFL.funpack.applyStatsIncrement(stats, fields);
+            chrome.storage.local.set({ lflStats: stats });
+          } catch (_e) { /* best-effort, fire-and-forget */ }
+        });
+      } catch (_e) { /* storage unavailable this tick -- next command tries again */ }
+    }
+
+    // MOTD (funpack v1): at most one dim fortune line per calendar day,
+    // shown when the overlay is opened (see open() above) -- never blocks or
+    // delays anything there, and any storage error here is swallowed (no
+    // MOTD today is always the safe fallback direction). Uses _appendLineDom
+    // directly rather than _appendLine, deliberately NOT persisting this line
+    // to the scrollback -- scrollback restore (_restoreTerminalState()) would
+    // otherwise replay it on every subsequent navigation this same calendar
+    // day, which is not "at most once per day" from the human's point of
+    // view.
+    _maybeShowMotd() {
+      try {
+        chrome.storage.local.get(['lflMotdDay'], (res) => {
+          try {
+            if (chrome.runtime.lastError) return;
+            const today = LFL.funpack.todayStr();
+            if (!LFL.funpack.shouldShowMotd(res && res.lflMotdDay, today)) return;
+            const line = LFL.funpack.getFortune(LFL.funpack.dayOfYear(new Date()));
+            this._appendLineDom(line, 'motd');
+            chrome.storage.local.set({ lflMotdDay: today });
+          } catch (_e) { /* swallow -- MOTD is decorative, never worth surfacing an error for */ }
+        });
+      } catch (_e) { /* storage unavailable -- no MOTD today, harmless */ }
     }
 
     _handleDevCommand(raw) {
@@ -1233,6 +1428,11 @@
     }
 
     _presentProposal(action, latencyMs) {
+      // funpack v1 stats: one proposed action came back from the model --
+      // counted here regardless of whether it turns out to require approval
+      // or auto-runs (answer/extract/scroll/abort), same scope as the
+      // README's "one proposed action" wording.
+      this._bumpStats({ modelProposals: 1 });
       const requiresApproval = APPROVAL_ACTIONS.has(action.action);
       const targetEl = action.element != null ? LFL.axtree.resolve(this.elementMap, action.element) : null;
       const gloss = this._glossFor(action, targetEl);
@@ -1383,6 +1583,13 @@
         // AFTER both the occlusion check and the budget check pass.
         await this._rlRecord('action');
         if (this.state.pendingProposal !== action) return; // resolved by Reject/close while awaiting
+
+        // funpack v1 stats: the human's approval decision is confirmed at
+        // exactly this point (both hard blocks above have already passed) --
+        // counted here regardless of whether the execution itself then
+        // succeeds or fails, since "approvals" measures the human's decision,
+        // not the executor's outcome.
+        this._bumpStats({ approvals: 1 });
 
         this.proposalEl.hidden = true;
         this.inputEl.readOnly = false;
