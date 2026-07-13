@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>onclick-evil-nav fixture</title>
+</head>
+<body>
+<h1>onclick-evil-nav fixture</h1>
+<p>A plain button with a page onclick handler that programmatically
+navigates via <code>location.href</code> — no static href/formaction/form-
+action for guards.js's static click-target guard to resolve ahead of time
+(the documented M1 residual). M2.2's runtime navigation watcher must
+classify the resulting navigation as unapproved cross-origin and block it
+via the Navigation API's <code>navigate</code> event.</p>
+
+<button id="evil-button" type="button"
+        onclick="location.href='http://127.0.0.1:8999/other-origin.html'">
+  click me
+</button>
+<button id="plain-button" type="button">plain button (no nav)</button>
+</body>
+</html>

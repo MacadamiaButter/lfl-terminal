@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>iframe-mixed fixture</title>
+</head>
+<body>
+<h1>iframe-mixed fixture</h1>
+<p>Top-level page with a same-origin iframe containing a form (M2.4:
+axtree.js must index its interactive elements) and a cross-origin iframe
+(M2.4: must be marked uninspectable and skipped, never indexed, never
+entered).</p>
+<iframe id="same-origin-frame" src="/iframe-same-origin-content.html" width="320" height="160"></iframe>
+<iframe id="cross-origin-frame" src="http://127.0.0.1:8999/other-origin.html" width="320" height="160"></iframe>
+</body>
+</html>

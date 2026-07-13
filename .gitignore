@@ -1,0 +1,10 @@
+reference/
+*.log
+*.gguf
+review-shots/
+__pycache__/
+node_modules/
+tests/.chrome-profile/
+tests/.chrome-profile-m2/
+tests/.chrome-profile-m3/
+server/.env.local

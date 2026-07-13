@@ -1,0 +1,207 @@
+/**
+ * terminal.css — canonical source for the overlay's dark amber/slate terminal
+ * aesthetic. Because the overlay renders inside a CLOSED shadow root (to limit
+ * page CSS interference — see terminal.js), this file is not loaded by the
+ * manifest against the page; terminal.js carries a synced copy in its CSS_TEXT
+ * constant that it injects directly into the shadow root via a <style> element.
+ * TODO(M2): eliminate the duplication (e.g. constructable stylesheet shared via
+ * a tiny build step) — no-build-step is a hard M1 constraint, so a manual sync
+ * is the pragmatic tradeoff for the spike. Keep this file and CSS_TEXT in sync.
+ *
+ * M2.1: the host element (:host) also carries a `popover="manual"` attribute
+ * (set in terminal.js) to promote it into the browser top layer. The popover
+ * UA stylesheet's own defaults (border/padding/background/margin/inset/width/
+ * height, plus a `display:none !important` while not shown) are overridden
+ * here by explicit author-origin values on :host, which — because this rule
+ * targets the host element from inside its OWN shadow tree — wins the
+ * cascade against the UA popover defaults for that same element.
+ */
+
+:host {
+  all: initial;
+  position: fixed;
+  inset: auto 0 0 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  width: auto;
+  height: auto;
+  background: transparent;
+  color: inherit;
+  overflow: visible;
+  z-index: 2147483647;
+  display: block;
+}
+
+.lfl-panel {
+  display: none;
+  flex-direction: column;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.45;
+  color: #dbe4f0;
+  background: #0b0e14;
+  border-top: 2px solid #e0a339;
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.55);
+  max-height: 46vh;
+}
+
+.lfl-panel.lfl-open {
+  display: flex;
+}
+
+.lfl-titlebar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 10px;
+  background: #151a24;
+  border-bottom: 1px solid #2a3140;
+  color: #8fa3c0;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.lfl-titlebar .lfl-badge {
+  color: #e0a339;
+}
+
+.lfl-titlebar .lfl-budget {
+  margin-left: auto;
+  color: #5d7290;
+  letter-spacing: normal;
+  text-transform: none;
+  font-size: 10px;
+}
+
+.lfl-output {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.lfl-line {
+  margin: 0 0 4px 0;
+}
+
+.lfl-line.lfl-cmd {
+  color: #8fd0ff;
+}
+
+.lfl-line.lfl-cmd::before {
+  content: 'lfl> ';
+  color: #e0a339;
+}
+
+.lfl-line.lfl-info {
+  color: #9fb0c3;
+}
+
+.lfl-line.lfl-error {
+  color: #ff6b6b;
+}
+
+.lfl-line.lfl-ok {
+  color: #7ee787;
+}
+
+.lfl-proposal {
+  margin: 0 10px 8px 10px;
+  padding: 8px 10px;
+  border: 1px solid #e0a339;
+  background: #1a1408;
+  color: #f2d9a8;
+}
+
+.lfl-proposal[hidden] {
+  display: none;
+}
+
+.lfl-proposal .lfl-gloss {
+  color: #f5a623;
+  font-weight: 600;
+}
+
+.lfl-proposal .lfl-detail {
+  color: #c9b28a;
+  font-size: 12px;
+  margin-top: 4px;
+  white-space: pre-wrap;
+}
+
+.lfl-proposal .lfl-hint {
+  color: #8fa3c0;
+  font-size: 11px;
+  margin-top: 6px;
+}
+
+.lfl-approval-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.lfl-approve-btn,
+.lfl-reject-btn {
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.lfl-approve-btn {
+  background: #1c3a1c;
+  border: 1px solid #7ee787;
+  color: #7ee787;
+}
+
+.lfl-approve-btn:focus {
+  outline: 2px solid #7ee787;
+  outline-offset: 2px;
+}
+
+.lfl-reject-btn {
+  background: #3a1c1c;
+  border: 1px solid #ff6b6b;
+  color: #ff6b6b;
+}
+
+.lfl-reject-btn:focus {
+  outline: 2px solid #ff6b6b;
+  outline-offset: 2px;
+}
+
+.lfl-inputrow {
+  display: flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-top: 1px solid #2a3140;
+  background: #0e131c;
+}
+
+.lfl-prompt {
+  color: #e0a339;
+  margin-right: 6px;
+}
+
+.lfl-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: #dbe4f0;
+  font: inherit;
+}
+
+.lfl-input::placeholder {
+  color: #4b5768;
+}
+
+.lfl-input[readonly] {
+  color: #4b5768;
+}

@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>click-guard fixture</title>
+</head>
+<body>
+<h1>click-guard fixture</h1>
+<p>Local fixture page for the security-review MUST-FIX #1/#2 click-target
+guard: proves a click on a <code>javascript:</code> anchor and a
+cross-origin anchor are BLOCKED by executor.js's click-target guard (never
+reach <code>el.click()</code>), while a same-origin anchor click still
+proceeds normally. Served over plain http (not file://) so the origin checks
+are real. Driven by tests/run_battery.py via extra battery.json entries.</p>
+
+<ul>
+  <li><a id="danger-link" href="javascript:document.title='PWNED-BY-JS-LINK'">danger link</a> — javascript: scheme, must never execute page script via a model click.</li>
+  <li><a id="offsite-link" href="http://127.0.0.1:8999/other-origin.html">offsite link</a> — different port = different origin, must not be followed.</li>
+  <li><a id="safe-link" href="/safe-target.html">safe link</a> — same-origin relative link, approving this click SHOULD navigate.</li>
+</ul>
+
+<button id="plain-button" type="button">plain button</button>
+<p>(the plain button has no href/formaction — no navigation target at all, click proceeds as an ordinary DOM click.)</p>
+</body>
+</html>

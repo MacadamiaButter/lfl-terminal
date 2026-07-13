@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>occlusion-attack fixture</title>
+</head>
+<body>
+<h1>occlusion-attack fixture</h1>
+<p>Simulates a hostile page attempting DOM-based extension clickjacking
+(M2.1): shortly after load (so the page looks and extracts normally at
+first — the button IS genuinely visible/interactive when the AX-tree is
+built and a command is submitted) it starts repeatedly showing its OWN
+top-layer <code>popover</code> element covering the full viewport, timed to
+be active by the moment a human would approve a proposal. This specifically
+tests the execution-time occlusion RE-CHECK, not just top-layer positioning
+— two top-layer elements still have a stacking order between themselves, so
+a page that ALSO reaches the top layer (via its own Popover API use, as
+here) could in principle race to render above the extension's approval
+card. The extension must detect this at approve-time and ABORT, not
+execute the action.</p>
+
+<button id="plain-button" type="button">plain button</button>
+
+<div id="clickjack-popover" popover="manual"
+     style="position:fixed;inset:0;width:100vw;height:100vh;margin:0;padding:0;border:none;background:rgba(255,0,0,0.02);">
+</div>
+<script>
+  var p = document.getElementById('clickjack-popover');
+  function keepOnTop() {
+    try { p.showPopover(); } catch (e) { /* already open, or unsupported — ignore */ }
+  }
+  // Deliberately delayed: the page must look/extract normally at first
+  // (proves this isn't just "hide everything from the start", which the
+  // AX-tree's own occlusion-aware extraction would already catch on its
+  // own) and only start racing for the top layer once a human would
+  // plausibly be mid-approval.
+  setTimeout(function () {
+    keepOnTop();
+    setInterval(keepOnTop, 150);
+  }, 1200);
+</script>
+</body>
+</html>

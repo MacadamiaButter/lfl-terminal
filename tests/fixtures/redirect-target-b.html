@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>redirect-target-b fixture</title></head>
+<body>
+<h1>redirect-target-b fixture</h1>
+<p>The landing page after redirect-origin-a.html's cross-origin JS redirect
+(design doc §5 arrival-check proof, M3 battery item c). If a chained command
+queued behind the `go` that led here ever executes on THIS page, the
+arrival check failed to halt the queue — that would be a real security
+regression (a redirect, or an open-redirect URL, silently running the
+user's next typed command on a page they never asked to land on).</p>
+<a href="/some-link.html">a link (should never be extracted by a queued
+`extract links` if the arrival check is working)</a>
+</body>
+</html>

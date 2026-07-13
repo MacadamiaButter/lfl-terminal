@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "lfl-terminal",
+  "version": "0.3.0",
+  "description": "Local-first, human-supervised command terminal overlay for any website. M1 feasibility spike.",
+  "permissions": ["storage"],
+  "host_permissions": ["http://127.0.0.1:1238/*"],
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": [
+        "content/guards.js",
+        "content/ratelimit.js",
+        "content/axtree.js",
+        "content/nav-watch.js",
+        "content/registry.js",
+        "content/nav.js",
+        "content/engine.js",
+        "content/executor.js",
+        "content/terminal.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ]
+}
