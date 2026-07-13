@@ -8,6 +8,10 @@ before it touches the page.
 Nothing about the page you're on, or what you type, ever leaves your
 machine.
 
+![Deterministic commands (help, ls links, read, here) driving a live Wikipedia article](docs/demo.gif)
+
+*Deterministic commands driving a page. Model-proposed actions additionally require explicit approval.*
+
 ## Why
 
 Most "AI browser agent" extensions ship your page content to a cloud model.
