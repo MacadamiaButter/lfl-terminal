@@ -12,6 +12,23 @@ machine.
 
 *Deterministic commands driving a page. Model-proposed actions additionally require explicit approval.*
 
+## It also plays snake
+
+Alongside the deterministic commands above, the overlay ships a small fun
+pack: `snake` and `2048`, rendered as plain text frames right in the
+terminal panel; a few color `theme`s; `fortune`, `cowsay`; and a certain
+steam locomotive for anyone who mistypes `ls`. None of it is the point of
+the project, but it's here.
+
+All of it runs entirely locally, never touches the page or the model, and
+is covered by the exact same gates (fixed action vocabulary, egress lock,
+rate limits) as everything else in this README - a game loop is not a
+carve-out.
+
+![Snake played inside the overlay in the phosphor theme, eating two food tiles before game over](docs/snake.gif)
+
+![The sl steam-locomotive easter egg crossing the terminal after a mistyped ls, ending with "you meant ls. the train forgives."](docs/sl.gif)
+
 ## Why
 
 Most "AI browser agent" extensions ship your page content to a cloud model.
@@ -175,17 +192,20 @@ use.
 
 ## Development
 
-Eight Node unit-test suites, no framework, no `npm install`:
+Ten Node unit-test suites (380 assertions total), no framework, no
+`npm install`:
 
 ```
 node tests/executor_credential.test.js
 node tests/m2_security.test.js
+node tests/funpack.test.js
 node tests/sw_ratelimit_persistence.test.js
 node tests/m3_nav_lane_isolation.test.js
 node tests/m3_go_resolution.test.js
 node tests/m3_chain_and_alias_macro.test.js
 node tests/m3_hardening.test.js
 node tests/m4_friction.test.js
+node tests/m4b_games.test.js
 ```
 
 Static grep gates:
