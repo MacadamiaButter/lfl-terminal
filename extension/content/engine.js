@@ -80,6 +80,18 @@
   reg.register({ name: 'stats', argSpec: 'stats', help: 'this session\'s command counters, including the share that never touched the model (funpack v1)' });
   reg.register({ name: 'theme', argSpec: 'theme [name]', help: 'switch (or list) the overlay color theme: default, phosphor, amber, paper (funpack v1)' });
   reg.register({ name: 'cowsay', argSpec: 'cowsay <text>', help: 'classic ASCII cow with a word-wrapped, 40-col speech bubble (funpack v1)' });
+  // M4b fun pack v2 (extension/content/games.js) — snake/2048 are
+  // dispatched by terminal.js's program-mode runner (_enterProgram, design
+  // doc §3), not this file's tryDeterministic() chain, for the same reason
+  // go/alias/dev/fortune/etc. above are: they need chrome.storage.local
+  // (high scores) and setInterval (the tick), neither of which this file's
+  // synchronous DOM-only contract has. Registered here purely for help/man
+  // text and vocabulary enumeration, same as the funpack v1 block above.
+  // Never allowed inside a `&&` chain or a macro body — see registry.js's
+  // GAME_NAMES/RESERVED_NAMES and terminal.js's _handleGameCommand().
+  reg.register({ name: 'snake', argSpec: 'snake', help: 'classic snake - arrows to move, q or Esc to quit (fun pack v2)' });
+  reg.register({ name: '2048', argSpec: '2048', help: '2048 - arrows to slide/merge, q or Esc to quit (fun pack v2)' });
+  reg.register({ name: 'games', argSpec: 'games', help: 'list available games and best scores (fun pack v2)' });
 
   const HELP_TEXT = [
     'deterministic commands (never call the local model):',

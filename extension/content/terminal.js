@@ -49,6 +49,19 @@
   const MAX_HISTORY = 50;
   const MAX_OUTPUT_LINES = 400;
   const APPROVAL_ACTIONS = new Set(['click', 'fill', 'select', 'navigate']);
+  // M4b fun pack v2 (design doc §4/§5): the fixed set of game command
+  // names. Kept in sync with registry.js's RESERVED_NAMES/GAME_NAMES and
+  // engine.js's reg.register() calls for these three names.
+  const GAME_NAMES = new Set(['snake', '2048', 'games']);
+  // Storage-key form of each playable game's name, used only for the
+  // chrome.storage.local `lflGameScores` object's keys (design §4) — "2048"
+  // is not a valid property to reach via dot-notation and reads oddly as a
+  // bare numeric-looking key, so the design doc gives it the storage key
+  // `g2048` (see _recordGameScore()/_printGamesList()).
+  const GAME_STORAGE_KEY = Object.freeze({ snake: 'snake', '2048': 'g2048' });
+  const ARROW_KEY_DIRS = Object.freeze({
+    ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',
+  });
 
   // Kept in sync with content/terminal.css — see the TODO note there.
   const CSS_TEXT = `
@@ -70,6 +83,7 @@
 .lfl-line.lfl-error{color:var(--lfl-error,#ff6b6b);}
 .lfl-line.lfl-ok{color:var(--lfl-ok,#7ee787);}
 .lfl-line.lfl-motd{color:var(--lfl-dim,#5d7290);font-style:italic;}
+.lfl-frame{margin:0 0 4px 0;font-family:inherit;white-space:pre;color:var(--lfl-fg,#dbe4f0);}
 .lfl-proposal{margin:0 10px 8px 10px;padding:8px 10px;border:1px solid var(--lfl-accent,#e0a339);background:var(--lfl-proposal-bg,#1a1408);color:var(--lfl-proposal-fg,#f2d9a8);}
 .lfl-proposal[hidden]{display:none;}
 .lfl-proposal .lfl-gloss{color:var(--lfl-accent-bright,#f5a623);font-weight:600;}
@@ -194,6 +208,16 @@
       // Reentrancy guard for _approveProposal()'s async SW round trip — see
       // that method for why.
       this._approvalBusy = false;
+      // M4b fun pack v2 (design §3): non-null while `snake`/`2048` is
+      // actively running — { prog, frameEl, intervalId }. `prog` is the
+      // {name, onKey, onTick?, getFps?, onExit} object the game-start
+      // handler built (see _startSnake()/_start2048()); `frameEl` is the
+      // single <pre class="lfl-frame"> whose textContent every redraw
+      // replaces; `intervalId` is whatever setInterval() returned for the
+      // tick (null for 2048, which is key-driven only). See _enterProgram()/
+      // _exitProgram() below — this is the ONLY state the program-mode
+      // primitive needs beyond the ordinary command state above.
+      this._activeProgram = null;
       this._buildDom();
       this._wireEvents();
       this._loadHistory();
@@ -408,6 +432,30 @@
     _wireEvents() {
       document.addEventListener('keydown', this._onGlobalKeydown.bind(this), true);
       this.inputEl.addEventListener('keydown', this._onInputKeydown.bind(this));
+      // M4b (design §3): force-exit an active program on ANY navigation
+      // signal. Reuses the SAME Navigation API technique nav-watch.js
+      // already established for runtime navigation interception —
+      // `window.navigation`'s `navigate` event — for same-document/SPA-style
+      // navigations, plus `pagehide` (always available) as the universal
+      // signal for an actual top-level unload. A full top-level navigation
+      // destroys this whole content-script realm anyway (the interval dies
+      // with it for free), but `pagehide` fires just BEFORE that teardown,
+      // which is what lets _exitProgram() run its ordinary cleanup
+      // (clearInterval, restore prompt, print the score summary) instead of
+      // the program just vanishing mid-frame. Deliberately does NOT touch
+      // nav-watch.js itself (design §7 — that file's own short-lived,
+      // per-click watcher is out of scope here); this is a second,
+      // independent listener with a different job (halt OUR OWN running
+      // program, not classify a click's destination).
+      if (typeof window !== 'undefined') {
+        const forceExitOnNav = () => {
+          if (this._activeProgram) this._exitProgram('navigation', { restoreFocus: false });
+        };
+        window.addEventListener('pagehide', forceExitOnNav);
+        if (window.navigation && typeof window.navigation.addEventListener === 'function') {
+          window.navigation.addEventListener('navigate', forceExitOnNav);
+        }
+      }
     }
 
     // M3 H1 (design doc §8): every input handler ignores non-isTrusted
@@ -476,6 +524,14 @@
 
     _onInputKeydown(e) {
       if (!LFL.guards.isTrustedInputEvent(e)) return; // M3 H1
+      // M4b (design §3): while a program is active, EVERY keystroke routes
+      // here instead of the ordinary prompt — the input element is also set
+      // readOnly for the duration (see _enterProgram()), but readOnly does
+      // not stop keydown events from firing, so this check must come first.
+      if (this._activeProgram) {
+        this._routeProgramKey(e);
+        return;
+      }
       if (e.key === 'Enter') {
         e.preventDefault();
         if (this._isAwaitingSomething()) {
@@ -532,7 +588,14 @@
     }
 
     close() {
-      if (this.state.mode === 'awaiting-approval') {
+      // M4b (design §3): overlay hidden/closed while a program is active is
+      // one of the mandatory forced-exit paths — checked first, mutually
+      // exclusive with the awaiting-approval/awaiting-nav-confirm branches
+      // below (a program never runs at the same time as either of those;
+      // see _enterProgram()'s own awaiting-something guard).
+      if (this._activeProgram) {
+        this._exitProgram('closed', { restoreFocus: false });
+      } else if (this.state.mode === 'awaiting-approval') {
         this._auditPush(this.state.pendingProposal, 'rejected(closed)', '(overlay closed while a proposal was pending)');
         this.state.pendingProposal = null;
         this.state.mode = 'idle';
@@ -702,7 +765,11 @@
       this._pushHistory(popped.next);
       this._lastCommand = popped.next;
       this.printCmdEcho(popped.next);
-      await this._dispatchSegment(popped.next);
+      // M4b: anything popped off the queue exists ONLY because an earlier
+      // `&&` chain or macro expansion put it there — always chain/macro
+      // context, regardless of how many segments came before it (see
+      // _handleGameCommand()'s fromChain check).
+      await this._dispatchSegment(popped.next, { fromChain: true });
     }
 
     _submitCommand(rawInput) {
@@ -769,6 +836,7 @@
     // every subsequent (queued) segment uses.
     async _runChain(raw) {
       const macroExpanded = LFL.registry.expandMacro(raw, this._aliasStore);
+      const isMacroExpansion = macroExpanded !== raw;
       const split = LFL.registry.splitChain(macroExpanded, 5);
       if (!split.ok) {
         this.printError(split.reason);
@@ -779,6 +847,35 @@
       }
       const segments = split.segments;
       if (segments.length === 0) return;
+
+      // M4b (design §3): a game may never run as part of a chain or a
+      // macro's expansion — `chainContext` is true either because this
+      // raw input came from `macro`'s stored body (isMacroExpansion), or
+      // because splitting on `&&` produced more than one segment. This is
+      // the flag _dispatchSegment()/_handleGameCommand() below rejects on;
+      // segments popped later off the SW-backed queue (_advanceQueue) are
+      // unconditionally chain context too, by construction.
+      const chainContext = isMacroExpansion || segments.length > 1;
+
+      // M4b (design §3): "REFUSE to start a program while a && chain queue
+      // is pending... (finish or cancel that first)". This can ONLY be
+      // checked for the lone-command case (chainContext false) — and it
+      // MUST be checked BEFORE the TS_QUEUE_SET/TS_QUEUE_CLEAR below, which
+      // would otherwise silently cancel a still-pending earlier chain as an
+      // unavoidable side effect of "typing something new abandons a stale
+      // queue" (the very next comment down — true and correct for ordinary
+      // commands, but wrong for a REFUSED game-start attempt: the human
+      // must explicitly finish or cancel the pending chain themselves, a
+      // blocked "snake" must not do it for them).
+      if (!chainContext) {
+        const resolvedGuess = LFL.registry.expandAlias(segments[0], this._aliasStore);
+        const guessTok = (resolvedGuess.trim().split(/\s+/)[0] || '').toLowerCase();
+        if (GAME_NAMES.has(guessTok)) {
+          const blocked = await this._maybeBlockGameStart(guessTok);
+          if (blocked) return;
+        }
+      }
+
       if (segments.length > 1) {
         await this._tsSend('TS_QUEUE_SET', {
           queue: segments.slice(1),
@@ -790,7 +887,28 @@
         // decision not to continue waiting on the old one.
         await this._tsSend('TS_QUEUE_CLEAR');
       }
-      await this._dispatchSegment(segments[0]);
+      await this._dispatchSegment(segments[0], { fromChain: chainContext });
+    }
+
+    // M4b (design §3): the "a chain queue is pending" half of the program
+    // interaction locks (the "a proposal is awaiting approval" half is
+    // structurally almost unreachable here — Enter routes to
+    // _approvePending() instead of _submitCommand while awaiting something
+    // — but _handleGameCommand() re-checks it too, as defense in depth).
+    // Returns true (and has already printed/audited/settled the refusal)
+    // if a game-start attempt must be blocked; false if it may proceed.
+    // Deliberately does NOT call _afterSettle() on the blocked path — this
+    // must leave any pending queue completely untouched (see _runChain()'s
+    // caller comment for why).
+    async _maybeBlockGameStart(name) {
+      const peek = await this._tsSend('TS_QUEUE_PEEK');
+      const pending = !!(peek.ok && Array.isArray(peek.queue) && peek.queue.length > 0);
+      if (!pending) return false;
+      const msg = `cannot start ${name} - a chained command is still pending (finish or cancel that first)`;
+      this.printError(msg);
+      this._auditPush({ action: 'game' }, 'blocked', msg);
+      this._settle(false, msg);
+      return true;
     }
 
     // The single per-segment dispatch path — used for both the first
@@ -799,7 +917,8 @@
     // content-script injection). Alias-resolves the segment's leading word,
     // then routes to `go` (§2's ladder), the deterministic engine registry,
     // or (unchanged) the page-lane LLM.
-    async _dispatchSegment(segment) {
+    async _dispatchSegment(segment, opts) {
+      opts = opts || {};
       // funpack v1 stats: every dispatched, chain-eligible segment counts
       // once toward `totalCommands` -- fire-and-forget, never awaited, never
       // throws (see _bumpStats()). Meta-commands handled earlier in
@@ -813,6 +932,20 @@
 
       if (firstTok === 'go') {
         await this._handleGo(resolved);
+        return;
+      }
+
+      // M4b fun pack v2 (design §3/§4/§5): snake/2048/games — never part of
+      // a chain or macro (opts.fromChain, computed by _runChain()/
+      // _advanceQueue() above; this is what actually enforces the "reject
+      // at dispatch when the segment comes from a chain/macro context"
+      // rule for cases the write-time macro-body check can't see, e.g. an
+      // alias whose EXPANSION text is a game name, invoked from inside a
+      // macro). Dispatched here (not in _submitCommand, unlike the
+      // fortune/stats/theme/cowsay quartet) specifically so this
+      // chain-context check is reachable at all — see _handleGameCommand().
+      if (GAME_NAMES.has(firstTok)) {
+        await this._handleGameCommand(firstTok, opts);
         return;
       }
 
@@ -1054,6 +1187,297 @@
       this.printInfo(out);
       this._auditPush({ action: 'cowsay' }, 'auto', 'cowsay');
       this._settle(true, out);
+    }
+
+    // ---- M4b fun pack v2: snake / 2048 / games (design doc §3/§4/§5) ----
+    //
+    // All game LOGIC (step/turn/merge/spawn/render) lives in
+    // extension/content/games.js, pure and DOM/chrome-free (see that file's
+    // header comment and the purity-grep test). Everything below is glue:
+    // dispatch-context locks, the `<pre class="lfl-frame">` element, the
+    // setInterval tick, key routing while a program is active, and the
+    // chrome.storage.local high-score round trip -- same division of labor
+    // the fortune/stats/theme/cowsay handlers above use for funpack.js.
+
+    // Dispatched only when NOT fromChain (see _dispatchSegment()) and only
+    // for `games` itself -- `snake`/`2048` route to _enterProgram() instead,
+    // which owns the "awaiting-something"/already-running checks (design
+    // §3's OTHER interaction lock; the "chain queue pending" lock is
+    // enforced earlier, in _runChain()/_maybeBlockGameStart(), before this
+    // function is ever reached).
+    async _handleGameCommand(name, opts) {
+      opts = opts || {};
+      if (opts.fromChain) {
+        const msg = `"${name}" cannot run inside a chain or macro - play it directly instead`;
+        this.printError(msg);
+        this._auditPush({ action: 'game' }, 'blocked', msg);
+        this._settle(false, msg);
+        this._afterSettle(false); // consistent with every other blocked-segment case: clears the rest of the chain
+        return;
+      }
+      if (name === 'games') {
+        await this._printGamesList();
+        this._afterSettle(true);
+        return;
+      }
+      if (name === 'snake') this._startSnake();
+      else if (name === '2048') this._start2048();
+      // Starting a program does NOT itself settle/advance a chain the way
+      // every other command does (see _settle()/_afterSettle()) -- a
+      // program stays interactively active until an explicit exit path
+      // fires _exitProgram(), which performs the real settle/audit at THAT
+      // point. _enterProgram() below settles once immediately too (whether
+      // it actually started or was refused), so the caller always sees a
+      // seq bump either way.
+    }
+
+    // `games` -- list available games plus their persisted best score/play
+    // count. Read-only, never enters program mode, so it does not need
+    // _enterProgram()'s awaiting-something/already-running guard.
+    async _printGamesList() {
+      const rows = [{ label: 'snake', key: 'snake' }, { label: '2048', key: 'g2048' }];
+      const scores = await new Promise((resolve) => {
+        try {
+          chrome.storage.local.get(['lflGameScores'], (res) => {
+            const ok = !chrome.runtime.lastError;
+            resolve(ok && res && res.lflGameScores && typeof res.lflGameScores === 'object' ? res.lflGameScores : {});
+          });
+        } catch (_e) { resolve({}); }
+      });
+      const lines = rows.map(({ label, key }) => {
+        const s = (scores[key] && typeof scores[key] === 'object') ? scores[key] : {};
+        const best = Number.isFinite(s.best) ? s.best : 0;
+        const plays = Number.isFinite(s.plays) ? s.plays : 0;
+        return `  ${label.padEnd(8)}best ${best}  plays ${plays}`;
+      });
+      const msg = `available games (q or Esc to quit any of them):\n${lines.join('\n')}`;
+      this.printInfo(msg);
+      this._auditPush({ action: 'games' }, 'auto', msg.slice(0, 160));
+      this._settle(true, msg);
+    }
+
+    // Fire-and-forget high-score write (design §4): chrome.storage.local key
+    // `lflGameScores` = `{snake:{best,plays}, g2048:{best,plays}}`. `best`
+    // only ever increases (Math.max against whatever was already stored);
+    // `plays` always increments, win or lose. Storage errors are swallowed
+    // -- a missed high-score write is harmless, unlike blocking the command
+    // path on it.
+    _recordGameScore(storageKind, score) {
+      try {
+        chrome.storage.local.get(['lflGameScores'], (res) => {
+          try {
+            if (chrome.runtime.lastError) return;
+            const all = (res && res.lflGameScores && typeof res.lflGameScores === 'object') ? res.lflGameScores : {};
+            const prev = (all[storageKind] && typeof all[storageKind] === 'object') ? all[storageKind] : {};
+            const prevBest = Number.isFinite(prev.best) ? prev.best : 0;
+            const prevPlays = Number.isFinite(prev.plays) ? prev.plays : 0;
+            const next = Object.assign({}, all, {
+              [storageKind]: { best: Math.max(prevBest, Number.isFinite(score) ? score : 0), plays: prevPlays + 1 },
+            });
+            chrome.storage.local.set({ lflGameScores: next });
+          } catch (_e) { /* best-effort, fire-and-forget */ }
+        });
+      } catch (_e) { /* storage unavailable this play -- score just isn't recorded */ }
+    }
+
+    _startSnake() {
+      const rng = Math.random;
+      let state = LFL.games.createSnakeGame(rng);
+      const renderNow = () => LFL.games.renderSnake(state);
+      const prog = {
+        name: 'snake',
+        initialFrame: renderNow(),
+        getFps: () => LFL.games.snakeFps(state.foodsEaten),
+        onKey: (key) => {
+          const dirKey = ARROW_KEY_DIRS[key];
+          if (!dirKey || !state.alive) return null;
+          state = LFL.games.turnSnake(state, dirKey);
+          return renderNow();
+        },
+        onTick: () => {
+          if (!state.alive) return null;
+          state = LFL.games.stepSnake(state, rng);
+          // Death stops the TICK (no more frames advance on their own) but
+          // deliberately does NOT force-exit the program -- the human sees
+          // the final board + "GAME OVER" line and presses q/Esc themselves,
+          // same as every other exit path (design §3/§4).
+          if (!state.alive) this._stopProgramTick();
+          return renderNow();
+        },
+        onExit: () => {
+          this._recordGameScore('snake', state.score);
+          return [`snake: game over - score ${state.score}`];
+        },
+      };
+      this._enterProgram(prog);
+    }
+
+    _start2048() {
+      const rng = Math.random;
+      let state = LFL.games.createGame2048(rng);
+      const renderNow = () => LFL.games.render2048(state);
+      const prog = {
+        name: '2048',
+        initialFrame: renderNow(),
+        // Key-driven only (design §4) -- no onTick/getFps at all.
+        onKey: (key) => {
+          const dirKey = ARROW_KEY_DIRS[key];
+          if (!dirKey) return null;
+          const result = LFL.games.move2048(state, dirKey, rng);
+          state = result.state;
+          return renderNow();
+        },
+        onExit: () => {
+          this._recordGameScore('g2048', state.score);
+          return [`2048: game over - score ${state.score}`];
+        },
+      };
+      this._enterProgram(prog);
+    }
+
+    // ---- M4b program-mode primitive (design §3) ----
+    //
+    // `prog = {name, onKey(key)->frameStr|null, onTick?()->frameStr|null,
+    // getFps?()->number, initialFrame?, onExit()->summaryLines[]}`. This is
+    // the ONLY place the "awaiting-something" interaction lock and the
+    // already-running guard are enforced for program entry (the "chain
+    // queue pending" lock is enforced earlier still, in _runChain(), before
+    // _dispatchSegment() is even reached with a lone command -- see
+    // _maybeBlockGameStart()'s own comment for why it has to run that
+    // early). Any FUTURE program (this build only ships snake/2048)
+    // automatically inherits every lock here for free.
+    _enterProgram(prog) {
+      if (this._isAwaitingSomething()) {
+        const msg = `cannot start ${prog.name} while a proposal is awaiting approval (finish or cancel that first)`;
+        this.printError(msg);
+        this._auditPush({ action: 'game' }, 'blocked', msg);
+        this._settle(false, msg);
+        return false;
+      }
+      if (this._activeProgram) {
+        const msg = `${this._activeProgram.prog.name} is already running - press q or Esc to quit it first`;
+        this.printError(msg);
+        this._auditPush({ action: 'game' }, 'blocked', msg);
+        this._settle(false, msg);
+        return false;
+      }
+      const frameEl = this._createFrameElement();
+      frameEl.textContent = typeof prog.initialFrame === 'string' ? prog.initialFrame : '';
+      this._activeProgram = { prog, frameEl, intervalId: null };
+      this._activeProgram.intervalId = this._startProgramTick(prog);
+      this.state.mode = 'program';
+      this.inputEl.readOnly = true;
+      this._auditPush({ action: 'game' }, 'auto', `${prog.name} started`);
+      this._settle(true, `${prog.name} started`);
+      this._updateTestHook();
+      return true;
+    }
+
+    // Appends ONE <pre class="lfl-frame"> to the existing shadow-root output
+    // path (design §3) -- every redraw thereafter is a single
+    // `frameEl.textContent = str` assignment (_renderProgramFrame()), never
+    // per-line node churn, never innerHTML.
+    _createFrameElement() {
+      const el = document.createElement('pre');
+      el.className = 'lfl-frame';
+      this.outputEl.appendChild(el);
+      this.outputEl.scrollTop = this.outputEl.scrollHeight;
+      return el;
+    }
+
+    _renderProgramFrame(text) {
+      if (!this._activeProgram) return;
+      this._activeProgram.frameEl.textContent = text;
+      this.outputEl.scrollTop = this.outputEl.scrollHeight;
+    }
+
+    // Runner-owned setInterval (design §3): fps is clamped to <=10 here
+    // REGARDLESS of what the game reports (defense in depth against a game
+    // bug ever exceeding the design ceiling), and the tick pauses entirely
+    // while `document.hidden` (a read-only visibility check -- never a page-
+    // DOM interaction). Runs a fixed 100ms (10Hz) scheduler and only fires
+    // `prog.onTick()` once enough accumulated time has passed for the
+    // CURRENT fps -- this lets a game's own speed (snake's foods-eaten speed
+    // curve) change smoothly without ever tearing down/recreating the
+    // interval.
+    _startProgramTick(prog) {
+      if (typeof prog.onTick !== 'function') return null;
+      const BASE_MS = 100;
+      let acc = 0;
+      return setInterval(() => {
+        if (typeof document !== 'undefined' && document.hidden) return;
+        const rawFps = typeof prog.getFps === 'function' ? prog.getFps() : (prog.fps || 5);
+        const fps = Math.min(10, Math.max(1, Number.isFinite(rawFps) ? rawFps : 5));
+        acc += BASE_MS;
+        if (acc < 1000 / fps) return;
+        acc = 0;
+        const frame = prog.onTick();
+        if (typeof frame === 'string') this._renderProgramFrame(frame);
+      }, BASE_MS);
+    }
+
+    // Stops ticking WITHOUT exiting the program (used on snake death -- the
+    // final frame stays up, the human still has to press q/Esc to actually
+    // leave; see _startSnake()'s onTick).
+    _stopProgramTick() {
+      if (this._activeProgram && this._activeProgram.intervalId) {
+        clearInterval(this._activeProgram.intervalId);
+        this._activeProgram.intervalId = null;
+      }
+    }
+
+    // Routes every keydown to the active program while one is running
+    // (called from _onInputKeydown, already isTrusted-gated by H1 -- see
+    // that method). `q`/`Q`/`Escape` are intercepted HERE, never passed to
+    // `prog.onKey`, so no game needs to reimplement its own quit key.
+    // Arrow keys always get preventDefault() (design §3), even for a key
+    // the active program doesn't otherwise use, so the underlying page
+    // never scrolls out from under a running game.
+    _routeProgramKey(e) {
+      const key = e.key;
+      if (Object.prototype.hasOwnProperty.call(ARROW_KEY_DIRS, key)) {
+        e.preventDefault();
+      }
+      if (key === 'q' || key === 'Q' || key === 'Escape') {
+        e.preventDefault();
+        this._exitProgram('quit');
+        return;
+      }
+      const active = this._activeProgram;
+      if (!active || typeof active.prog.onKey !== 'function') return;
+      const frame = active.prog.onKey(key);
+      if (typeof frame === 'string') this._renderProgramFrame(frame);
+    }
+
+    // The single choke point for every exit path (design §3: q/Esc, overlay
+    // hidden/closed, any navigation signal -- see close()/_wireEvents()'s
+    // pagehide+navigate listeners for the other two call sites). Clears the
+    // interval, restores the prompt, keeps the final frame in scrollback
+    // (nothing more to do for that -- it is already the last child appended
+    // to outputEl, same as any other printed line), and prints onExit()'s
+    // score summary. `opts.restoreFocus:false` skips refocusing the input
+    // when the overlay is about to hide/unload anyway (close()/navigation),
+    // where focusing a now-invisible-or-dying input would be pointless.
+    _exitProgram(reason, opts) {
+      opts = opts || {};
+      const active = this._activeProgram;
+      if (!active) return;
+      this._activeProgram = null;
+      if (active.intervalId) clearInterval(active.intervalId);
+      this.state.mode = 'idle';
+      this.inputEl.readOnly = false;
+      if (opts.restoreFocus !== false) {
+        try { this.inputEl.focus(); } catch (_e) { /* best-effort */ }
+      }
+      let summary = [];
+      try {
+        summary = (typeof active.prog.onExit === 'function') ? (active.prog.onExit() || []) : [];
+      } catch (_e) { summary = []; }
+      const lines = Array.isArray(summary) ? summary : [summary];
+      lines.forEach((line) => { if (line) this.printInfo(line); });
+      this._auditPush({ action: 'game' }, reason, `${active.prog.name} exited (${reason})`);
+      this._settle(true, `${active.prog.name} exited (${reason})`);
+      this._updateTestHook();
     }
 
     // Fire-and-forget lflStats bump, called from _dispatchSegment/

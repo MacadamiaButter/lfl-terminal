@@ -133,7 +133,23 @@
     // funpack v1 (extension/content/funpack.js, dispatched by terminal.js) —
     // same shadowing footgun as above.
     'fortune', 'stats', 'theme', 'cowsay',
+    // M4b fun pack v2 (extension/content/games.js, dispatched by
+    // terminal.js) — same shadowing footgun as above.
+    'snake', '2048', 'games',
   ]);
+
+  // M4b (design doc §3/§5): games are never allowed to run as part of a
+  // macro body, checked at WRITE time here (in addition to the runtime
+  // "fromChain" dispatch-context check terminal.js's _handleGameCommand()
+  // performs for the chain/alias-indirection cases this narrower,
+  // direct-name write-time check cannot see — see that method's own
+  // comment). Deliberately a separate, narrower set from RESERVED_NAMES:
+  // RESERVED_NAMES governs what a macro/alias may be NAMED, and reusing it
+  // here would wrongly reject perfectly normal macros like
+  // `macro x = go foo && ls` (both `go` and `ls` are themselves reserved
+  // names, but are exactly the kind of built-in verb macros exist to
+  // chain together).
+  const GAME_NAMES = new Set(['snake', '2048', 'games']);
 
   function firstWord(s) {
     const m = (s || '').trim().match(/^(\S+)/);
@@ -213,6 +229,12 @@
         const head = firstWord(seg).toLowerCase();
         if (Object.prototype.hasOwnProperty.call(macros, head) || head === name) {
           return { ok: false, reason: `macro "${name}" cannot reference macro "${head}" — macros may not be nested (depth-1 lock)` };
+        }
+        // M4b (design §3/§5): a game command may never appear as a macro
+        // segment's own leading word — rejected here, at definition time,
+        // rather than only when the macro is later invoked.
+        if (GAME_NAMES.has(head)) {
+          return { ok: false, reason: `macro "${name}" cannot include "${head}" - games cannot run inside a macro` };
         }
       }
       macros[name] = chainText.trim();

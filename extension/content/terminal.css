@@ -210,6 +210,18 @@
   font-style: italic;
 }
 
+/* M4b fun pack v2 (snake/2048, extension/content/games.js + terminal.js's
+   _enterProgram()) — the single <pre> element a running program's frame
+   text is written into (frameEl.textContent = ...) on every redraw. Plain
+   monospace/pre-wrap, no extra decoration — the game's own box-drawing
+   characters/ASCII grid supply all the visual structure. */
+.lfl-frame {
+  margin: 0 0 4px 0;
+  font-family: inherit;
+  white-space: pre;
+  color: var(--lfl-fg, #dbe4f0);
+}
+
 .lfl-proposal {
   margin: 0 10px 8px 10px;
   padding: 8px 10px;

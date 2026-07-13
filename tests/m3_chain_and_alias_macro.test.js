@@ -490,9 +490,9 @@ function testDispatchSegmentSkipsAdvance() {
   const src = fs.readFileSync(TERMINAL_PATH, 'utf8');
 
   check('_dispatchSegment checks det.navInitiated and returns BEFORE the unconditional _afterSettle(true) call', () => {
-    const idx = src.indexOf('_dispatchSegment(segment) {');
+    const idx = src.indexOf('_dispatchSegment(segment, opts) {');
     assert.ok(idx >= 0, '_dispatchSegment not found');
-    const body = src.slice(idx, idx + 3000);
+    const body = src.slice(idx, idx + 4000);
     const detBlockStart = body.indexOf('const det = LFL.engine.tryDeterministic(');
     assert.ok(detBlockStart >= 0, 'tryDeterministic call not found inside _dispatchSegment');
     const navCheckIdx = body.indexOf('if (det.navInitiated) return;', detBlockStart);
@@ -503,8 +503,8 @@ function testDispatchSegmentSkipsAdvance() {
   });
 
   check('the deterministic-command block still settles (_settle(true, ...)) before the navInitiated check — a navigating command still reports its result, it only skips the QUEUE advance', () => {
-    const idx = src.indexOf('_dispatchSegment(segment) {');
-    const body = src.slice(idx, idx + 3000);
+    const idx = src.indexOf('_dispatchSegment(segment, opts) {');
+    const body = src.slice(idx, idx + 4000);
     const settleIdx = body.indexOf("this._settle(true, det.output || '');");
     const navCheckIdx = body.indexOf('if (det.navInitiated) return;');
     assert.ok(settleIdx >= 0 && navCheckIdx >= 0);
