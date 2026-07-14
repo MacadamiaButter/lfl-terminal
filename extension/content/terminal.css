@@ -20,7 +20,15 @@
 :host {
   all: initial;
   position: fixed;
-  inset: auto 0 40px 0;
+  /* Anchored flush to the viewport bottom: an earlier version offset the
+     whole panel up (40px, then 64px) to clear Chrome's bottom-left status
+     bubble (the "amazon.com/..." destination/hover URL), but that left a
+     transparent strip below the panel where the page showed through. Instead
+     the panel now reaches the bottom edge and the input ROW carries extra
+     bottom padding (see .lfl-inputrow) so its text sits above the bubble
+     while the input-colored block fills down to the edge. Keep in sync with
+     CSS_TEXT in terminal.js. */
+  inset: auto 0 0 0;
   margin: 0;
   padding: 0;
   border: none;
@@ -43,7 +51,10 @@
   background: var(--lfl-bg, #0b0e14);
   border-top: 2px solid var(--lfl-accent, #e0a339);
   box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.55);
-  max-height: 46vh;
+  /* default cap, lowered from 46vh so the panel starts modest; terminal.js
+     sets an inline max-height from the persisted/preset height. Keep in sync
+     with CSS_TEXT in terminal.js. */
+  max-height: 34vh;
 }
 
 /**
@@ -158,6 +169,25 @@
   display: flex;
 }
 
+/* collapse+resize (2026-07-14). Collapsed hides ONLY the scrollback pane, so
+   the input row and any pending approval card stay visible. The resizer is a
+   thin drag grip at the panel's top edge. Keep in sync with CSS_TEXT in
+   terminal.js. */
+.lfl-panel.lfl-collapsed .lfl-output {
+  display: none;
+}
+
+.lfl-resizer {
+  flex: 0 0 auto;
+  height: 7px;
+  cursor: ns-resize;
+  background: var(--lfl-titlebar-bg, #151a24);
+}
+
+.lfl-resizer:hover {
+  background: var(--lfl-accent, #e0a339);
+}
+
 .lfl-titlebar {
   display: flex;
   justify-content: space-between;
@@ -170,6 +200,14 @@
   font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
+  cursor: pointer;
+  user-select: none;
+}
+
+.lfl-titlebar .lfl-caret {
+  color: var(--lfl-dim, #5d7290);
+  margin-right: 2px;
+  font-size: 10px;
 }
 
 .lfl-titlebar .lfl-badge {
@@ -306,7 +344,11 @@
 .lfl-inputrow {
   display: flex;
   align-items: center;
-  padding: 6px 10px;
+  /* extra bottom padding lifts the input text ~1.5 rows so it clears Chrome's
+     bottom-left status bubble, while this row's own input-bg fills the gap
+     down to the viewport bottom (the panel is anchored flush there now, so
+     no page shows through). Keep in sync with CSS_TEXT in terminal.js. */
+  padding: 6px 10px 26px 10px;
   border-top: 1px solid var(--lfl-border, #2a3140);
   background: var(--lfl-input-bg, #0e131c);
 }

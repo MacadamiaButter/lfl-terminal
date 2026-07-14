@@ -134,6 +134,9 @@
     'go', 'alias', 'unalias', 'macro', 'unmacro', 'origins', 'dev', 'man',
     'search', 'open', 'open!', 'back', 'scroll', 'extract', 'log', 'budget',
     'continue', 'help', 'clear', 'ask',
+    // auto-open-on-home (2026-07-14): the `autoopen` toggle command - reserved
+    // so an alias/macro can't shadow it, same footgun as the rest of this set.
+    'autoopen',
     // M4a friction-trio built-ins (extension/content/engine.js) - same
     // shadowing footgun the original set was created to close: an
     // `alias ls = ...`/`macro click = ...` would silently make the ls-listing
@@ -150,6 +153,19 @@
     // footgun; also keeps it out of setAlias/setMacro's NAME_RE-valid
     // namespace as a normal by-product of being reserved.
     'sl',
+    // M4c (extension/content/engine.js, design doc
+    // LFL-TERMINAL-HIGHLIGHT-DESIGN.md) - `highlight` is an ordinary
+    // page-driving built-in like the M4a six above, not a game/funpack
+    // entry: same shadowing footgun (`alias highlight = ...` would silently
+    // make the persistent-match-layer verb unreachable by its own name), so
+    // it's reserved the same way, but it is NOT added to GAME_NAMES/
+    // FUNPACK_NAMES below - unlike games/funpack, `highlight` has no
+    // chrome.storage.local/game-loop entanglement and is fully chain- and
+    // macro-eligible.
+    'highlight',
+    // `matches` (2026-07-14): the highlight/find match-listing verb - reserved
+    // for the same shadowing reason.
+    'matches',
   ]);
 
   // M4b (design doc §3/§5): games are never allowed to run as part of a
@@ -462,8 +478,74 @@
     return scored.slice(0, DID_YOU_MEAN_MAX_CANDIDATES).map((s) => s.name);
   }
 
+  // Auto-open-on-home (2026-07-14): the terminal auto-opens its overlay when a
+  // page's origin is on the user's opt-in list (persisted under
+  // chrome.storage.local `lflAutoOpenOrigins`, managed by the `autoopen`
+  // command - see terminal.js's _handleAutoOpen/_maybeAutoOpenHome). Both
+  // helpers are PURE so the match/toggle rules are unit-tested directly; the
+  // chrome.storage read/write and the actual open() call stay in terminal.js.
+  // origin is compared verbatim (exact string, e.g. "https://www.google.com") -
+  // no substring/prefix matching, so an entry can never accidentally arm a
+  // different site.
+  function autoOpenMatch(origin, list) {
+    if (!origin || !Array.isArray(list)) return false;
+    return list.indexOf(origin) !== -1;
+  }
+
+  // Returns the NEW list plus whether the origin is now enabled, without
+  // mutating the input. Skips empty/non-string entries defensively so a
+  // corrupted stored value can never crash the toggle.
+  function toggleAutoOpen(list, origin) {
+    const base = Array.isArray(list) ? list.filter((o) => typeof o === 'string' && o) : [];
+    if (!origin) return { list: base, enabled: false };
+    const has = base.indexOf(origin) !== -1;
+    const next = has ? base.filter((o) => o !== origin) : base.concat([origin]);
+    return { list: next, enabled: !has };
+  }
+
+  // Panel height control (collapse + resize, 2026-07-14): the docked overlay
+  // used to grow to a fixed 46vh cap and crowd the page. It now has a user-set
+  // height (a drag grip plus Ctrl+Up/Down preset cycling, persisted in
+  // storage.local `lflPanelHeight`) and a manual collapse toggle that hides the
+  // scrollback only. These two helpers are the PURE height math; terminal.js
+  // owns the DOM/storage/drag glue. All values are in vh.
+  const PANEL_PRESETS_VH = [22, 34, 46];   // compact, normal, tall
+  const PANEL_DEFAULT_VH = 34;             // "normal" - below the old 46vh hard cap
+  const PANEL_MIN_VH = 12;
+  const PANEL_MAX_VH = 80;
+
+  // Clamp any candidate height (a stored value, or a live drag position) into
+  // the allowed range; a non-finite/garbage value falls back to the default
+  // rather than throwing or applying NaN.
+  function clampPanelHeightVh(vh) {
+    const n = Number(vh);
+    if (!Number.isFinite(n)) return PANEL_DEFAULT_VH;
+    return Math.min(PANEL_MAX_VH, Math.max(PANEL_MIN_VH, n));
+  }
+
+  // Step to the next preset strictly above (dir > 0) or below (dir < 0) the
+  // current height, clamped to the ends of the ladder. The 0.5 epsilon means
+  // "already exactly on a preset" steps to the neighbour, not back to itself,
+  // and an off-preset height (from a free drag) snaps to the next preset in the
+  // pressed direction.
+  function stepPanelPreset(currentVh, dir) {
+    const cur = clampPanelHeightVh(currentVh);
+    if (dir > 0) {
+      for (const p of PANEL_PRESETS_VH) if (p > cur + 0.5) return p;
+      return PANEL_PRESETS_VH[PANEL_PRESETS_VH.length - 1];
+    }
+    if (dir < 0) {
+      for (let i = PANEL_PRESETS_VH.length - 1; i >= 0; i--) {
+        if (PANEL_PRESETS_VH[i] < cur - 0.5) return PANEL_PRESETS_VH[i];
+      }
+      return PANEL_PRESETS_VH[0];
+    }
+    return cur;
+  }
+
   return {
     createRegistry, createAliasStore, splitChain, expandAlias, expandMacro,
-    damerauLevenshtein, didYouMean,
+    damerauLevenshtein, didYouMean, autoOpenMatch, toggleAutoOpen,
+    clampPanelHeightVh, stepPanelPreset, PANEL_PRESETS_VH, PANEL_DEFAULT_VH,
   };
 });

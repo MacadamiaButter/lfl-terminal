@@ -53,6 +53,7 @@
   reg.register({ name: 'unmacro', argSpec: 'unmacro <name>', help: 'remove a defined macro (M3)' });
   reg.register({ name: 'origins', argSpec: 'origins', help: 'list origins visited by this tab this session (M3)' });
   reg.register({ name: 'dev', argSpec: 'dev on | dev off', help: 'toggle the data-lfl-state test hook (off by default - see docs/threat-model.md H2) (M3)' });
+  reg.register({ name: 'autoopen', argSpec: 'autoopen', help: 'toggle auto-opening the terminal when you land on THIS site (e.g. your start page) - opt-in per origin, off by default' });
   // M4a "friction trio" - three deterministic tools that never call the
   // local model, registered here for help/man text same as everything
   // above; dispatched inside tryDeterministic() below except `here`, which
@@ -66,6 +67,12 @@
   reg.register({ name: 'fill', argSpec: 'fill <N> with <text> | fill <label> with <text>', help: 'fill the ls-listing field numbered N, or matched by its label - credential fields still blocked (M4a)' });
   reg.register({ name: 'read', argSpec: 'read', help: 'extract the page\'s main readable content (article/main, or the largest visible text block) (M4a)' });
   reg.register({ name: 'find', argSpec: 'find <text> | find', help: 'search visible page text and scroll to it; bare find advances to the next match (M4a)' });
+  reg.register({
+    name: 'highlight',
+    argSpec: 'highlight <text> | highlight clear | highlight',
+    help: 'mark every visible occurrence of <text> on the page (read-only visual layer, CSS Custom Highlight API - no page DOM is modified); bare highlight shows status; highlight clear removes the marks; matches also feed `find`, so bare `find` steps through them (M4c)',
+  });
+  reg.register({ name: 'matches', argSpec: 'matches', help: 'list all current highlight/find matches with surrounding context, numbered; step through them with `find` (M4c)' });
   reg.register({ name: 'here', argSpec: 'here', help: 'compact orientation: origin, element counts, search/pagination hints, suggested next commands (M4a)' });
   // funpack v1 (extension/content/funpack.js) - fortune/stats/theme/cowsay
   // are dispatched by terminal.js, not this file's tryDeterministic() chain,
@@ -301,6 +308,15 @@
 
   const LS_SECTION_CAP = 40;
   const READ_LINE_CAP = 120;
+  // M4c (design doc LFL-TERMINAL-HIGHLIGHT-DESIGN.md §6): cap the total
+  // number of Ranges REGISTERED by one `highlight <q>` call, not the number
+  // of matching text nodes - a single node can hold many occurrences.
+  // Collection stops scanning at the cap (see doHighlight below) rather than
+  // collecting everything then slicing, because each Range is retained
+  // browser-side and an adversarial or just very long page ("highlight e" on
+  // a long article) must not be allowed to build an unbounded list before
+  // the cap is applied.
+  const HIGHLIGHT_MAX_RANGES = 2000;
 
   // ---- pure: generic truncation-cap helper (ls sections + read output) ----
   function capLines(lines, cap) {
@@ -377,6 +393,75 @@
   function textIncludesQuery(text, query) {
     if (!text || !query) return false;
     return text.toLowerCase().includes(query.toLowerCase());
+  }
+
+  // ---- pure: M4c `highlight` helpers (design doc §2/§6/§7) ----
+
+  // Every non-overlapping, case-insensitive occurrence of `query` inside one
+  // node's `text`, as [{start, end}] offsets. `find`'s own matching is
+  // node-level (textIncludesQuery above just answers yes/no); highlight
+  // needs the finer OCCURRENCE unit because a Range must cover exactly the
+  // matched substring, and one node's text can contain the query more than
+  // once. Non-overlapping means the next scan resumes at the END of the
+  // previous match - so "aa" against "aaa" yields exactly one match, not two
+  // overlapping ones.
+  function findOccurrenceOffsets(text, query) {
+    const out = [];
+    if (!text || !query) return out;
+    const hay = text.toLowerCase();
+    const needle = query.toLowerCase();
+    let i = 0;
+    while (i <= hay.length - needle.length) {
+      const idx = hay.indexOf(needle, i);
+      if (idx === -1) break;
+      out.push({ start: idx, end: idx + needle.length });
+      i = idx + needle.length;
+    }
+    return out;
+  }
+
+  // Parses `highlight`'s captured arg text into a dumb, three-way shape, so
+  // both tryDeterministic's dispatch branches and doHighlight itself stay
+  // dumb (§7). Recognizing "clear" here too (in addition to the dedicated
+  // `/^highlight\s+clear$/i` dispatch branch, checked first) is deliberate
+  // defense in depth, not dead code: it keeps this parser correct on its own
+  // terms for anyone calling doHighlight() directly (e.g. this file's own
+  // tests), not just reachable-through-dispatch input.
+  function parseHighlightArg(raw) {
+    const q = (raw || '').trim();
+    if (!q) return { mode: 'status' };
+    if (/^clear$/i.test(q)) return { mode: 'clear' };
+    return { mode: 'set', query: q };
+  }
+
+  // The `highlight <q>` result line - all three variants (0 matches, N
+  // matches, capped). Keeps doHighlight thin: one function owns every
+  // wording decision for this one line.
+  function formatHighlightSummary(count, capped, cap, query) {
+    if (count === 0) return `no matches for "${query}"`;
+    if (capped) return `highlighted ${cap} of ${cap}+ matches for "${query}" (capped)`;
+    return `highlighted ${count} matches`;
+  }
+
+  // `matches` command helpers (2026-07-14). matchSnippet returns a one-line,
+  // whitespace-collapsed slice of `text` centred on the first case-insensitive
+  // occurrence of `query`, with `radius` chars of context each side and "..."
+  // where it was trimmed. Pure and DOM-free (it works on a node's textContent
+  // string), so it is unit-tested directly; falls back to a head-truncation
+  // when the query is empty or (defensively) not present in the text.
+  const MATCH_SNIPPET_RADIUS = 32;
+  const MATCH_LIST_CAP = 50;
+  function matchSnippet(text, query, radius) {
+    const t = String(text == null ? '' : text).replace(/\s+/g, ' ').trim();
+    const qq = String(query == null ? '' : query);
+    const windowLen = radius * 2 + qq.length;
+    const headTrunc = () => (t.length > windowLen ? `${t.slice(0, windowLen)}...` : t);
+    if (!qq) return headTrunc();
+    const idx = t.toLowerCase().indexOf(qq.toLowerCase());
+    if (idx < 0) return headTrunc();
+    const start = Math.max(0, idx - radius);
+    const end = Math.min(t.length, idx + qq.length + radius);
+    return `${start > 0 ? '...' : ''}${t.slice(start, end)}${end < t.length ? '...' : ''}`;
   }
 
   // ---- pure: suggested-commands rules for `here` ----
@@ -663,6 +748,180 @@
     return { output: `match 1/${matches.length}` };
   }
 
+  // ---- M4c: `highlight` (persistent visual match layer, see design doc
+  // LFL-TERMINAL-HIGHLIGHT-DESIGN.md) ----
+  //
+  // Reuses collectVisibleTextMatches() above - the SAME collector `find`
+  // calls - as the one match engine (design doc §2): one collector, one
+  // definition of "a visible match". Renders via the CSS Custom Highlight
+  // API (`CSS.highlights` + `Range` + a `::highlight()` rule), never by
+  // wrapping page text in injected <span> elements - zero page-DOM
+  // mutation, see the design doc §3 for the full rationale and the one
+  // disclosed, owner-accepted deviation from `highlightAndScrollMatch`'s
+  // "never inject page-observable CSS" posture above: while a highlight is
+  // active, the page CAN read/delete our `CSS.highlights` entry and our
+  // adopted stylesheet. That artifact is inert decoration (§3) - it cannot
+  // change layout, capture input, or carry data, and nothing in this
+  // extension ever reads it back. THE RULE, stated plainly and mirrored
+  // verbatim in docs/threat-model.md's M4c section: a highlight is never a
+  // trust surface - a hostile page can hide, remove, or forge on-page marks;
+  // no user or extension flow may treat a painted mark as proof of anything.
+  // The authoritative datum is always the match COUNT this file computes
+  // from the DOM and prints inside the closed-shadow terminal.
+
+  const HL_NAME = 'lfl-hl';
+  const HL_CSS = `::highlight(${HL_NAME}){background-color:rgba(245,166,35,.45);color:#111;}`;
+  const HL_UNSUPPORTED_MSG = 'highlight: not supported by this browser (CSS Custom Highlight API required)';
+
+  // Chrome 105+ (well within this project's Chrome >=144 floor) - NO span
+  // fallback if missing (design doc §3): fail closed with HL_UNSUPPORTED_MSG.
+  function highlightApiAvailable() {
+    return typeof CSS !== 'undefined' && !!CSS.highlights && typeof Highlight === 'function';
+  }
+
+  // Module-level handle for the one constructed stylesheet this feature ever
+  // installs - lets teardownHighlight() remove exactly the sheet it added
+  // (never touching any other entry a page or another extension put in
+  // document.adoptedStyleSheets) and lets installHighlightStylesheet() be a
+  // cheap no-op on the (common) "already installed" path.
+  let hlStyleSheet = null;
+
+  // Append-only (never replace() on the array itself), try/catch, fail
+  // closed - see design doc §3's "one deviation that needs sign-off".
+  function installHighlightStylesheet() {
+    if (hlStyleSheet) return true;
+    try {
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync(HL_CSS);
+      document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+      hlStyleSheet = sheet;
+      return true;
+    } catch (_e) {
+      return false;
+    }
+  }
+
+  function removeHighlightStylesheet() {
+    if (!hlStyleSheet) return;
+    try {
+      document.adoptedStyleSheets = document.adoptedStyleSheets.filter((s) => s !== hlStyleSheet);
+    } catch (_e) { /* nothing more we can do - not worth surfacing to the user */ }
+    hlStyleSheet = null;
+  }
+
+  // Single choke point for every clear path (design doc §5): `highlight
+  // clear`, a replacing `highlight <newquery>`, and the global `clear`
+  // branch below all call this - mirrors _exitProgram's one-exit-path
+  // discipline (terminal.js). Full navigation needs no call at all: the
+  // document (and with it CSS.highlights, a per-document registry) simply
+  // dies, and the fresh injection constructs a fresh `state`.
+  function teardownHighlight(state) {
+    try { if (typeof CSS !== 'undefined' && CSS.highlights) CSS.highlights.delete(HL_NAME); } catch (_e) {}
+    removeHighlightStylesheet();
+    state.highlightContext = null;
+  }
+
+  function doHighlightClear(state) {
+    if (!state.highlightContext) return { output: 'no active highlight' };
+    const { query } = state.highlightContext;
+    teardownHighlight(state);
+    // design doc §5 item 1: findContext is only nulled if it still belongs
+    // to THIS highlight's query - a later `find <other>` already retargeted
+    // findContext on its own and that context is left alone.
+    if (state.findContext && state.findContext.query === query) state.findContext = null;
+    return { output: 'highlight cleared' };
+  }
+
+  function doHighlight(argText, state) {
+    const parsed = parseHighlightArg(argText);
+    if (parsed.mode === 'clear') return doHighlightClear(state);
+    if (parsed.mode === 'status') {
+      const ctx = state.highlightContext;
+      if (!ctx) return { output: 'no active highlight - try: highlight <text>' };
+      return { output: `highlight: "${ctx.query}" - ${ctx.count} matches marked${ctx.capped ? ' (capped)' : ''}` };
+    }
+    // mode === 'set' - fail closed BEFORE touching anything, per §3.
+    if (!highlightApiAvailable()) return { output: HL_UNSUPPORTED_MSG };
+    const q = parsed.query;
+    // Replace semantics (§2/§5): tear down any previous paint first, so a
+    // failed retarget (no matches below) can never leave stale marks for
+    // the OLD query lying around - "stale amber lies" is explicitly the
+    // thing §6 rules out.
+    teardownHighlight(state);
+    const matches = collectVisibleTextMatches(q);
+    if (matches.length === 0) {
+      state.findContext = null; // mirrors doFind's own miss posture above
+      return { output: formatHighlightSummary(0, false, HIGHLIGHT_MAX_RANGES, q) };
+    }
+    // Build one Range per OCCURRENCE (not per node - a node's text can
+    // contain the query more than once, §2). Stop scanning at the cap
+    // rather than collect-then-slice (§6): each Range is retained
+    // browser-side, so an adversarial or just very long page must not be
+    // allowed to build an unbounded list before the cap kicks in.
+    const ranges = [];
+    let capped = false;
+    scan:
+    for (const node of matches) {
+      const offsets = findOccurrenceOffsets(node.textContent || '', q);
+      for (const off of offsets) {
+        if (ranges.length >= HIGHLIGHT_MAX_RANGES) { capped = true; break scan; }
+        try {
+          const r = new Range();
+          r.setStart(node, off.start);
+          r.setEnd(node, off.end);
+          ranges.push(r);
+        } catch (_e) {
+          // A hostile/live page mutated this node between collection and
+          // Range construction - skip this one occurrence, keep scanning
+          // the rest (graceful decay, same posture as the Highlight API's
+          // own documented behavior for a Range whose node is later removed).
+        }
+      }
+    }
+    installHighlightStylesheet(); // best-effort; painting still proceeds even if styling failed to install (matches are tracked either way via CSS.highlights, they would just render unstyled) - see removeHighlightStylesheet() for the matching teardown half.
+    try {
+      CSS.highlights.set(HL_NAME, new Highlight(...ranges));
+    } catch (_e) {
+      return { output: HL_UNSUPPORTED_MSG };
+    }
+    state.highlightContext = { query: q, count: ranges.length, capped };
+    // Populates the SAME state.findContext `find` reads (§2) - idx: -1
+    // (not find's own idx: 0) is deliberate: highlight scrolls nowhere
+    // itself, so the FIRST bare `find` afterwards should visit match 1, not
+    // skip to match 2.
+    state.findContext = { query: q, matches, idx: -1 };
+    // discoverability hint (friction find 2026-07-14): the bare count did not
+    // tell the user how to SEE the matches, so intuitive phrases like "show
+    // matches" leaked to the model and returned noise. Point at `matches`.
+    return { output: `${formatHighlightSummary(ranges.length, capped, HIGHLIGHT_MAX_RANGES, q)} - type "matches" to list them` };
+  }
+
+  // `matches` - list the current find/highlight matches with surrounding
+  // context, one numbered line each, marking the active `find` cursor with ">".
+  // Read-only and deterministic (never the model); reuses the SAME
+  // state.findContext that `find` navigates and `highlight` populates, so the
+  // list and `find`'s "match X/N" stepping stay in lockstep (node-level, per
+  // the highlight design doc section 2 - a node with several occurrences is one
+  // entry). Added because typing an intuitive phrase like "show matches"
+  // otherwise fell through to the LLM and came back with an unrelated answer.
+  function doMatches(state) {
+    const ctx = state.findContext;
+    if (!ctx || !ctx.matches || ctx.matches.length === 0) {
+      return { output: 'no matches - run "highlight <text>" or "find <text>" first' };
+    }
+    const q = ctx.query;
+    const total = ctx.matches.length;
+    const shown = ctx.matches.slice(0, MATCH_LIST_CAP);
+    const lines = shown.map((node, i) => {
+      const cursor = (i === ctx.idx) ? '>' : ' ';
+      const snippet = matchSnippet((node && node.textContent) || '', q, MATCH_SNIPPET_RADIUS);
+      return `${cursor}${i + 1}. ${snippet}`;
+    });
+    const capNote = total > MATCH_LIST_CAP ? ` (showing first ${MATCH_LIST_CAP})` : '';
+    const header = `${total} match${total === 1 ? '' : 'es'} for "${q}"${capNote}`;
+    return { output: `${header}\n${lines.join('\n')}` };
+  }
+
   // ---- `here` ----
 
   function detectPaginationHint() {
@@ -727,6 +986,9 @@
       // injection - see terminal.js's constructor).
       state.listingContext = null;
       state.findContext = null;
+      // M4c: same "start fresh" gesture - also tear down any active
+      // highlight paint + its adopted stylesheet (design doc §5 item 3).
+      teardownHighlight(state);
       return { output: '', clear: true };
     }
     if (/^log$/i.test(trimmed)) return { output: LFL.auditLog ? LFL.auditLog.render() : '(no audit log)' };
@@ -783,6 +1045,17 @@
     m = trimmed.match(/^find(?:\s+(.+))?$/i);
     if (m) return doFind(m[1] || '', state);
 
+    // ---- M4c: `highlight` (persistent visual match layer, see design doc) ----
+    if (/^highlight\s+clear$/i.test(trimmed)) return doHighlightClear(state);
+    m = trimmed.match(/^highlight(?:\s+([\s\S]+))?$/i);
+    if (m) return doHighlight(m[1] || '', state);
+
+    // ---- M4c: `matches` - list the current highlight/find matches. Also
+    // accepts the natural "show matches" / "list matches" phrasings a user is
+    // likely to reach for (the bare-verb friction find that prompted this), so
+    // they resolve deterministically instead of leaking to the model. ----
+    if (/^(?:(?:show|list)\s+)?matches$/i.test(trimmed)) return doMatches(state);
+
     m = trimmed.match(/^open\s+(.+)$/i);
     if (m) return doOpen(m[1], state);
 
@@ -810,5 +1083,11 @@
     // itself (which needs a full DOM/axtree.build() call - see
     // tests/m4_friction.test.js's header comment).
     doOpenIndex, doClickIndex, doFillIndex, doFillLabel, doBareNumber,
+    // M4c pure helpers, exported for direct unit testing (tests/m4c_highlight.test.js)
+    // without needing a DOM - see this file's "highlight" section above.
+    findOccurrenceOffsets, parseHighlightArg, formatHighlightSummary, matchSnippet,
+    // M4c DOM-touching handlers, exported so a test can drive/inspect them
+    // directly (paint, status, clear, teardown, list) the same way the M4a set above is.
+    doHighlight, doHighlightClear, teardownHighlight, doMatches,
   };
 })();

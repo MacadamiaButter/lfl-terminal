@@ -82,14 +82,18 @@
 
   // Kept in sync with content/terminal.css - see the TODO note there.
   const CSS_TEXT = `
-:host{all:initial;position:fixed;inset:auto 0 40px 0;margin:0;padding:0;border:none;width:auto;height:auto;background:transparent;color:inherit;overflow:visible;z-index:2147483647;display:block;}
-.lfl-panel{display:none;flex-direction:column;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.45;color:var(--lfl-fg,#dbe4f0);background:var(--lfl-bg,#0b0e14);border-top:2px solid var(--lfl-accent,#e0a339);box-shadow:0 -8px 24px rgba(0,0,0,.55);max-height:46vh;}
+:host{all:initial;position:fixed;inset:auto 0 0 0;margin:0;padding:0;border:none;width:auto;height:auto;background:transparent;color:inherit;overflow:visible;z-index:2147483647;display:block;}
+.lfl-panel{display:none;flex-direction:column;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.45;color:var(--lfl-fg,#dbe4f0);background:var(--lfl-bg,#0b0e14);border-top:2px solid var(--lfl-accent,#e0a339);box-shadow:0 -8px 24px rgba(0,0,0,.55);max-height:34vh;}
 .lfl-panel.lfl-open{display:flex;}
+.lfl-panel.lfl-collapsed .lfl-output{display:none;}
+.lfl-resizer{flex:0 0 auto;height:7px;cursor:ns-resize;background:var(--lfl-titlebar-bg,#151a24);}
+.lfl-resizer:hover{background:var(--lfl-accent,#e0a339);}
 .lfl-panel.lfl-theme-default{--lfl-bg:#0b0e14;--lfl-fg:#dbe4f0;--lfl-accent:#e0a339;--lfl-accent-bright:#f5a623;--lfl-titlebar-bg:#151a24;--lfl-titlebar-fg:#8fa3c0;--lfl-dim:#5d7290;--lfl-dim-input:#4b5768;--lfl-cmd:#8fd0ff;--lfl-info:#9fb0c3;--lfl-error:#ff6b6b;--lfl-ok:#7ee787;--lfl-border:#2a3140;--lfl-proposal-bg:#1a1408;--lfl-proposal-fg:#f2d9a8;--lfl-proposal-detail:#c9b28a;--lfl-approve-bg:#1c3a1c;--lfl-reject-bg:#3a1c1c;--lfl-input-bg:#0e131c;}
 .lfl-panel.lfl-theme-phosphor{--lfl-bg:#000000;--lfl-fg:#33ff33;--lfl-accent:#33ff33;--lfl-accent-bright:#66ff66;--lfl-titlebar-bg:#001a00;--lfl-titlebar-fg:#22cc22;--lfl-dim:#177217;--lfl-dim-input:#177217;--lfl-cmd:#33ff33;--lfl-info:#2ecc2e;--lfl-error:#ff5555;--lfl-ok:#33ff33;--lfl-border:#0a3d0a;--lfl-proposal-bg:#001a00;--lfl-proposal-fg:#33ff33;--lfl-proposal-detail:#22aa22;--lfl-approve-bg:#003300;--lfl-reject-bg:#330000;--lfl-input-bg:#000000;}
 .lfl-panel.lfl-theme-amber{--lfl-bg:#1a0f00;--lfl-fg:#ffb000;--lfl-accent:#ffb000;--lfl-accent-bright:#ffd166;--lfl-titlebar-bg:#241500;--lfl-titlebar-fg:#cc8b00;--lfl-dim:#805800;--lfl-dim-input:#805800;--lfl-cmd:#ffcc66;--lfl-info:#e0a339;--lfl-error:#ff6b4a;--lfl-ok:#ffb000;--lfl-border:#3a2200;--lfl-proposal-bg:#241500;--lfl-proposal-fg:#ffd166;--lfl-proposal-detail:#cc8b00;--lfl-approve-bg:#332200;--lfl-reject-bg:#3a1400;--lfl-input-bg:#1a0f00;}
 .lfl-panel.lfl-theme-paper{--lfl-bg:#f7f5f0;--lfl-fg:#1c1c1c;--lfl-accent:#a15c00;--lfl-accent-bright:#c97a00;--lfl-titlebar-bg:#ece7dc;--lfl-titlebar-fg:#4a4a4a;--lfl-dim:#8a8a8a;--lfl-dim-input:#8a8a8a;--lfl-cmd:#0b5fa5;--lfl-info:#4a4a4a;--lfl-error:#b3261e;--lfl-ok:#1e7b34;--lfl-border:#d8d2c4;--lfl-proposal-bg:#fff8e6;--lfl-proposal-fg:#3a3a3a;--lfl-proposal-detail:#6b5c3f;--lfl-approve-bg:#e3f3e6;--lfl-reject-bg:#f8e4e2;--lfl-input-bg:#ffffff;}
-.lfl-titlebar{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:4px 10px;background:var(--lfl-titlebar-bg,#151a24);border-bottom:1px solid var(--lfl-border,#2a3140);color:var(--lfl-titlebar-fg,#8fa3c0);font-size:11px;letter-spacing:.04em;text-transform:uppercase;}
+.lfl-titlebar{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:4px 10px;background:var(--lfl-titlebar-bg,#151a24);border-bottom:1px solid var(--lfl-border,#2a3140);color:var(--lfl-titlebar-fg,#8fa3c0);font-size:11px;letter-spacing:.04em;text-transform:uppercase;cursor:pointer;user-select:none;}
+.lfl-titlebar .lfl-caret{color:var(--lfl-dim,#5d7290);margin-right:2px;font-size:10px;}
 .lfl-titlebar .lfl-badge{color:var(--lfl-accent,#e0a339);}
 .lfl-titlebar .lfl-budget{margin-left:auto;color:var(--lfl-dim,#5d7290);letter-spacing:normal;text-transform:none;font-size:10px;}
 .lfl-output{flex:1;overflow-y:auto;padding:8px 10px;white-space:pre-wrap;word-break:break-word;}
@@ -112,7 +116,7 @@
 .lfl-approve-btn:focus{outline:2px solid var(--lfl-ok,#7ee787);outline-offset:2px;}
 .lfl-reject-btn{background:var(--lfl-reject-bg,#3a1c1c);border:1px solid var(--lfl-error,#ff6b6b);color:var(--lfl-error,#ff6b6b);}
 .lfl-reject-btn:focus{outline:2px solid var(--lfl-error,#ff6b6b);outline-offset:2px;}
-.lfl-inputrow{display:flex;align-items:center;padding:6px 10px;border-top:1px solid var(--lfl-border,#2a3140);background:var(--lfl-input-bg,#0e131c);}
+.lfl-inputrow{display:flex;align-items:center;padding:6px 10px 26px 10px;border-top:1px solid var(--lfl-border,#2a3140);background:var(--lfl-input-bg,#0e131c);}
 .lfl-prompt{color:var(--lfl-accent,#e0a339);margin-right:6px;}
 .lfl-input{flex:1;background:transparent;border:none;outline:none;color:var(--lfl-fg,#dbe4f0);font:inherit;}
 .lfl-input::placeholder{color:var(--lfl-dim-input,#4b5768);}
@@ -162,6 +166,14 @@
         // the next navigation's fresh content-script injection.
         listingContext: null,
         findContext: null,
+        // M4c: the active persistent highlight - { query, count, capped } or
+        // null. The Range objects themselves live inside CSS.highlights'
+        // registry entry, not here; this field only exists so bare
+        // `highlight` can report status and so clear paths know there is
+        // something to tear down. Page-scoped, human-visible-only memory:
+        // never persisted, never in any LLM payload, dies with `state` on
+        // the next injection - same posture as findContext.
+        highlightContext: null,
         // M4a: a live mirror of this._rlBudgetCache (see below) so
         // engine.js's `here` handler - which only receives `state`, not this
         // Terminal instance - can render the already-cached rate-limit
@@ -235,7 +247,14 @@
       // _exitProgram() below - this is the ONLY state the program-mode
       // primitive needs beyond the ordinary command state above.
       this._activeProgram = null;
+      // collapse+resize (2026-07-14): default height + expanded state, set
+      // BEFORE _buildDom (which calls _applyPanelHeight/_applyCollapsed).
+      // _loadPanelHeight() below is async and re-applies any persisted height
+      // once storage resolves; collapse is a live toggle, not persisted.
+      this._panelHeightVh = LFL.registry.PANEL_DEFAULT_VH;
+      this._collapsed = false;
       this._buildDom();
+      this._loadPanelHeight();
       this._wireEvents();
       this._loadHistory();
       this._updateTestHook();
@@ -300,6 +319,10 @@
         this.open();
       }
       await this._advanceQueue();
+      // auto-open-on-home (2026-07-14): last, so it defers to a restored open
+      // state and to any in-flight chain arrival above - see the method's own
+      // comment for the once-per-tab-session latch that respects a manual close.
+      await this._maybeAutoOpenHome();
     }
 
     // ---- M2.3 rate-limit SW messaging (see class header comment) ----
@@ -370,15 +393,33 @@
       this.panel = document.createElement('div');
       this.panel.className = 'lfl-panel';
 
+      // collapse+resize (2026-07-14): a thin top grip to drag the panel taller
+      // or shorter (Ctrl+Up/Down also step presets); the titlebar toggles
+      // collapse (fold to just the input strip, hiding the scrollback - never
+      // the approval card, which is a sibling of the output pane).
+      this.resizerEl = document.createElement('div');
+      this.resizerEl.className = 'lfl-resizer';
+      this.resizerEl.title = 'drag to resize (or Ctrl+Up / Ctrl+Down)';
+      this.resizerEl.addEventListener('mousedown', (e) => this._startResize(e));
+
       const titlebar = document.createElement('div');
       titlebar.className = 'lfl-titlebar';
+      titlebar.title = 'click to fold / unfold (or Ctrl+`)';
+      titlebar.addEventListener('click', (e) => {
+        if (!LFL.guards.isTrustedInputEvent(e)) return; // M3 H1 - see guards.js
+        this._toggleCollapse();
+      });
+      this.caretEl = document.createElement('span');
+      this.caretEl.className = 'lfl-caret';
+      this.caretEl.textContent = '▾'; // small down triangle = expanded
       const badge = document.createElement('span');
       badge.className = 'lfl-badge';
       badge.textContent = 'lfl-terminal';
       const hint = document.createElement('span');
-      hint.textContent = '` or Ctrl+K to toggle · Esc to close';
+      hint.textContent = '` toggle · Esc close · Ctrl+` fold · Ctrl+Up/Down size';
       this.budgetEl = document.createElement('span');
       this.budgetEl.className = 'lfl-budget';
+      titlebar.appendChild(this.caretEl);
       titlebar.appendChild(badge);
       titlebar.appendChild(hint);
       titlebar.appendChild(this.budgetEl);
@@ -437,12 +478,15 @@
       inputrow.appendChild(prompt);
       inputrow.appendChild(this.inputEl);
 
+      this.panel.appendChild(this.resizerEl);
       this.panel.appendChild(titlebar);
       this.panel.appendChild(this.outputEl);
       this.panel.appendChild(this.proposalEl);
       this.panel.appendChild(inputrow);
       this.shadow.appendChild(this.panel);
 
+      this._applyPanelHeight();
+      this._applyCollapsed();
       this._popoverSupported = typeof this.host.showPopover === 'function';
     }
 
@@ -549,6 +593,17 @@
         this._routeProgramKey(e);
         return;
       }
+      // collapse+resize (2026-07-14): Ctrl+backtick folds/unfolds; Ctrl+Up/Down
+      // step the height presets. Handled before the plain Arrow history branches
+      // below so a modified arrow never also walks command history. Backtick
+      // (not Ctrl+J) is the fold key deliberately: it mirrors the bare-backtick
+      // open toggle and, unlike Ctrl+J (Chrome's Downloads shortcut, which a
+      // content script cannot reliably suppress), has no browser-level action.
+      if (e.ctrlKey && !e.altKey && !e.metaKey) {
+        if (e.key === '`') { e.preventDefault(); this._toggleCollapse(); return; }
+        if (e.key === 'ArrowUp') { e.preventDefault(); this._stepPanelPreset(1); return; }
+        if (e.key === 'ArrowDown') { e.preventDefault(); this._stepPanelPreset(-1); return; }
+      }
       if (e.key === 'Enter') {
         e.preventDefault();
         if (this._isAwaitingSomething()) {
@@ -640,6 +695,77 @@
     toggle() {
       if (this.isOpen()) this.close();
       else this.open();
+    }
+
+    // ---- collapse + resize (2026-07-14) ----
+    //
+    // Panel height is a user preference (persisted vh in storage.local
+    // `lflPanelHeight`); collapse is a live per-instance toggle that folds the
+    // scrollback away, leaving titlebar + input (+ the approval card if one is
+    // pending - collapse only ever hides `.lfl-output`). The pure clamp/preset
+    // math lives in registry.js so it is unit-tested; this is the DOM/storage
+    // glue only.
+    _applyPanelHeight() {
+      if (this.panel) this.panel.style.maxHeight = `${this._panelHeightVh}vh`;
+    }
+
+    _setPanelHeightVh(vh, persist) {
+      this._panelHeightVh = LFL.registry.clampPanelHeightVh(vh);
+      this._applyPanelHeight();
+      if (persist) this._savePanelHeight();
+    }
+
+    _stepPanelPreset(dir) {
+      this._setPanelHeightVh(LFL.registry.stepPanelPreset(this._panelHeightVh, dir), true);
+    }
+
+    _loadPanelHeight() {
+      try {
+        chrome.storage.local.get(['lflPanelHeight'], (res) => {
+          if (chrome.runtime.lastError) return;
+          if (res && typeof res.lflPanelHeight === 'number') {
+            this._panelHeightVh = LFL.registry.clampPanelHeightVh(res.lflPanelHeight);
+            this._applyPanelHeight();
+          }
+        });
+      } catch (_e) { /* storage unavailable - stays at the default height */ }
+    }
+
+    _savePanelHeight() {
+      try { chrome.storage.local.set({ lflPanelHeight: this._panelHeightVh }); } catch (_e) { /* best-effort */ }
+    }
+
+    _toggleCollapse() {
+      this._collapsed = !this._collapsed;
+      this._applyCollapsed();
+    }
+
+    _applyCollapsed() {
+      if (this.panel) this.panel.classList.toggle('lfl-collapsed', this._collapsed);
+      if (this.caretEl) this.caretEl.textContent = this._collapsed ? '▸' : '▾';
+      // keep the keyboard flow uninterrupted: on expand, refocus the input
+      if (!this._collapsed && this.isOpen() && this.inputEl) this.inputEl.focus();
+    }
+
+    // Drag the top resizer grip: set the panel's max-height live from the
+    // pointer's distance above the viewport bottom (the panel is anchored
+    // there). isTrusted-gated at mousedown (M3 H1); the subsequent move/up are
+    // part of that one trusted gesture. Persists once, on release.
+    _startResize(e) {
+      if (!LFL.guards.isTrustedInputEvent(e)) return; // M3 H1 - see guards.js
+      e.preventDefault();
+      const vpH = () => (window.innerHeight || document.documentElement.clientHeight || 800);
+      const onMove = (ev) => {
+        const fromBottom = vpH() - ev.clientY;
+        this._setPanelHeightVh((fromBottom / vpH()) * 100, false);
+      };
+      const onUp = () => {
+        window.removeEventListener('mousemove', onMove, true);
+        window.removeEventListener('mouseup', onUp, true);
+        this._savePanelHeight();
+      };
+      window.addEventListener('mousemove', onMove, true);
+      window.addEventListener('mouseup', onUp, true);
     }
 
     // ---- output helpers ----
@@ -830,6 +956,7 @@
       // not a page-driving verb.
       if (/^dev\s+(on|off)$/i.test(raw)) { this._handleDevCommand(raw); return; }
       if (/^origins$/i.test(raw)) { this._handleOrigins(); return; }
+      if (/^autoopen$/i.test(raw)) { this._handleAutoOpen(); return; }
       if (/^alias(\s|$)/i.test(raw)) { this._handleAliasCommand(raw); return; }
       if (/^unalias\s+\S+$/i.test(raw)) { this._handleUnaliasCommand(raw); return; }
       if (/^macro(\s|$)/i.test(raw)) { this._handleMacroCommand(raw); return; }
@@ -1658,6 +1785,102 @@
       this.printInfo(msg);
       this._auditPush({ action: 'origins' }, 'auto', msg.slice(0, 160));
       this._settle(true, msg);
+    }
+
+    // ---- auto-open-on-home (2026-07-14) ----
+    //
+    // `autoopen` toggles whether THIS page's origin is on the opt-in list that
+    // makes the overlay open by itself on arrival (see _maybeAutoOpenHome).
+    // Standalone control command, no `&&` chaining - same posture as origins/
+    // dev above (needs chrome.storage.local, which engine.js's synchronous
+    // tryDeterministic() contract can't reach). Only real http(s) origins are
+    // eligible: chrome://newtab and other privileged pages never run this
+    // content script at all, and a null/opaque origin (sandboxed frame,
+    // data:/about:) has no stable identity to key the list on.
+    _currentAutoOpenOrigin() {
+      const origin = (typeof location !== 'undefined' && location.origin) ? location.origin : null;
+      if (!origin || origin === 'null' || !/^https?:$/.test((typeof location !== 'undefined' && location.protocol) || '')) {
+        return null;
+      }
+      return origin;
+    }
+
+    _handleAutoOpen() {
+      const origin = this._currentAutoOpenOrigin();
+      if (!origin) {
+        const msg = 'autoopen: not available on this page (only http/https sites can be auto-open homes)';
+        this.printError(msg);
+        this._auditPush({ action: 'autoopen' }, 'blocked', msg);
+        this._settle(false, msg);
+        return;
+      }
+      try {
+        chrome.storage.local.get(['lflAutoOpenOrigins'], (res) => {
+          if (chrome.runtime.lastError) {
+            const msg = 'autoopen: storage unavailable';
+            this.printError(msg);
+            this._settle(false, msg);
+            return;
+          }
+          const cur = (res && Array.isArray(res.lflAutoOpenOrigins)) ? res.lflAutoOpenOrigins : [];
+          const next = LFL.registry.toggleAutoOpen(cur, origin);
+          try {
+            chrome.storage.local.set({ lflAutoOpenOrigins: next.list }, () => {
+              if (chrome.runtime.lastError) {
+                const msg = 'autoopen: could not save setting';
+                this.printError(msg);
+                this._settle(false, msg);
+                return;
+              }
+              const msg = next.enabled
+                ? `autoopen ON for ${origin} - the terminal now opens by itself when you land here (run "autoopen" again to turn it off)`
+                : `autoopen OFF for ${origin}`;
+              this.printOk(msg);
+              this._auditPush({ action: 'autoopen' }, 'auto', msg);
+              this._settle(true, msg);
+            });
+          } catch (_e) {
+            const msg = 'autoopen: storage unavailable';
+            this.printError(msg);
+            this._settle(false, msg);
+          }
+        });
+      } catch (_e) {
+        const msg = 'autoopen: storage unavailable';
+        this.printError(msg);
+        this._settle(false, msg);
+      }
+    }
+
+    // Called once at the tail of _restoreTerminalState() (fresh content-script
+    // injection). Opens the overlay automatically iff (a) it isn't already open
+    // - the per-tab TS_OPEN restore above may have reopened it, or the human
+    // may have; (b) this origin is on the opt-in list; and (c) this tab+origin
+    // session hasn't already auto-opened once. The (c) latch lives in the
+    // page's sessionStorage (per tab, per origin, cleared when the tab closes),
+    // so a human who CLOSES the auto-opened overlay is not fought on every
+    // subsequent same-origin navigation - it re-arms only in a new tab/session.
+    // Failure of any step is silent and simply means "don't auto-open", the
+    // safe default direction for a convenience feature.
+    async _maybeAutoOpenHome() {
+      if (this.isOpen()) return;
+      const origin = this._currentAutoOpenOrigin();
+      if (!origin) return;
+      try {
+        if (sessionStorage.getItem('lflAutoOpened') === '1') return;
+      } catch (_e) { /* sessionStorage blocked - proceed without the once-per-session latch */ }
+      let list = [];
+      try {
+        list = await new Promise((resolve) => {
+          chrome.storage.local.get(['lflAutoOpenOrigins'], (res) => {
+            if (chrome.runtime.lastError) return resolve([]);
+            resolve((res && Array.isArray(res.lflAutoOpenOrigins)) ? res.lflAutoOpenOrigins : []);
+          });
+        });
+      } catch (_e) { return; }
+      if (!LFL.registry.autoOpenMatch(origin, list)) return;
+      try { sessionStorage.setItem('lflAutoOpened', '1'); } catch (_e) { /* best-effort latch */ }
+      this.open();
     }
 
     // ---- M3 `go` - the navigation verb (design §2/§3) ----

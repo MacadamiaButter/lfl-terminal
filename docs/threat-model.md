@@ -1209,3 +1209,82 @@ same-named alias/macro now protects these six too. No other change to
 the alias/macro write path (`setAlias`/`setMacro`, still the only two
 mutating functions, still only ever called from `terminal.js`'s typed-input
 handlers) was made.
+
+(Later additions to the same set, same reasoning: `autoopen` (the
+per-origin auto-open toggle, 2026-07-14) and `highlight` (the M4c visual
+match layer, below).)
+
+## M4c - highlight (persistent visual match layer, 2026-07-14)
+
+`highlight <text>` marks every visible occurrence of a literal query on the
+page and prints the match count; `highlight clear` removes the marks; bare
+`highlight` reports status. It is a read-only deterministic verb (dispatched
+inside `engine.js`'s `tryDeterministic()`, never through `_runLlm`), so it
+auto-runs with no approval card, exactly like `find`/`read`/`ls`.
+
+### Isolation - nothing reaches either model lane
+
+The query and the matched nodes live only in the content script:
+`state.highlightContext` and `state.findContext` are page-scoped in-memory
+fields, never persisted (no TS_* key), never added to any LLM payload. No
+`service-worker.js` payload builder was touched, so the existing nav-lane and
+page-lane isolation proofs stand unchanged. There is no fetch or network path
+anywhere near this code (the egress gate still passes).
+
+### The one disclosed deviation - a page-observable CSS artifact (owner-accepted)
+
+`find`'s own `highlightAndScrollMatch` applies a transient inline style to an
+existing page element and restores it; it deliberately injects no stylesheet,
+so it leaves no persistent artifact a page could observe (see engine.js's
+comment there). `highlight` renders via the CSS Custom Highlight API
+(`CSS.highlights` + `Range` + one adopted `::highlight()` stylesheet). While a
+highlight is active, that is the first persistent, page-observable artifact
+this extension leaves: the page can read `document.adoptedStyleSheets` and
+`CSS.highlights`, can delete our entry, and can register its own
+identically-styled highlights.
+
+This deviation was reviewed and ACCEPTED by the owner (2026-07-14) on the
+following basis:
+
+1. The artifact is inert decoration. It cannot change layout, size, or
+   position (the highlight-pseudo styling subset structurally cannot), cannot
+   capture input (a `Range` is not an event target; hit-testing still resolves
+   to the page's own elements), and carries no data. Nothing in the extension
+   ever reads it back, so a page tampering with it cannot influence any
+   extension decision.
+2. **A highlight mark is never a trust surface.** The authoritative datum is
+   the match count printed inside the closed-shadow, top-layer terminal,
+   computed from the DOM by our own code. A hostile page can hide, remove, or
+   forge on-page marks; no user or extension flow may treat a painted mark as
+   proof of anything. This is the same class of statement as "the model's
+   reason string is a hint, not a guarantee."
+3. It exists only while a highlight is active and is removed on every clear
+   path (`highlight clear`, a replacing `highlight <other>`, the global
+   `clear`, and - for free - any full navigation, since `CSS.highlights` is
+   per-document and the document dies).
+
+Because a highlight gates nothing (unlike the approval card, which gates a
+mutation and therefore runs the occlusion probe), there is deliberately no
+occlusion/spoof probing for highlight marks - page-layer paint being coverable
+or forgeable is acceptable exactly where it decides nothing.
+
+### The API is required, and the verb fails closed without it
+
+If the CSS Custom Highlight API is unavailable (`CSS.highlights`/`Highlight`
+missing), the verb prints a "not supported by this browser" message and paints
+nothing - it never falls back to wrapping matched text in `<span>` elements.
+Span-wrapping was rejected outright: it would mutate page DOM structure for
+content nodes (breaking framework reconciliation, page selectors, and event
+delegation) and inject extension-owned event targets into page content - a
+strictly larger footprint on the same axis as the deviation above.
+
+### Scope exclusions (v1)
+
+Matches inside `<input>`/`<textarea>` values are out of scope (they are not
+text nodes; the shared collector never sees them - identical to `find`).
+Same-origin iframes and shadow DOM are out of scope for v1, matching `find`'s
+`document.body`-only TreeWalk exactly; `CSS.highlights` is per-document, so
+widening would require a per-frame registry and is deferred with `find` as a
+single future change. A match cap (`HIGHLIGHT_MAX_RANGES`) bounds how many
+Ranges are retained so an enormous or adversarial page cannot be used to build
+an unbounded Range list; the count is reported as capped when it engages.

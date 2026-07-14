@@ -117,6 +117,8 @@ click <N>                       click ls-listing item N - no approval card, same
 fill <N> with <text>            fill ls-listing field N, or by its label ("fill <label> with ...")
 read                            extract the page's main readable content
 find <text> | find              search visible page text; bare `find` goes to the next match
+highlight <text> | highlight clear  mark every visible occurrence on the page (read-only visual layer, no page DOM changed); matches feed `find`
+matches                         list all current highlight/find matches with context, numbered; step them with `find`
 here                            compact orientation: counts, hints, suggested next commands
 log                             this session's proposal/verdict audit log
 budget                          remaining LLM-call / executed-action budget
@@ -126,6 +128,7 @@ unalias <name>                  remove an alias
 macro <name> = <cmd1> && <cmd2> define a named && chain (depth-1)
 unmacro <name>                  remove a macro
 origins                         origins visited by this tab this session
+autoopen                        toggle auto-opening the terminal on this site (opt-in per origin, off by default)
 dev on | dev off                toggle a test-only DOM hook (off by default)
 help                            list commands
 man <cmd>                       detailed usage for one command
