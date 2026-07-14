@@ -1,8 +1,21 @@
 {
   "manifest_version": 3,
   "name": "lfl-terminal",
-  "version": "0.3.1",
-  "description": "Local-first, human-supervised command terminal overlay for any website. M1 feasibility spike.",
+  "version": "0.4.0",
+  "description": "Browser terminal with deterministic commands and a local LLM that proposes page actions you approve. Nothing leaves your machine.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Toggle lfl-terminal (or press `)",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
   "permissions": ["storage"],
   "host_permissions": ["http://127.0.0.1:1238/*"],
   "background": {

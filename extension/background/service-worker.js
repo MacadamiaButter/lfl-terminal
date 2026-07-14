@@ -652,6 +652,20 @@ if (chrome.tabs && chrome.tabs.onRemoved && typeof chrome.tabs.onRemoved.addList
   });
 }
 
+// Toolbar button (2026-07-14): toggle the terminal overlay in the active tab.
+// The content script runs only on http/https pages (<all_urls>, document_idle),
+// so on a restricted page (chrome://, the Web Store, a fresh new-tab page) there
+// is no receiver and sendMessage rejects - swallow it (there is nothing to
+// toggle there). No permission is needed: messaging our own already-declared
+// content script does not require `tabs`, and we read only tab.id (same posture
+// as the tabs.onRemoved cleanup above).
+if (chrome.action && chrome.action.onClicked && typeof chrome.action.onClicked.addListener === 'function') {
+  chrome.action.onClicked.addListener((tab) => {
+    if (!tab || typeof tab.id !== 'number') return;
+    chrome.tabs.sendMessage(tab.id, { type: 'TOGGLE_TERMINAL' }).catch(() => { /* no content script on this page */ });
+  });
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg) return false;
   if (msg.type === 'LFL_LLM_REQUEST') {

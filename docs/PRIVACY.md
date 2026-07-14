@@ -1,0 +1,56 @@
+# Privacy Policy - lfl-terminal
+
+Effective date: 2026-07-14
+
+lfl-terminal is a local-first browser extension. Its entire design goal is
+that your data stays on your machine. This policy describes exactly what that
+means.
+
+## The short version
+
+lfl-terminal collects nothing, sends nothing to us, and has no servers. There
+is no account, no login, no analytics, no telemetry, and no tracking of any
+kind. We (the developer) never receive any of your data, because there is no
+channel by which we could.
+
+## What the extension does with data
+
+- **Page content.** When you explicitly ask the terminal to interpret a
+  command it cannot resolve deterministically, the text of your command (and,
+  for on-page actions, a list of visible page elements) is sent to a local AI
+  model that **you** run on your own computer, at `http://127.0.0.1:1238`
+  (loopback). This request never leaves your machine and is never sent to the
+  developer or any third party. If you do not run a local model, that feature
+  simply does nothing.
+- **Preferences and command history.** Your themes, aliases, macros, panel
+  size, per-site auto-open choices, and recent command history are stored using
+  the browser's local extension storage (`chrome.storage.local`) on your own
+  device. This data never leaves your device and is never transmitted anywhere.
+- **No network egress to us.** The extension makes no network requests to any
+  server operated by the developer, and contains no analytics, advertising, or
+  crash-reporting code.
+
+## What we do not collect
+
+We do not collect, store, sell, or share: personal information, browsing
+history, page contents, keystrokes, IP addresses, device identifiers, or any
+usage statistics. We cannot, because none of it is ever sent to us.
+
+## Permissions
+
+- `storage` - to save your preferences and history locally on your device.
+- Host access to `http://127.0.0.1:1238/*` - to talk to the local AI model you
+  run yourself, on your own machine.
+- Access to page contents (content script) - so the terminal overlay can read
+  the current page and, only after your explicit approval, act on it. Page
+  content is processed locally and, at most, sent to your own local model as
+  described above.
+
+## Changes
+
+If this policy ever changes, the updated version will be published at this URL
+with a new effective date.
+
+## Contact
+
+hello@localfirstlab.org

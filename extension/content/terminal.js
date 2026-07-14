@@ -493,6 +493,19 @@
     _wireEvents() {
       document.addEventListener('keydown', this._onGlobalKeydown.bind(this), true);
       this.inputEl.addEventListener('keydown', this._onInputKeydown.bind(this));
+      // Toolbar button (SW -> content, 2026-07-14): the browser-action click
+      // handler in the service worker sends TOGGLE_TERMINAL to this tab. This is
+      // an extension-internal message (a web page cannot reach a content
+      // script's chrome.runtime.onMessage), so no isTrusted gate is needed, and
+      // toggling the overlay open mutates nothing - every page action still runs
+      // through its own approval gate. Gives new users an obvious entry point
+      // besides the backtick key.
+      if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.onMessage
+          && typeof chrome.runtime.onMessage.addListener === 'function') {
+        chrome.runtime.onMessage.addListener((msg) => {
+          if (msg && msg.type === 'TOGGLE_TERMINAL') this.toggle();
+        });
+      }
       // M4b (design §3): force-exit an active program on ANY navigation
       // signal. Reuses the SAME Navigation API technique nav-watch.js
       // already established for runtime navigation interception -
