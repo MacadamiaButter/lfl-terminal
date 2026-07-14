@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "lfl-terminal",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Local-first, human-supervised command terminal overlay for any website. M1 feasibility spike.",
   "permissions": ["storage"],
   "host_permissions": ["http://127.0.0.1:1238/*"],

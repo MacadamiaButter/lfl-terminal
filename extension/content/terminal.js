@@ -82,7 +82,7 @@
 
   // Kept in sync with content/terminal.css - see the TODO note there.
   const CSS_TEXT = `
-:host{all:initial;position:fixed;inset:auto 0 0 0;margin:0;padding:0;border:none;width:auto;height:auto;background:transparent;color:inherit;overflow:visible;z-index:2147483647;display:block;}
+:host{all:initial;position:fixed;inset:auto 0 40px 0;margin:0;padding:0;border:none;width:auto;height:auto;background:transparent;color:inherit;overflow:visible;z-index:2147483647;display:block;}
 .lfl-panel{display:none;flex-direction:column;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.45;color:var(--lfl-fg,#dbe4f0);background:var(--lfl-bg,#0b0e14);border-top:2px solid var(--lfl-accent,#e0a339);box-shadow:0 -8px 24px rgba(0,0,0,.55);max-height:46vh;}
 .lfl-panel.lfl-open{display:flex;}
 .lfl-panel.lfl-theme-default{--lfl-bg:#0b0e14;--lfl-fg:#dbe4f0;--lfl-accent:#e0a339;--lfl-accent-bright:#f5a623;--lfl-titlebar-bg:#151a24;--lfl-titlebar-fg:#8fa3c0;--lfl-dim:#5d7290;--lfl-dim-input:#4b5768;--lfl-cmd:#8fd0ff;--lfl-info:#9fb0c3;--lfl-error:#ff6b6b;--lfl-ok:#7ee787;--lfl-border:#2a3140;--lfl-proposal-bg:#1a1408;--lfl-proposal-fg:#f2d9a8;--lfl-proposal-detail:#c9b28a;--lfl-approve-bg:#1c3a1c;--lfl-reject-bg:#3a1c1c;--lfl-input-bg:#0e131c;}
