@@ -151,9 +151,22 @@
     constructor() {
       this.state = {
         mode: 'idle', // 'idle' | 'awaiting-approval' | 'awaiting-nav-confirm' (M3)
+                       // | 'awaiting-script-run' | 'editing-script' (scripts v1)
         pendingCrossOriginUrl: null,
         pendingProposal: null,
         pendingNav: null, // M3: {url, origin, modelResolved} - see _handleGo/_confirmOrNavigate
+        // scripts v1 (LFL-TERMINAL-SCRIPTS-DESIGN.md §9 sign-off #5): the
+        // fully parameter-substituted step list awaiting the single plan-
+        // preview approval - {name, steps} - see _handleRunCommand()/
+        // _approveScriptRun()/_rejectScriptRun().
+        pendingScriptRun: null,
+        // scripts v1: the in-progress multi-line capture buffer for
+        // `script new <name>` - see _appendScriptEditLine()/
+        // _finishScriptEdit()/_cancelScriptEdit(). Reuses the ordinary
+        // single-line input row (one line captured per Enter) rather than a
+        // separate textarea element - see those methods' own comments.
+        scriptEditName: null,
+        scriptEditBuffer: null,
         history: [],
         historyIdx: -1,
         // M4a: the `ls`-built index->element listing context ({entries, map,
@@ -542,18 +555,23 @@
     // directly; the DOM wiring itself needs a real event object to exercise
     // - see tests/m3_hardening.test.js for what is and isn't covered here).
     _isAwaitingSomething() {
-      return this.state.mode === 'awaiting-approval' || this.state.mode === 'awaiting-nav-confirm';
+      return this.state.mode === 'awaiting-approval' || this.state.mode === 'awaiting-nav-confirm'
+        // scripts v1: the plan-preview gate (§9 sign-off #5) reuses the same
+        // approval-card Enter/Esc/Tab-trap machinery as approval/nav-confirm.
+        || this.state.mode === 'awaiting-script-run';
     }
 
     _approvePending() {
       if (this.state.mode === 'awaiting-approval') return this._approveProposal();
       if (this.state.mode === 'awaiting-nav-confirm') return this._approveNav();
+      if (this.state.mode === 'awaiting-script-run') return this._approveScriptRun();
       return undefined;
     }
 
     _rejectPending() {
       if (this.state.mode === 'awaiting-approval') return this._rejectProposal();
       if (this.state.mode === 'awaiting-nav-confirm') return this._rejectNav();
+      if (this.state.mode === 'awaiting-script-run') return this._rejectScriptRun();
       return undefined;
     }
 
@@ -605,6 +623,34 @@
       if (this._activeProgram) {
         this._routeProgramKey(e);
         return;
+      }
+      // scripts v1 (LFL-TERMINAL-SCRIPTS-DESIGN.md §9 sign-off #3/#7): the
+      // `script new <name>` multi-line capture mode. Reuses this SAME
+      // single-line input (native <input> elements cannot literally contain
+      // a newline) - each Enter appends the current line to an in-memory
+      // buffer and clears the field for the next line, instead of the
+      // ordinary "Enter submits a command" behavior. Checked before the
+      // resize/history branches below so none of those shortcuts leak into
+      // an in-progress script body.
+      if (this.state.mode === 'editing-script') {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          const line = this.inputEl.value;
+          this.inputEl.value = '';
+          // Ctrl+Enter or a blank line both finalize (sign-off #7) - a blank
+          // line is the more discoverable gesture, Ctrl+Enter the faster one
+          // for someone who never wants to type an empty line by accident.
+          const finalize = (e.ctrlKey && !e.altKey && !e.metaKey) || line.trim() === '';
+          if (finalize) this._finishScriptEdit();
+          else this._appendScriptEditLine(line);
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          this._cancelScriptEdit();
+          return;
+        }
+        return; // swallow history/resize/etc. shortcuts while capturing a script body
       }
       // collapse+resize (2026-07-14): Ctrl+backtick folds/unfolds; Ctrl+Up/Down
       // step the height presets. Handled before the plain Arrow history branches
@@ -696,6 +742,17 @@
         this.inputEl.readOnly = false;
         this._seq++;
         this._afterSettle(false);
+      } else if (this.state.mode === 'awaiting-script-run') {
+        // scripts v1: closing mid-preview discards the preview - nothing was
+        // queued yet (TS_QUEUE_SET only happens on approve), so no
+        // _afterSettle()/queue-clear is needed, unlike the two branches above.
+        const name = this.state.pendingScriptRun && this.state.pendingScriptRun.name;
+        this._auditPush({ action: 'run', reason: name }, 'rejected(closed)', '(overlay closed while a script preview was pending)');
+        this.state.pendingScriptRun = null;
+        this.state.mode = 'idle';
+        this.proposalEl.hidden = true;
+        this.inputEl.readOnly = false;
+        this._seq++;
       }
       this.panel.classList.remove('lfl-open');
       if (this._popoverSupported) {
@@ -944,12 +1001,33 @@
       // in `&&` chaining (a rate-limit control makes no sense as a chain
       // step) - handled before any chain-splitting is even attempted.
       if (/^continue$/i.test(raw)) {
-        this._rlResume().then((res) => {
-          const msg = res.resumed ? 'resuming - rate-limit pause cleared' : 'nothing paused to continue';
-          this.printInfo(msg);
-          this._auditPush({ action: 'continue' }, 'auto', msg);
-          this._settle(true, msg);
-        });
+        // scripts v1: `continue` now resumes TWO independent pause
+        // mechanisms that happen to share the same word - a rate-limit
+        // pause (M2.3, above) and a parked script queue (a `pause "..."`
+        // step - see _handlePauseSegment()). Both are checked; whichever (or
+        // both) applied gets reported. A non-empty TS_QUEUE at mode 'idle'
+        // can ONLY happen via a parked pause in normal operation (Enter
+        // routes to _approvePending, not here, while any other proposal/
+        // nav-confirm/script-preview is pending - see _isAwaitingSomething()),
+        // so peeking the queue here is a safe, unambiguous signal.
+        (async () => {
+          const rlRes = await this._rlResume();
+          const peek = await this._tsSend('TS_QUEUE_PEEK');
+          const hasQueue = !!(peek.ok && Array.isArray(peek.queue) && peek.queue.length > 0);
+          if (hasQueue) {
+            if (rlRes.resumed) this.printInfo('resuming - rate-limit pause cleared');
+            const msg = 'resuming script...';
+            this.printInfo(msg);
+            this._auditPush({ action: 'continue' }, 'auto', 'resuming paused script');
+            this._settle(true, msg);
+            await this._advanceQueue();
+          } else {
+            const msg = rlRes.resumed ? 'resuming - rate-limit pause cleared' : 'nothing paused to continue';
+            this.printInfo(msg);
+            this._auditPush({ action: 'continue' }, 'auto', msg);
+            this._settle(true, msg);
+          }
+        })();
         return;
       }
       if (/^budget$/i.test(raw)) {
@@ -974,6 +1052,12 @@
       if (/^unalias\s+\S+$/i.test(raw)) { this._handleUnaliasCommand(raw); return; }
       if (/^macro(\s|$)/i.test(raw)) { this._handleMacroCommand(raw); return; }
       if (/^unmacro\s+\S+$/i.test(raw)) { this._handleUnmacroCommand(raw); return; }
+      // scripts v1 (LFL-TERMINAL-SCRIPTS-DESIGN.md) - same "standalone
+      // control command, no chain participation" posture as alias/macro
+      // above (both need this.state/this._aliasStore access, and `run`
+      // needs the async plan-preview approval flow).
+      if (/^script(\s|$)/i.test(raw)) { this._handleScriptCommand(raw); return; }
+      if (/^run(\s|$)/i.test(raw)) { this._handleRunCommand(raw); return; }
       // funpack v1: fortune/stats/theme/cowsay -- same "standalone control
       // command, no chain participation" posture as the M3 cluster just
       // above (they need chrome.storage.local access engine.js's
@@ -1089,6 +1173,33 @@
 
       if (firstTok === 'go') {
         await this._handleGo(resolved);
+        return;
+      }
+
+      // scripts v1 (LFL-TERMINAL-SCRIPTS-DESIGN.md §1): the hand-back
+      // primitive. Dispatched here (not _submitCommand) so it works both as
+      // a directly-typed segment and as a queued script/chain step, exactly
+      // like `go` above.
+      if (firstTok === 'pause') {
+        this._handlePauseSegment(resolved);
+        return;
+      }
+
+      // Verify fix (2026-07-14 Fable pass, LOW): `run`/`script` arriving
+      // HERE means it came through a chain segment, a macro body, or an
+      // alias expansion (a directly-typed lone `run`/`script` is caught by
+      // _submitCommand's regex dispatch and never reaches this function).
+      // Without this branch it would fall through to the page-lane LLM -
+      // burning a model call and popping a confusing unrelated proposal for
+      // a command that can never legitimately be a chain step (nested runs
+      // are the depth-1 lock; `script` mid-chain is meaningless). Same
+      // friendly-refusal posture as the games' fromChain block below.
+      if (firstTok === 'run' || firstTok === 'script') {
+        const msg = `"${firstTok}" cannot run as a chain/macro step - invoke it directly from the prompt`;
+        this.printError(msg);
+        this._auditPush({ action: firstTok }, 'blocked', msg);
+        this._settle(false, msg);
+        this._afterSettle(false); // clears the rest of the chain, consistent with every other blocked segment
         return;
       }
 
@@ -1253,6 +1364,341 @@
       if (res.ok) this.printOk(msg); else this.printError(msg);
       this._auditPush({ action: 'unmacro' }, res.ok ? 'auto' : 'blocked', msg);
       this._settle(res.ok, msg);
+    }
+
+    // ---- scripts v1 (2026-07-14, LFL-TERMINAL-SCRIPTS-DESIGN.md) ----
+    //
+    // `script new/ls/show/rm <name>` (management, this section) + `run <name>
+    // [args...]` (invocation, below) + `pause "<instruction>"` (dispatched as
+    // an ordinary chain segment - see _handlePauseSegment() near
+    // _dispatchSegment()). A script is a macro grown up: named, multi-line,
+    // parameterized, capped at 20 steps - see registry.js's parseScriptBody()/
+    // substituteParams()/tokenizeArgs() for all the actual validation/
+    // injection-safety logic; this class only owns the chrome.*-capable
+    // command surface and the plan-preview approval UI.
+
+    _handleScriptCommand(raw) {
+      const m = raw.match(/^script(?:\s+(\S+))?(?:\s+(.*))?$/i);
+      const sub = (m && m[1] || '').toLowerCase();
+      const rest = (m && m[2] || '').trim();
+
+      if (!sub) {
+        const msg = 'usage: script new|ls|show|rm <name>';
+        this.printInfo(msg);
+        this._settle(true, msg);
+        return;
+      }
+
+      if (sub === 'new') {
+        const name = rest.split(/\s+/)[0] || '';
+        if (!name) {
+          const msg = 'usage: script new <name>';
+          this.printError(msg);
+          this._settle(false, msg);
+          return;
+        }
+        // Validate the name BEFORE capturing a whole multi-line body - no
+        // point making the human type 20 lines only to reject the name at
+        // the end. setScript() re-validates this same check at save time
+        // regardless (names could in principle change underneath a long
+        // edit session in a multi-tab scenario), so this is a friendlier
+        // early error, not the only check.
+        const avail = this._aliasStore.checkNameAvailable(name.toLowerCase());
+        if (!avail.ok) {
+          this.printError(`script: ${avail.reason}`);
+          this._settle(false, avail.reason);
+          return;
+        }
+        this.state.mode = 'editing-script';
+        this.state.scriptEditName = name.toLowerCase();
+        this.state.scriptEditBuffer = [];
+        this.printInfo(`entering script "${name}" - one command per line (max ${LFL.registry.SCRIPT_MAX_STEPS}), "#" comments allowed`);
+        this.printInfo('blank line or Ctrl+Enter to save, Esc to cancel');
+        this._settle(true, `editing script "${name}"`);
+        return;
+      }
+
+      if (sub === 'ls') {
+        const list = this._aliasStore.listScripts();
+        const names = Object.keys(list).sort();
+        const msg = names.length
+          ? names.map((n) => {
+            const s = list[n];
+            return `  ${n}  (${s.stepCount} step(s), ${s.arity} arg(s)${s.usesRest ? '+' : ''})`;
+          }).join('\n')
+          : '(no scripts defined)';
+        this.printInfo(msg);
+        this._auditPush({ action: 'script' }, 'auto', msg.slice(0, 160));
+        this._settle(true, msg);
+        return;
+      }
+
+      if (sub === 'show') {
+        if (!rest) {
+          const msg = 'usage: script show <name>';
+          this.printError(msg);
+          this._settle(false, msg);
+          return;
+        }
+        const s = this._aliasStore.getScript(rest.toLowerCase());
+        if (s === null) {
+          const msg = `no such script: ${rest}`;
+          this.printError(msg);
+          this._settle(false, msg);
+          return;
+        }
+        const msg = s.body.split('\n').map((line, i) => `  ${i + 1}. ${line}`).join('\n');
+        this.printInfo(msg);
+        this._settle(true, msg);
+        return;
+      }
+
+      if (sub === 'rm') {
+        if (!rest) {
+          const msg = 'usage: script rm <name>';
+          this.printError(msg);
+          this._settle(false, msg);
+          return;
+        }
+        const res = this._aliasStore.unsetScript(rest.toLowerCase());
+        const msg = res.ok ? `script removed: ${rest}` : `script: ${res.reason}`;
+        if (res.ok) this.printOk(msg); else this.printError(msg);
+        this._auditPush({ action: 'script' }, res.ok ? 'auto' : 'blocked', msg);
+        this._settle(res.ok, msg);
+        return;
+      }
+
+      const msg = `unknown script subcommand "${sub}" - try: script new|ls|show|rm <name>`;
+      this.printError(msg);
+      this._settle(false, msg);
+    }
+
+    // One line of an in-progress `script new` capture - see the
+    // 'editing-script' branch in _onInputKeydown(). Enforces the same step
+    // cap parseScriptBody() will re-check at save time (counting raw
+    // captured lines, including any blank/comment lines the human typed, is
+    // a slightly stricter but simple and safe equivalent).
+    _appendScriptEditLine(line) {
+      if (this.state.scriptEditBuffer.length >= LFL.registry.SCRIPT_MAX_STEPS) {
+        this.printError(`script body already at the ${LFL.registry.SCRIPT_MAX_STEPS}-step cap - blank line/Ctrl+Enter to save, Esc to cancel`);
+        return;
+      }
+      this.state.scriptEditBuffer.push(line);
+      this.printInfo(`  ${this.state.scriptEditBuffer.length}. ${line}`);
+    }
+
+    _finishScriptEdit() {
+      const name = this.state.scriptEditName;
+      const body = this.state.scriptEditBuffer.join('\n');
+      this.state.mode = 'idle';
+      this.state.scriptEditName = null;
+      this.state.scriptEditBuffer = null;
+      if (!body.trim()) {
+        const msg = 'script body cannot be empty - definition cancelled';
+        this.printError(msg);
+        this._settle(false, msg);
+        return;
+      }
+      const res = this._aliasStore.setScript(name, body);
+      const msg = res.ok
+        ? `script "${name}" saved (${res.stepCount} step(s)${res.arity ? `, ${res.arity} arg(s)` : ''})`
+        : `script: ${res.reason}`;
+      if (res.ok) this.printOk(msg); else this.printError(msg);
+      this._auditPush({ action: 'script', reason: `define ${name}` }, res.ok ? 'auto' : 'blocked', msg);
+      this._settle(res.ok, msg);
+    }
+
+    _cancelScriptEdit() {
+      const name = this.state.scriptEditName;
+      this.state.mode = 'idle';
+      this.state.scriptEditName = null;
+      this.state.scriptEditBuffer = null;
+      const msg = `script "${name}" definition cancelled`;
+      this.printInfo(msg);
+      this._settle(false, 'cancelled');
+    }
+
+    // `pause "<instruction>"` (design doc §1) - dispatched from
+    // _dispatchSegment() exactly like `go`, so it works both typed directly
+    // and as a queued script/chain step. Prints the instruction and settles
+    // true, but deliberately does NOT call _afterSettle() - that is the
+    // whole mechanism: it leaves the remaining TS_QUEUE parked exactly as-is
+    // instead of auto-advancing, so only an explicit `continue` (see
+    // _submitCommand's continue handler) resumes it.
+    _handlePauseSegment(resolved) {
+      const m = resolved.match(/^pause\s+"([^"]*)"\s*$/i);
+      const instruction = m ? m[1] : resolved.replace(/^pause\s*/i, '').trim();
+      const msg = instruction ? `paused - ${instruction}` : 'paused';
+      this.printInfo(`⏸ ${msg} - type "continue" when ready`);
+      this._auditPush({ action: 'pause', reason: instruction }, 'paused', msg);
+      this._settle(true, msg);
+    }
+
+    // ---- scripts v1: `run <name> [args...]` - injection-safe param
+    // substitution + single plan-preview-then-run approval (design doc §9
+    // sign-off #5) ----
+
+    async _handleRunCommand(raw) {
+      const m = raw.match(/^run\s+(\S+)(?:\s+(.*))?$/i);
+      if (!m) {
+        const msg = 'usage: run <name> [args...]';
+        this.printError(msg);
+        this._settle(false, msg);
+        return;
+      }
+      const name = m[1].toLowerCase();
+      const argsRaw = m[2] || '';
+
+      // Same "one thing pending at a time" lock the game-start guard uses
+      // (_maybeBlockGameStart) - a leftover interrupted chain or a parked
+      // script pause must be finished or cancelled before starting a new run.
+      const peek = await this._tsSend('TS_QUEUE_PEEK');
+      if (peek.ok && Array.isArray(peek.queue) && peek.queue.length > 0) {
+        const msg = 'cannot run a script - a chained command is still pending (finish with "continue" or cancel it first)';
+        this.printError(msg);
+        this._auditPush({ action: 'run', reason: name }, 'blocked', msg);
+        this._settle(false, msg);
+        return;
+      }
+
+      const script = this._aliasStore.getScript(name);
+      if (script === null) {
+        const msg = `no such script: ${name}`;
+        this.printError(msg);
+        this._settle(false, msg);
+        return;
+      }
+
+      const tok = LFL.registry.tokenizeArgs(argsRaw);
+      if (!tok.ok) {
+        this.printError(`run: ${tok.reason}`);
+        this._settle(false, tok.reason);
+        return;
+      }
+
+      // Re-parse the stored body defensively (setScript() already validated
+      // it at write time - see that function's own comment for why `run`
+      // re-checks anyway rather than trusting storage unconditionally).
+      const parsed = LFL.registry.parseScriptBody(script.body, { maxSteps: LFL.registry.SCRIPT_MAX_STEPS });
+      if (!parsed.ok) {
+        const msg = `stored script "${name}" is invalid: ${parsed.reason}`;
+        this.printError(msg);
+        this._settle(false, msg);
+        return;
+      }
+      if (tok.tokens.length < parsed.arity) {
+        const msg = `script "${name}" expects ${parsed.arity} arg(s), got ${tok.tokens.length}`;
+        this.printError(msg);
+        this._settle(false, msg);
+        return;
+      }
+
+      const resolvedSteps = [];
+      for (let i = 0; i < parsed.steps.length; i++) {
+        const sub = LFL.registry.substituteParams(parsed.steps[i], tok.tokens);
+        if (!sub.ok) {
+          const msg = `script "${name}" step ${i + 1}: ${sub.reason}`;
+          this.printError(msg);
+          this._settle(false, msg);
+          return;
+        }
+        // Verify fix (2026-07-14 Fable pass, MED): re-validate the step
+        // AFTER substitution and alias expansion - a head-position parameter
+        // (template `$1` run with arg "click 4") or an alias whose current
+        // expansion is index-addressed (`alias c4 = click 4`) would
+        // otherwise resurrect exactly the snapshot-bound index replay
+        // parseScriptBody() rejected at define time, laundered through a
+        // level of indirection the write-time check cannot see. See
+        // registry.js's validateResolvedStep() for the full rationale and
+        // the documented mid-pause-redefinition residual.
+        const expanded = LFL.registry.expandAlias(sub.text, this._aliasStore);
+        const valid = LFL.registry.validateResolvedStep(expanded);
+        if (!valid.ok) {
+          const msg = `script "${name}" step ${i + 1} (resolves to "${expanded}"): ${valid.reason}`;
+          this.printError(msg);
+          this._auditPush({ action: 'run', reason: name }, 'blocked', msg);
+          this._settle(false, msg);
+          return;
+        }
+        resolvedSteps.push(sub.text);
+      }
+
+      // Plan preview (sign-off #5): show the FULLY substituted step list -
+      // what you approve is exactly what runs, no further surprises - via
+      // the same approval-card UI as a navigation confirm.
+      this.state.pendingScriptRun = { name, steps: resolvedSteps };
+      this.state.mode = 'awaiting-script-run';
+      this.glossEl.textContent = `SCRIPT: run ${name}${argsRaw ? ' ' + argsRaw : ''}`;
+      this.detailEl.textContent = resolvedSteps.map((s, i) => `${i + 1}. ${s}`).join('\n');
+      this.proposalEl.hidden = false;
+      this.inputEl.readOnly = true;
+      this._seq++;
+      this._updateTestHook();
+      if (this.approveBtn) this.approveBtn.focus();
+    }
+
+    async _approveScriptRun() {
+      const run = this.state.pendingScriptRun;
+      if (!run || this._approvalBusy) return;
+      this._approvalBusy = true;
+      try {
+        // M2.1-style occlusion re-check - same clickjacking-style reasoning
+        // as every other approval gate (_approveProposal()/_approveNav()):
+        // sample what's actually topmost at the approve control RIGHT NOW,
+        // immediately before starting the run.
+        const occlusion = this._probeApprovalOcclusion();
+        if (occlusion.occluded) {
+          this.proposalEl.hidden = true;
+          this.inputEl.readOnly = false;
+          this.inputEl.focus();
+          this.state.mode = 'idle';
+          const msg = `approval UI was covered - script run cancelled for safety (${occlusion.reason})`;
+          this.printError(msg);
+          this._auditPush({ action: 'run', reason: run.name }, 'aborted(occluded)', msg);
+          this.state.pendingScriptRun = null;
+          this._settle(false, msg);
+          return;
+        }
+
+        this.proposalEl.hidden = true;
+        this.inputEl.readOnly = false;
+        this.state.mode = 'idle';
+        this.state.pendingScriptRun = null;
+        this._auditPush({ action: 'run', reason: run.name }, 'approved', `running ${run.steps.length} step(s)`);
+
+        // Queue everything past the first step, then dispatch the first
+        // step through the SAME path _runChain() uses to start a chain -
+        // every subsequent step (popped off the SW-backed queue, possibly
+        // after a navigation) is unconditionally chain-context, exactly
+        // like a macro expansion's segments (see _advanceQueue()'s own
+        // comment). No separate _settle() here for "the run started" - each
+        // dispatched step produces its own settle, same as an ordinary
+        // `&&` chain never settling the chain itself, only its steps.
+        if (run.steps.length > 1) {
+          await this._tsSend('TS_QUEUE_SET', {
+            queue: run.steps.slice(1),
+            expectedOrigin: typeof location !== 'undefined' ? location.origin : null,
+          });
+        } else {
+          await this._tsSend('TS_QUEUE_CLEAR');
+        }
+        await this._dispatchSegment(run.steps[0], { fromChain: true });
+      } finally {
+        this._approvalBusy = false;
+      }
+    }
+
+    _rejectScriptRun() {
+      const run = this.state.pendingScriptRun;
+      if (!run) return;
+      this.proposalEl.hidden = true;
+      this.inputEl.readOnly = false;
+      this.inputEl.focus();
+      this.state.mode = 'idle';
+      this.printInfo('script run cancelled');
+      this._auditPush({ action: 'run', reason: run.name }, 'rejected', '(not run)');
+      this.state.pendingScriptRun = null;
+      this._settle(null, 'rejected (script not run)');
     }
 
     // ---- funpack v1: fortune / stats / theme / cowsay ----

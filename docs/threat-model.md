@@ -1288,3 +1288,130 @@ widening would require a per-frame registry and is deferred with `find` as a
 single future change. A match cap (`HIGHLIGHT_MAX_RANGES`) bounds how many
 Ranges are retained so an enormous or adversarial page cannot be used to build
 an unbounded Range list; the count is reported as capped when it engages.
+
+## M5 - scripts v1 (2026-07-14)
+
+`script new/ls/show/rm <name>` defines/manages a named, multi-line, capped-at-
+20-step body; `run <name> [args...]` substitutes `$1..$9`/`$@`, previews the
+fully-resolved step list, and runs it after one approval. Design doc:
+`LFL-TERMINAL-SCRIPTS-DESIGN.md`.
+
+### The governing constraint and how it's enforced
+
+A saved script may only ever contain steps a human could approve one at a
+time - replay must never widen the trust boundary. `click <N>`/`fill <N> with
+...`/`select <N>`/`open <N>`/the bare-number M4a shortcut are all bound to
+one specific `ls`-built axtree snapshot (`executor.js`'s
+`resolve(elementMap, action.element)`); replaying a stored index against a
+since-reflowed page would silently authorize whatever element now happens to
+sit at that index. `registry.js`'s `parseScriptBody()`/`stepIsIndexAddressed()`
+reject every such step **at define time**, pointing the author at
+`pause "<instruction>"` instead - a step that stops the run and hands control
+back for a live, freshly-approved manual action (`continue` resumes). This is
+enforced once, at the single write path (`setScript()`), and re-checked again
+at every `run` (`terminal.js`'s `_handleRunCommand()` re-parses the stored
+body before substituting anything) - defense in depth against a future write
+path (e.g. a P2 file import) that might not go through `setScript()`.
+
+`fill <label> with ...` and `open <link text>` are deliberately NOT blocked:
+both are resolved fresh against the live page at dispatch time (same trust
+class as `search`/`go`), not bound to a stale snapshot.
+
+### Injection-safe parameter substitution
+
+`substituteParams()` never re-splits a step's text - `parseScriptBody()` (and,
+for chains, `splitChain()`) fixes step/segment structure on the TEMPLATE
+before any argument value is known; substitution only ever replaces a
+`$1`..`$9`/`$@` token with an opaque value inside an already-delimited step.
+A `&&` inside an argument value therefore cannot create a new step - it is
+inert text, the way it always would be if you had typed it as an ordinary
+argument to any other command. A value containing a `"` character is rejected
+outright (not patched) to avoid unbalancing the step's quoting. `$@` expands
+to the original quote-preserving argument text via `tokenizeArgs()`'s
+per-token `raw` field, so a quoted multi-word argument re-inserts as one
+well-formed unit. Unbound `$k` (fewer args supplied than the script's
+computed arity) aborts the run before step 1 executes - no partial runs. See
+`tests/m5_scripts.test.js` §5 for the full matrix, and design doc §4 for the
+normative statement this implements.
+
+### Isolation - nothing reaches either model lane
+
+`script`/`run`/`pause` are ordinary reserved names (`RESERVED_NAMES`, same
+alias/macro-shadowing lock as every other built-in) and are added to
+`tests/m3_hardening.test.js`'s `M3_NEW_COMMAND_NAMES` vocabulary-lock list -
+none of the three may ever appear in either lane's response-schema enum. A
+script body is user-authored, deterministically expanded text, exactly like a
+macro; the only way a model is ever consulted during a `run` is if a step the
+AUTHOR wrote is itself an NL `go <phrase>` or `ask <...>` - and that step then
+follows its own pre-existing lane rules unchanged. Scripts add no new path
+from page or model data into an executed action.
+
+### Namespace design - "one name, one thing", except for built-in verbs
+
+Aliases, macros, and scripts share one flat user namespace (`setAlias`/
+`setMacro`/`setScript` all cross-check the other two stores) - a name never
+means two different things depending on how it's invoked. The one deliberate
+exception: a script is invoked ONLY via `run <name>`, never by bare name, so
+a script's OWN name does not need to shadow-check against the full built-in
+verb surface the way an alias/macro name does - `run search` and the literal
+`search` verb are simply different things reached different ways. The three
+names of the script system itself (`run`/`script`/`pause`) are still refused
+as script names (`SCRIPT_SELF_NAMES`), not for a shadowing reason but because
+`run run`/`script rm script` would be self-referentially confusing.
+
+### Verify-pass findings and fixes (2026-07-14 Fable adversarial review)
+
+Three findings from the independent verify of the Sonnet/Opus build, all
+fixed in the same session, each pinned by a test:
+
+1. **CRITICAL - SW queue silently truncated scripts to 6 steps.**
+   `service-worker.js`'s `MAX_QUEUE_SEGMENTS` was 5 (sized for `&&` chains),
+   and `TS_QUEUE_SET` silently `.slice()`d anything longer - a 20-step script
+   queued its 19 remaining steps and the SW kept 5, dropping steps 7..20
+   mid-run with no error. Exactly the "partially running a chain the user
+   didn't intend" failure `splitChain()`'s reject-don't-truncate rule exists
+   to prevent. Raised to 20; `tests/m5_scripts.test.js` §9 now round-trips a
+   19-item queue through the REAL SW handlers and structurally pins
+   `MAX_QUEUE_SEGMENTS >= SCRIPT_MAX_STEPS - 1`.
+
+2. **MED - two indirection paths resurrected index-addressed steps at run
+   time.** `parseScriptBody()` validates the stored TEMPLATE, so (a) a step
+   template that is entirely a parameter (`$1`) takes its head word from the
+   ARGUMENT - `run s "click 4"` resolved to a bare index click executing with
+   no approval card - and (b) a step whose head is a user-defined alias takes
+   its real head from the alias's CURRENT expansion (`alias c4 = click 4`).
+   Both laundered exactly the snapshot-bound index replay §1 forbids through
+   a level of indirection the write-time check cannot see. Fix:
+   `validateResolvedStep()` (registry.js) re-validates every step AFTER
+   substitution and alias expansion, inside `_handleRunCommand()`'s loop,
+   rejecting the whole run before step 1 executes. Also covers nested
+   `run`/`script`, games/funpack, and malformed `pause` post-indirection.
+
+3. **LOW - `run`/`script` as a chain segment or macro-body step leaked to the
+   page-lane LLM** (no dispatch branch existed), burning a model call and
+   popping an unrelated proposal. Fixed with a friendly dispatch-time refusal
+   in `_dispatchSegment()`, same posture as the games' fromChain block.
+
+**Accepted residuals (disclosed, not fixed):**
+
+- **Mid-pause alias redefinition.** A parked queue holds already-validated
+  step text; a step that is an alias NAME re-expands at dispatch, so a human
+  who redefines that alias during their own script's `pause` window changes
+  what the resumed step does. Self-inflicted by the same trusted human who
+  wrote both the script and the alias; every executor hard block (credential
+  guard, click-target guard, occlusion probe on any model proposal) still
+  applies to whatever the step becomes. Not re-checked at `continue` time in
+  v1.
+- **`continue` during an in-flight model call.** `continue` now advances a
+  parked queue. In the sub-second window where a chain segment's LLM request
+  is in flight (mode `idle`, input not yet locked), a typed `continue` could
+  pop the next step early. Requires the human to race their own script;
+  outcome is step reordering, not a guard bypass.
+
+### Scope exclusions (v1)
+
+No loops, conditionals, or `wait-for-element` - control flow reintroduces
+nondeterminism and erodes "every step is a step a human could approve" (design
+doc §8). No file export/import yet (P2, deferred) - scripts live only in
+`chrome.storage.local` for v1, so there is no new file-parsing attack surface
+in this build. No record-to-script capture (P3, deferred).

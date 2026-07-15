@@ -325,19 +325,23 @@ function testExpansionFunctions() {
     assert.strictEqual(out, 'go example.com');
   });
 
-  check('the model/page can never reach setAlias/setMacro: registry.js exports no function that accepts untrusted input as a write path other than the ones a typed alias/macro command calls directly', () => {
+  check('the model/page can never reach setAlias/setMacro/setScript: registry.js exports no function that accepts untrusted input as a write path other than the ones a typed alias/macro/script command calls directly', () => {
     // Structural/enumeration proof: the store's public surface is exactly
     // these functions, all of which require the CALLER (terminal.js's
-    // _handleAliasCommand/_handleMacroCommand, only reachable from typed
-    // input - see terminal.js's _submitCommand regex dispatch) to invoke
-    // them explicitly with parsed typed text. There is no "apply this
-    // action object" style entry point here the way executor.js has one
-    // for the LLM lane.
+    // _handleAliasCommand/_handleMacroCommand/_handleScriptCommand, only
+    // reachable from typed input - see terminal.js's _submitCommand regex
+    // dispatch) to invoke them explicitly with parsed typed text. There is
+    // no "apply this action object" style entry point here the way
+    // executor.js has one for the LLM lane. Scripts v1 (2026-07-14) added
+    // checkNameAvailable/setScript/unsetScript/getScript/listScripts to this
+    // same store - same posture, same lock, extend the list rather than
+    // relax the check.
     const store = registry.createAliasStore(fakeStorageArea());
     const surface = Object.keys(store).sort();
     assert.deepStrictEqual(surface, [
-      'getAlias', 'getMacro', 'isLoaded', 'listAliases', 'listMacros',
-      'load', 'setAlias', 'setMacro', 'unsetAlias', 'unsetMacro',
+      'checkNameAvailable', 'getAlias', 'getMacro', 'getScript', 'isLoaded',
+      'listAliases', 'listMacros', 'listScripts', 'load', 'setAlias',
+      'setMacro', 'setScript', 'unsetAlias', 'unsetMacro', 'unsetScript',
     ].sort());
   });
 }
@@ -492,7 +496,11 @@ function testDispatchSegmentSkipsAdvance() {
   check('_dispatchSegment checks det.navInitiated and returns BEFORE the unconditional _afterSettle(true) call', () => {
     const idx = src.indexOf('_dispatchSegment(segment, opts) {');
     assert.ok(idx >= 0, '_dispatchSegment not found');
-    const body = src.slice(idx, idx + 6000);
+    // window widened 6000 -> 12000 (scripts v1, 2026-07-14): the pause and
+    // run/script dispatch branches added above the deterministic block pushed
+    // the navInitiated code past the old fixed slice - the assertions
+    // themselves are unchanged.
+    const body = src.slice(idx, idx + 12000);
     const detBlockStart = body.indexOf('const det = LFL.engine.tryDeterministic(');
     assert.ok(detBlockStart >= 0, 'tryDeterministic call not found inside _dispatchSegment');
     const navCheckIdx = body.indexOf('if (det.navInitiated) return;', detBlockStart);
@@ -504,7 +512,8 @@ function testDispatchSegmentSkipsAdvance() {
 
   check('the deterministic-command block still settles (_settle(true, ...)) before the navInitiated check - a navigating command still reports its result, it only skips the QUEUE advance', () => {
     const idx = src.indexOf('_dispatchSegment(segment, opts) {');
-    const body = src.slice(idx, idx + 6000);
+    const body = src.slice(idx, idx + 12000); // widened with the check above - see its comment
+
     const settleIdx = body.indexOf("this._settle(true, det.output || '');");
     const navCheckIdx = body.indexOf('if (det.navInitiated) return;');
     assert.ok(settleIdx >= 0 && navCheckIdx >= 0);

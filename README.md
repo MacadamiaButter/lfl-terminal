@@ -127,6 +127,8 @@ alias <name> = <command>        define a single-command shortcut
 unalias <name>                  remove an alias
 macro <name> = <cmd1> && <cmd2> define a named && chain (depth-1)
 unmacro <name>                  remove a macro
+script new|ls|show|rm <name>    define/list/show/remove a named, multi-step script (v1)
+run <name> [args...]            preview then run a script, substituting $1..$9/$@
 origins                         origins visited by this tab this session
 autoopen                        toggle auto-opening the terminal on this site (opt-in per origin, off by default)
 dev on | dev off                toggle a test-only DOM hook (off by default)
@@ -137,6 +139,20 @@ clear                           clear the output pane
 
 `cmd1 && cmd2 && ...` chains up to 5 commands, quote-aware - any error,
 block, rejection, or Esc clears the rest of the chain.
+
+A **script** is a macro grown up: `script new checkout` opens a line-by-line
+capture (blank line or Ctrl+Enter to save, Esc to cancel, up to 20 steps,
+`#` comments allowed), then `run checkout "gift wrap"` substitutes `$1..$9`/
+`$@` into the body, shows you the fully-resolved step list, and runs it after
+one Enter. Scripts can only contain steps that are safe to replay later - a
+step that addresses a page element by its `ls`-listing number (`click <N>`,
+`fill <N> with ...`, `open <N>`, a bare number) is rejected when you try to
+save it, because that number is only meaningful against one specific page
+snapshot; a script uses `pause "<instruction>"` instead, which stops the run
+and hands control back to you to do that one step by hand (`continue`
+resumes). Names are shared across aliases/macros/scripts - one name, one
+thing - but a script's OWN name doesn't have to avoid built-in verbs, since
+it's only ever reached via `run <name>`.
 
 A bare number by itself (after `ls`) does the sensible default thing for
 that item: opens a link, clicks a button, or tells you how to fill a field.

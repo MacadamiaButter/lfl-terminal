@@ -505,7 +505,16 @@ async function handleRateLimitMessage(msg, sender) {
 // chrome.storage.session directly.
 
 const MAX_SCROLLBACK_LINES = 100;
-const MAX_QUEUE_SEGMENTS = 5; // matches registry.js's splitChain() cap - defense in depth if a caller ever sent a longer queue directly
+// Scripts v1 (2026-07-14, LFL-TERMINAL-SCRIPTS-DESIGN.md): raised 5 -> 20 to
+// match registry.js's SCRIPT_MAX_STEPS - a 20-step script queues up to 19
+// remaining steps after its first dispatch, and the old chain-sized cap of 5
+// SILENTLY truncated the rest (the exact "partially running a chain the user
+// didn't intend" failure splitChain's own reject-don't-truncate comment
+// exists to prevent). Still a backstop, not the real limit: `&&` chains are
+// capped at 5 by splitChain() and script bodies at 20 by parseScriptBody(),
+// both BEFORE anything reaches this queue. tests/m5_scripts.test.js round-
+// trips a 19-item queue through this file's real TS_* handlers to pin it.
+const MAX_QUEUE_SEGMENTS = 20;
 
 function tsStorageKey(tabId) {
   return `termstate:${tabId}`;

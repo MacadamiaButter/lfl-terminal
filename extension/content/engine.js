@@ -54,6 +54,13 @@
   reg.register({ name: 'origins', argSpec: 'origins', help: 'list origins visited by this tab this session (M3)' });
   reg.register({ name: 'dev', argSpec: 'dev on | dev off', help: 'toggle the data-lfl-state test hook (off by default - see docs/threat-model.md H2) (M3)' });
   reg.register({ name: 'autoopen', argSpec: 'autoopen', help: 'toggle auto-opening the terminal when you land on THIS site (e.g. your start page) - opt-in per origin, off by default' });
+  // scripts v1 (2026-07-14, LFL-TERMINAL-SCRIPTS-DESIGN.md) - dispatched by
+  // terminal.js (script/run need chrome.* async access; pause is dispatched
+  // as an ordinary chain segment via _dispatchSegment - see that file's
+  // _handleScriptCommand()/_handleRunCommand()/_handlePauseSegment()).
+  reg.register({ name: 'script', argSpec: 'script new|ls|show|rm <name>', help: 'define/list/show/remove a named, parameterized, multi-step script (v1)' });
+  reg.register({ name: 'run', argSpec: 'run <name> [args...]', help: 'preview then run a defined script, substituting $1..$9/$@ - Enter to run, Esc to cancel (v1)' });
+  reg.register({ name: 'pause', argSpec: 'pause "<instruction>"', help: 'inside a script: stop and hand control back for a manual step (e.g. an index-addressed click); "continue" resumes (v1)' });
   // M4a "friction trio" - three deterministic tools that never call the
   // local model, registered here for help/man text same as everything
   // above; dispatched inside tryDeterministic() below except `here`, which

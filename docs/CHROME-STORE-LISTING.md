@@ -95,7 +95,7 @@ page actions proposed by a local AI model. Everything runs locally.
 - Does NOT use or transfer data for creditworthiness or lending.
 
 ### Privacy policy URL
-https://localfirstlab.org/lfl-terminal-privacy.html   (dedicated EXTENSION policy - the source /privacy.html is the SITE policy and does not cover the extension; page built at ~/QweClau/content-site/site/lfl-terminal-privacy.html, deploy before the reviewer checks it)
+https://localfirstlab.org/lfl-terminal-privacy.html   (dedicated EXTENSION policy, deployed and live - the site's own /privacy.html is a separate document and does not cover the extension)
 
 ---
 

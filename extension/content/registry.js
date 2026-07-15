@@ -119,7 +119,12 @@
 
   const ALIAS_KEY = 'lflAliases';
   const MACRO_KEY = 'lflMacros';
+  // scripts v1 (2026-07-14): storage key for the script store, alongside
+  // aliases/macros - see createAliasStore()'s scripts section below.
+  const SCRIPT_KEY = 'lflScripts';
   const NAME_RE = /^[a-z][a-z0-9_-]*$/i;
+  // scripts v1 (design doc §9 sign-off #2): owner-approved step cap.
+  const SCRIPT_MAX_STEPS = 20;
 
   // Reserved: the fixed built-in verb/command surface (engine.js's
   // deterministic verbs plus terminal.js's Terminal-level meta-commands -
@@ -166,6 +171,14 @@
     // `matches` (2026-07-14): the highlight/find match-listing verb - reserved
     // for the same shadowing reason.
     'matches',
+    // scripts v1 (2026-07-14, LFL-TERMINAL-SCRIPTS-DESIGN.md): `script`
+    // (define/list/show/remove) and `run` (invoke) - same shadowing footgun
+    // as every other built-in. `pause` is the in-script hand-back primitive
+    // (§1 of the design doc) - reserved so it can never be shadowed either,
+    // even though (unlike script/run) it is dispatched as an ordinary chain
+    // segment rather than through a dedicated `_handle*Command` - see
+    // terminal.js's `_handlePauseSegment()`.
+    'script', 'run', 'pause',
   ]);
 
   // M4b (design doc §3/§5): games are never allowed to run as part of a
@@ -193,6 +206,18 @@
   // unchanged.
   const FUNPACK_NAMES = new Set(['fortune', 'stats', 'theme', 'cowsay']);
 
+  // scripts v1 (design doc §3): scripts are invoked ONLY via `run <name>`,
+  // never by bare name - unlike an alias/macro, a script name therefore does
+  // NOT need to shadow-check against the full built-in verb surface (a
+  // script MAY be named `search`; `run search` and the literal `search`
+  // verb are simply different things reached different ways). The three
+  // names of the script SYSTEM ITSELF are the one narrow exception - a
+  // script named `run`/`script`/`pause` would be self-referentially
+  // confusing (`run run`, `script rm script`) even though it poses no real
+  // shadowing risk, so those three are still refused. See setScript()/
+  // checkNameAvailable() below, which check THIS set, not RESERVED_NAMES.
+  const SCRIPT_SELF_NAMES = new Set(['script', 'run', 'pause']);
+
   function firstWord(s) {
     const m = (s || '').trim().match(/^(\S+)/);
     return m ? m[1] : '';
@@ -201,6 +226,10 @@
   function createAliasStore(storageArea) {
     let aliases = {};
     let macros = {};
+    // scripts v1: { [name]: { body: string, arity: number, usesRest: bool,
+    // stepCount: number } } - the ONLY writer is setScript() below, same
+    // single-write-path posture as aliases/macros (see this file's header).
+    let scripts = {};
     let loaded = false;
 
     function load() {
@@ -210,9 +239,10 @@
       }
       return new Promise((resolve) => {
         try {
-          storageArea.get([ALIAS_KEY, MACRO_KEY], (res) => {
+          storageArea.get([ALIAS_KEY, MACRO_KEY, SCRIPT_KEY], (res) => {
             if (res && res[ALIAS_KEY] && typeof res[ALIAS_KEY] === 'object') aliases = res[ALIAS_KEY];
             if (res && res[MACRO_KEY] && typeof res[MACRO_KEY] === 'object') macros = res[MACRO_KEY];
+            if (res && res[SCRIPT_KEY] && typeof res[SCRIPT_KEY] === 'object') scripts = res[SCRIPT_KEY];
             loaded = true;
             resolve();
           });
@@ -225,7 +255,26 @@
 
     function persist() {
       if (!storageArea || typeof storageArea.set !== 'function') return;
-      try { storageArea.set({ [ALIAS_KEY]: aliases, [MACRO_KEY]: macros }); } catch (_e) { /* best-effort */ }
+      try { storageArea.set({ [ALIAS_KEY]: aliases, [MACRO_KEY]: macros, [SCRIPT_KEY]: scripts }); } catch (_e) { /* best-effort */ }
+    }
+
+    // scripts v1: is `name` available AS A SCRIPT NAME? Only the script
+    // system's own three self-referential names are refused here (design
+    // doc §3/SCRIPT_SELF_NAMES's own comment) - NOT the full built-in verb
+    // surface, since a script is reached only via `run <name>` and so does
+    // not shadow anything by sharing a word with a built-in verb. Cross-
+    // checked against aliases/macros too ("one name, one thing" - §9 sign-
+    // off #8). Exposed so terminal.js can reject an invalid `script new
+    // <name>` BEFORE making the human type an entire multi-line body for
+    // nothing; setScript() re-runs the same checks at save time.
+    function checkNameAvailable(name) {
+      if (!validName(name)) return { ok: false, reason: `invalid name "${name}" - letters/digits/-/_ only, must start with a letter` };
+      const lower = (name || '').toLowerCase();
+      if (SCRIPT_SELF_NAMES.has(lower)) return { ok: false, reason: `"${name}" is a script-system command - cannot be used as a script name` };
+      if (Object.prototype.hasOwnProperty.call(aliases, name)) return { ok: false, reason: `"${name}" is already an alias name - unalias it first` };
+      if (Object.prototype.hasOwnProperty.call(macros, name)) return { ok: false, reason: `"${name}" is already a macro name - unmacro it first` };
+      if (Object.prototype.hasOwnProperty.call(scripts, name)) return { ok: false, reason: `"${name}" is already a script name - remove it first (script rm ${name})` };
+      return { ok: true };
     }
 
     function validName(name) { return NAME_RE.test(name || ''); }
@@ -237,6 +286,8 @@
       if (RESERVED_NAMES.has((name || '').toLowerCase())) return { ok: false, reason: `"${name}" is a built-in command - cannot be shadowed by an alias` };
       if (!expansion || !expansion.trim()) return { ok: false, reason: 'alias expansion cannot be empty' };
       if (macros[name]) return { ok: false, reason: `"${name}" is already a macro name - unmacro it first` };
+      // scripts v1 (design doc §9 sign-off #8): one flat user namespace.
+      if (scripts[name]) return { ok: false, reason: `"${name}" is already a script name - remove it first (script rm ${name})` };
       aliases[name] = expansion.trim();
       persist();
       return { ok: true };
@@ -262,6 +313,8 @@
       if (RESERVED_NAMES.has((name || '').toLowerCase())) return { ok: false, reason: `"${name}" is a built-in command - cannot be shadowed by a macro` };
       if (!chainText || !chainText.trim()) return { ok: false, reason: 'macro body cannot be empty' };
       if (aliases[name]) return { ok: false, reason: `"${name}" is already an alias name - unalias it first` };
+      // scripts v1 (design doc §9 sign-off #8): one flat user namespace.
+      if (scripts[name]) return { ok: false, reason: `"${name}" is already a script name - remove it first (script rm ${name})` };
       const split = splitChain(chainText, 5);
       if (!split.ok) return { ok: false, reason: split.reason };
       // Depth-1 lock: no segment's leading command word may itself be a
@@ -302,11 +355,64 @@
 
     function listMacros() { return Object.assign({}, macros); }
 
+    // ---- scripts v1 (2026-07-14, LFL-TERMINAL-SCRIPTS-DESIGN.md) ----
+    //
+    // A script is a macro grown up: a named, multi-line, parameterized body,
+    // capped at SCRIPT_MAX_STEPS (vs a macro's 5-segment single-line `&&`
+    // chain). setScript() is the ONLY writer, same single-write-path lock as
+    // setAlias/setMacro. All body validation (step cap, index-verb rejection,
+    // games/funpack/nested-run locks, pause syntax) lives in the pure
+    // parseScriptBody() below (section on scripts: parse/substitute/
+    // tokenize) - re-run here at write time AND again by terminal.js's `run`
+    // handler at invocation time (defense in depth: storage could in
+    // principle be hand-edited or corrupted between writes, e.g. by a future
+    // P2 file import - re-validating on every run keeps that path's trust
+    // boundary independent of what write-time already checked).
+    function setScript(name, body) {
+      if (!validName(name)) return { ok: false, reason: `invalid script name "${name}" - letters/digits/-/_ only, must start with a letter` };
+      // Only the script system's own three self-referential names are
+      // refused here, NOT the full built-in verb surface - see
+      // SCRIPT_SELF_NAMES's own comment (design doc §3): a script is reached
+      // only via `run <name>`, so it does not shadow anything by sharing a
+      // word with an ordinary verb like `search`.
+      if (SCRIPT_SELF_NAMES.has((name || '').toLowerCase())) return { ok: false, reason: `"${name}" is a script-system command - cannot be used as a script name` };
+      // one flat user namespace (design doc §9 sign-off #8) - a script may
+      // not collide with an existing alias or macro name, symmetric with the
+      // scripts[name] checks setAlias/setMacro perform above.
+      if (aliases[name]) return { ok: false, reason: `"${name}" is already an alias name - unalias it first` };
+      if (macros[name]) return { ok: false, reason: `"${name}" is already a macro name - unmacro it first` };
+      const parsed = parseScriptBody(body, { maxSteps: SCRIPT_MAX_STEPS });
+      if (!parsed.ok) return { ok: false, reason: parsed.reason };
+      scripts[name] = {
+        body: parsed.steps.join('\n'),
+        arity: parsed.arity,
+        usesRest: parsed.usesRest,
+        stepCount: parsed.stepCount,
+      };
+      persist();
+      return { ok: true, stepCount: parsed.stepCount, arity: parsed.arity };
+    }
+
+    function unsetScript(name) {
+      if (!scripts[name]) return { ok: false, reason: `no such script: ${name}` };
+      delete scripts[name];
+      persist();
+      return { ok: true };
+    }
+
+    function getScript(name) {
+      return Object.prototype.hasOwnProperty.call(scripts, name) ? scripts[name] : null;
+    }
+
+    function listScripts() { return Object.assign({}, scripts); }
+
     return {
       load,
       isLoaded: () => loaded,
+      checkNameAvailable,
       setAlias, unsetAlias, getAlias, listAliases,
       setMacro, unsetMacro, getMacro, listMacros,
+      setScript, unsetScript, getScript, listScripts,
     };
   }
 
@@ -380,6 +486,231 @@
     const body = aliasStore.getMacro(head);
     if (body === null) return raw;
     return body;
+  }
+
+  // ---- scripts v1 (2026-07-14, LFL-TERMINAL-SCRIPTS-DESIGN.md): parse / substitute / tokenize ----
+  //
+  // The governing constraint (design doc §1): "a saved script may only ever
+  // contain steps a human could approve one at a time - replay must never
+  // widen the trust boundary." click[N]/fill[N]/select[N] and the M4a
+  // `open <N>`/bare-number shortcuts are bound to ONE axtree snapshot
+  // (executor.js's resolve(elementMap, action.element)) - replaying a stored
+  // index against a since-reflowed page would silently authorize whatever
+  // element now happens to sit at that index, which is exactly the
+  // widening the constraint forbids. `fill <label> with ...` and
+  // `open <link text>` are NOT index-bound (resolved fresh against the live
+  // page every run, same trust class as `search`/`go`), so they ARE allowed.
+  //
+  // INDEX_VERB_WORDS: leading words that are ALWAYS index-addressed when
+  // typed literally. `select` has no dedicated typed verb today (it only
+  // ever arrives as an LLM-executor action, gated by the ordinary approval
+  // card) - kept here anyway, matching the design doc's §1 wording, so a
+  // future typed `select <N>` verb is refused by a script body for free
+  // rather than silently falling through this list.
+  const INDEX_VERB_WORDS = new Set(['click', 'select']);
+
+  // `fill` and `open` (M4a) each have both an index-addressed numeric form
+  // (`fill <N> with ...`, `open <N>`) and a safe, resolved-fresh form
+  // (`fill <label> with ...`, `open <link text>`) - distinguished by
+  // inspecting the first argument's shape, not by leading word alone.
+  function stepIsIndexAddressed(stepText) {
+    const trimmed = (stepText || '').trim();
+    if (/^\d+$/.test(trimmed)) return { blocked: true, why: 'a bare number (the M4a ls-index shortcut)' };
+    const head = firstWord(trimmed).toLowerCase();
+    if (INDEX_VERB_WORDS.has(head)) {
+      return { blocked: true, why: `"${head}" always addresses a page element by its ls-listing index` };
+    }
+    if (head === 'fill' || head === 'open') {
+      const m = trimmed.match(new RegExp('^' + head + '\\s+(\\S+)', 'i'));
+      const firstArg = m ? m[1] : '';
+      if (/^\d+$/.test(firstArg)) {
+        return { blocked: true, why: `"${head} <N>" addresses a page element by its ls-listing index` };
+      }
+    }
+    return { blocked: false, why: null };
+  }
+
+  // Scans already-split step text (never substituted values - see
+  // substituteParams()) for `$1`..`$9`/`$@` tokens. `$10` is NOT a two-digit
+  // token: the regex only ever matches a single digit 1-9, so `$10` is `$1`
+  // followed by a literal `0` - documented behavior (design doc §4/§7), not
+  // a bug.
+  const PARAM_TOKEN_RE = /\$([1-9]|@)/g;
+
+  function computeArity(steps) {
+    let maxN = 0;
+    let usesRest = false;
+    for (const step of steps) {
+      PARAM_TOKEN_RE.lastIndex = 0;
+      let m;
+      while ((m = PARAM_TOKEN_RE.exec(step))) {
+        if (m[1] === '@') usesRest = true;
+        else maxN = Math.max(maxN, Number(m[1]));
+      }
+    }
+    return { arity: maxN, usesRest };
+  }
+
+  // Parses a raw script body into validated steps (design doc §3/§6/§9).
+  // Pure and DOM-free - the write path (registry.js's setScript()) and the
+  // run path (terminal.js's `run` handler, re-validating defensively - see
+  // setScript()'s own comment) both call this same function, so "what makes
+  // a step valid" has exactly one definition.
+  //
+  // Line-oriented: one step per line, blank lines and `#`-prefixed comment
+  // lines ignored. Deliberately does NOT also split on `&&` within a line -
+  // scripts are authored as an explicit multi-line body (design doc §9
+  // sign-off #3), not a single `&&`-joined string like a macro.
+  function parseScriptBody(raw, opts) {
+    const maxSteps = (opts && opts.maxSteps) || 20;
+    const lines = (typeof raw === 'string' ? raw : '').split('\n');
+    const steps = [];
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.charAt(0) === '#') continue;
+      steps.push(trimmed);
+    }
+    if (steps.length === 0) return { ok: false, reason: 'script body has no steps' };
+    if (steps.length > maxSteps) {
+      return { ok: false, reason: `too many steps (${steps.length}, max ${maxSteps})` };
+    }
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
+      const head = firstWord(step).toLowerCase();
+      // Depth-1 lock (same posture as macros never referencing a macro): a
+      // script may not invoke another script - prevents recursive/mutually-
+      // referencing `run` chains and keeps a script's own step count an
+      // honest bound on what one `run` can do.
+      if (head === 'run') {
+        return { ok: false, reason: `step ${i + 1}: a script cannot invoke another script ("run") - scripts may not be nested (depth-1 lock)` };
+      }
+      if (GAME_NAMES.has(head)) {
+        return { ok: false, reason: `step ${i + 1}: "${head}" cannot run inside a script - games are never chain/script-eligible` };
+      }
+      if (FUNPACK_NAMES.has(head)) {
+        return { ok: false, reason: `step ${i + 1}: "${head}" cannot run inside a script - it does not run in chains or scripts` };
+      }
+      if (head === 'pause') {
+        if (!/^pause\s+"[^"]+"\s*$/i.test(step)) {
+          return { ok: false, reason: `step ${i + 1}: pause requires a quoted instruction, e.g. pause "click the buy button"` };
+        }
+        continue; // pause is never index-addressed - skip the check below
+      }
+      const idx = stepIsIndexAddressed(step);
+      if (idx.blocked) {
+        return { ok: false, reason: `step ${i + 1}: ${idx.why} - this cannot be safely replayed later; use pause and do it manually instead` };
+      }
+    }
+    const { arity, usesRest } = computeArity(steps);
+    return { ok: true, steps, arity, usesRest, stepCount: steps.length };
+  }
+
+  // Verify fix (2026-07-14 Fable pass, MED): re-validate each step AFTER
+  // parameter substitution and alias expansion, at run time. parseScriptBody()
+  // validates the stored TEMPLATE - but a step template that is entirely a
+  // parameter reference (`$1`) takes its head word from the ARGUMENT
+  // (`run s "click 4"` would resolve to a bare index click, executing with no
+  // approval card), and a step whose head is a user-defined alias takes its
+  // real head from the alias's CURRENT expansion (`alias c4 = click 4`).
+  // Both would resurrect exactly the snapshot-bound index replay §1 forbids,
+  // laundered through a level of indirection the write-time check cannot
+  // see. Callers pass the fully-substituted, alias-EXPANDED step text; any
+  // failure rejects the whole run before step 1 executes (no partial runs).
+  // `run`/`script` heads are rejected too (nested-run depth-1 lock, again
+  // post-indirection), as are games/funpack heads (their dispatch-time
+  // fromChain blocks in terminal.js remain the security backstop - this just
+  // fails the run at preview time with a clear message instead of mid-run).
+  // A `pause` head must be the well-formed quoted shape, same as at parse
+  // time. Residual (documented in threat-model.md): an alias redefined
+  // DURING a run's pause window is not re-checked - the parked queue holds
+  // already-validated text, but a segment like `myalias` parks as the alias
+  // NAME and expands at dispatch; the human doing that mid-own-script is
+  // self-inflicted and every executor hard block still applies.
+  function validateResolvedStep(stepText) {
+    const head = firstWord(stepText).toLowerCase();
+    if (head === 'run' || head === 'script') {
+      return { ok: false, reason: `"${head}" cannot run as a script/chain step` };
+    }
+    if (GAME_NAMES.has(head)) {
+      return { ok: false, reason: `"${head}" cannot run inside a script - games are never chain/script-eligible` };
+    }
+    if (FUNPACK_NAMES.has(head)) {
+      return { ok: false, reason: `"${head}" cannot run inside a script - it does not run in chains or scripts` };
+    }
+    if (head === 'pause') {
+      if (!/^pause\s+"[^"]+"\s*$/i.test((stepText || '').trim())) {
+        return { ok: false, reason: 'pause requires a quoted instruction, e.g. pause "click the buy button"' };
+      }
+      return { ok: true };
+    }
+    const idx = stepIsIndexAddressed(stepText);
+    if (idx.blocked) {
+      return { ok: false, reason: `${idx.why} - this cannot be safely replayed; use pause and do it manually instead` };
+    }
+    return { ok: true };
+  }
+
+  // Quote-aware whitespace tokenizer for `run <name> [args...]` (design doc
+  // §3/§4) - same style as splitChain's quote tracking, splitting on
+  // whitespace instead of `&&`. Each token keeps BOTH its unwrapped `value`
+  // (used for `$1`..`$9` substitution) and its exact-as-typed `raw` form,
+  // quotes included if it was quoted (used for `$@`, which must reproduce
+  // the original argument boundaries - see substituteParams()).
+  function tokenizeArgs(raw) {
+    const s = typeof raw === 'string' ? raw : '';
+    const tokens = [];
+    let i = 0;
+    const n = s.length;
+    while (i < n) {
+      while (i < n && /\s/.test(s[i])) i++;
+      if (i >= n) break;
+      if (s[i] === '"') {
+        let j = i + 1;
+        let buf = '';
+        let closed = false;
+        while (j < n) {
+          if (s[j] === '"') { closed = true; j++; break; }
+          buf += s[j];
+          j++;
+        }
+        if (!closed) return { ok: false, reason: 'unterminated quoted argument' };
+        tokens.push({ value: buf, raw: s.slice(i, j) });
+        i = j;
+      } else {
+        let j = i;
+        while (j < n && !/\s/.test(s[j])) j++;
+        const word = s.slice(i, j);
+        tokens.push({ value: word, raw: word });
+        i = j;
+      }
+    }
+    return { ok: true, tokens };
+  }
+
+  // Injection-safe parameter substitution (design doc §4, normative). Chain/
+  // step STRUCTURE is already fixed by parseScriptBody() on the stored
+  // template, before this ever runs - this function only ever substitutes
+  // into the LEAVES of an already-delimited step, so a `&&` inside an
+  // argument value cannot create a new step (there is no re-splitting here
+  // or anywhere downstream in the run path). A value containing a `"` is
+  // rejected outright rather than patched - see the design doc's own
+  // reasoning for why silent quote-repair is not attempted in v1.
+  function substituteParams(step, argTokens) {
+    const tokens = Array.isArray(argTokens) ? argTokens : [];
+    let err = null;
+    const text = step.replace(PARAM_TOKEN_RE, (whole, g) => {
+      if (err) return whole;
+      if (g === '@') return tokens.map((t) => t.raw).join(' ');
+      const tok = tokens[Number(g) - 1];
+      if (!tok) { err = `argument $${g} was not supplied`; return whole; }
+      if (tok.value.indexOf('"') !== -1) {
+        err = `argument $${g} contains a " character, which cannot be safely substituted into a command`;
+        return whole;
+      }
+      return tok.value;
+    });
+    if (err) return { ok: false, reason: err };
+    return { ok: true, text };
   }
 
   // ---- 4. did-you-mean (M4a friction trio, tool 3) ----
@@ -547,5 +878,8 @@
     createRegistry, createAliasStore, splitChain, expandAlias, expandMacro,
     damerauLevenshtein, didYouMean, autoOpenMatch, toggleAutoOpen,
     clampPanelHeightVh, stepPanelPreset, PANEL_PRESETS_VH, PANEL_DEFAULT_VH,
+    // scripts v1
+    parseScriptBody, substituteParams, tokenizeArgs, stepIsIndexAddressed,
+    validateResolvedStep, SCRIPT_MAX_STEPS,
   };
 });

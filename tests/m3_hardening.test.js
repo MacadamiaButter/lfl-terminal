@@ -235,7 +235,12 @@ function buildSwInstance() {
 // appear as a value in either schema's `action` enum - if one did, it would
 // mean the DSL registry had somehow grown the set of actions a model is
 // allowed to emit, exactly the thing design doc §6's hard DSL locks forbid.
-const M3_NEW_COMMAND_NAMES = ['go', 'alias', 'unalias', 'macro', 'unmacro', 'origins', 'dev', 'man'];
+const M3_NEW_COMMAND_NAMES = [
+  'go', 'alias', 'unalias', 'macro', 'unmacro', 'origins', 'dev', 'man',
+  // scripts v1 (2026-07-14, LFL-TERMINAL-SCRIPTS-DESIGN.md) - same guarantee:
+  // none of these may ever appear as a model-emittable action.
+  'script', 'run', 'pause',
+];
 
 async function testVocabularyLock() {
   console.log('\n[3] registry-cannot-extend-model-vocabulary - both lanes\' schema enums, captured live from the real service worker');
