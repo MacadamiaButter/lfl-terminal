@@ -200,8 +200,14 @@
       // _handleAliasCommand/_handleMacroCommand (typed `alias`/`macro`
       // commands) - see registry.js's header comment for the write-path
       // lock this is built around.
+      // scripts P2 hardening (2026-07-14): pass the full built-in command
+      // surface so setScript() can whitelist script steps to known verbs /
+      // defined aliases / `ask` (engine.js has already registered every verb
+      // into LFL.commandRegistry by the time this content script runs - see
+      // the manifest content_scripts order: engine.js precedes terminal.js).
       this._aliasStore = LFL.registry.createAliasStore(
         (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.local) || null,
+        (LFL.commandRegistry && typeof LFL.commandRegistry.names === 'function') ? LFL.commandRegistry.names() : [],
       );
       this._aliasStore.load();
       // M3 H2 (design doc §8): the data-lfl-state test hook is OFF by

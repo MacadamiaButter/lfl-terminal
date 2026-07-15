@@ -465,6 +465,62 @@ check('ordinary resolved steps pass: go/search/fill-by-label/open-by-text', () =
 });
 
 // =====================================================================
+// [8b] Verb whitelist (2026-07-14, brainstorm-probe hardening) - setScript
+// rejects a step whose leading word is not a known command, a defined alias,
+// or `ask`. Enforced only when createAliasStore was given a knownVerbs list
+// (production passes LFL.commandRegistry.names(); collision/parse unit tests
+// omit it and are unaffected). Closes the gap the lab probe surfaced:
+// parseScriptBody alone accepts a nonsense verb like `dance now`.
+// =====================================================================
+console.log('\n[8b] verb whitelist - setScript refuses unknown / implicit-NL verbs when a known-verb list is supplied');
+
+const WHITELIST_VERBS = ['go', 'search', 'open', 'scroll', 'find', 'fill', 'pause', 'read'];
+
+check('with a known-verb list, a nonsense verb is rejected (the probe finding)', () => {
+  const store = registry.createAliasStore(fakeStorageArea(), WHITELIST_VERBS);
+  const res = store.setScript('bad', 'dance now');
+  assert.strictEqual(res.ok, false);
+  assert.match(res.reason, /not a known command/);
+  assert.strictEqual(store.getScript('bad'), null);
+});
+
+check('an implicit natural-language step (unknown leading word) is rejected; prefix with ask', () => {
+  const store = registry.createAliasStore(fakeStorageArea(), WHITELIST_VERBS);
+  assert.strictEqual(store.setScript('nl', 'book the flight').ok, false);
+  assert.strictEqual(store.setScript('ok', 'ask book the flight').ok, true); // ask is always allowed
+});
+
+check('known verbs, a defined alias, and go/pause all pass the whitelist', () => {
+  const store = registry.createAliasStore(fakeStorageArea(), WHITELIST_VERBS);
+  store.setAlias('wiki', 'go en.wikipedia.org');
+  assert.strictEqual(store.setScript('a', 'go example.com\nsearch "socks"\npause "click it"').ok, true);
+  assert.strictEqual(store.setScript('b', 'wiki').ok, true); // alias by name
+});
+
+check('WITHOUT a known-verb list the whitelist is skipped (backward compat for collision/parse tests)', () => {
+  const store = registry.createAliasStore(fakeStorageArea()); // no knownVerbs
+  assert.strictEqual(store.setScript('x', 'dance now').ok, true);
+});
+
+check('the whitelist runs AFTER parseScriptBody, so index/games messages still win for their cases', () => {
+  const store = registry.createAliasStore(fakeStorageArea(), WHITELIST_VERBS.concat(['click', 'snake']));
+  // click is a "known" verb but index-addressed -> parseScriptBody's index message, not the whitelist's
+  assert.match(store.setScript('i', 'click 4').reason, /ls-listing index/);
+});
+
+check('import (via setScript) inherits the whitelist: a shared file with a nonsense-verb step is skipped', () => {
+  const store = registry.createAliasStore(fakeStorageArea(), WHITELIST_VERBS);
+  const file = '#!lflscript v1\n#!script evil\ngo example.com\ndance now\n';
+  const parsed = registry.parseScriptFile(file);
+  assert.strictEqual(parsed.ok, true); // structurally fine
+  // the importer feeds each body to setScript, which now whitelists
+  const res = store.setScript(parsed.scripts[0].name, parsed.scripts[0].body);
+  assert.strictEqual(res.ok, false);
+  assert.match(res.reason, /not a known command/);
+  assert.strictEqual(store.getScript('evil'), null);
+});
+
+// =====================================================================
 // [9] Verify-pass fix (2026-07-14 Fable, CRITICAL) - the SW-backed queue
 // must hold a full script's remaining steps. The old MAX_QUEUE_SEGMENTS=5
 // SILENTLY truncated a 20-step script's queue to 5 (steps 7..20 dropped

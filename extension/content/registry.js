@@ -223,7 +223,29 @@
     return m ? m[1] : '';
   }
 
-  function createAliasStore(storageArea) {
+  // scripts P2 hardening (2026-07-14, brainstorm-probe finding): the set of
+  // command names a script step's leading word is allowed to be. `knownVerbs`
+  // is the full built-in command surface (LFL.commandRegistry.names(), passed
+  // in by terminal.js since this pure module cannot reach the engine's
+  // registry itself); `ask` is added explicitly because it is the
+  // explicit-model prefix, dispatched specially and NOT a registered command.
+  // A script step whose leading word is none of {a known command, a defined
+  // alias, `ask`} is rejected at write time - closing the gap the lab probe
+  // surfaced (parseScriptBody alone accepts a nonsense verb like `dance now`,
+  // and an implicit natural-language step like `book the flight` is exactly
+  // the text a shared/imported script could use to inject an arbitrary prompt
+  // into the page-lane model). This is enforced ONLY when knownVerbs is
+  // supplied (production always supplies it via terminal.js); callers that
+  // omit it - unit tests exercising the collision/parse logic - skip the
+  // whitelist, same optional-dependency posture as storageArea.
+  function createAliasStore(storageArea, knownVerbs) {
+    const knownVerbSet = new Set(
+      (Array.isArray(knownVerbs) ? knownVerbs : []).map((v) => String(v || '').toLowerCase()),
+    );
+    // `ask` is the explicit model-lane prefix (dispatched specially, never a
+    // registered command) - always allowed as a script step's leading word so
+    // a deliberate model step (`ask summarize this page`) is expressible.
+    if (knownVerbSet.size > 0) knownVerbSet.add('ask');
     let aliases = {};
     let macros = {};
     // scripts v1: { [name]: { body: string, arity: number, usesRest: bool,
@@ -399,6 +421,27 @@
       if (scripts[name]) return { ok: false, reason: `"${name}" is already a script name - remove it first (script rm ${name})` };
       const parsed = parseScriptBody(body, { maxSteps: SCRIPT_MAX_STEPS });
       if (!parsed.ok) return { ok: false, reason: parsed.reason };
+      // Verb whitelist (scripts P2 hardening - see knownVerbSet's comment
+      // above). Enforced only when a known-verb list was supplied. A step's
+      // leading word must be a known command, a currently-defined alias, or
+      // `ask`; anything else (a nonsense verb, or an implicit
+      // natural-language step that would otherwise be routed to the page-lane
+      // model) is refused. Runs on the parsed steps AFTER parseScriptBody's
+      // own structural/index/games/pause checks, so those specific messages
+      // still win for the cases they cover. Aliases are allowed by NAME here
+      // (they expand at dispatch, where validateResolvedStep re-checks the
+      // index/games shape of the expansion); documented residual: an alias
+      // whose expansion is itself an unknown verb passes this check and, at
+      // run time, falls through to the gated model lane (never a new
+      // capability, always human-approved) rather than being refused.
+      if (knownVerbSet.size > 0) {
+        for (let i = 0; i < parsed.steps.length; i++) {
+          const head = firstWord(parsed.steps[i]).toLowerCase();
+          if (!knownVerbSet.has(head) && !Object.prototype.hasOwnProperty.call(aliases, head)) {
+            return { ok: false, reason: `step ${i + 1}: "${head}" is not a known command, a defined alias, or "ask" - script steps must use the fixed vocabulary (prefix a model request with "ask")` };
+          }
+        }
+      }
       scripts[name] = {
         body: parsed.steps.join('\n'),
         arity: parsed.arity,

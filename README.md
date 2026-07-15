@@ -150,7 +150,10 @@ step that addresses a page element by its `ls`-listing number (`click <N>`,
 save it, because that number is only meaningful against one specific page
 snapshot; a script uses `pause "<instruction>"` instead, which stops the run
 and hands control back to you to do that one step by hand (`continue`
-resumes). Names are shared across aliases/macros/scripts - one name, one
+resumes). Every step's leading word must be a known command, a defined alias,
+or `ask` (for an explicit model step); a freeform line like `book the flight`
+is refused at save/import time, so a script only ever composes the fixed
+vocabulary. Names are shared across aliases/macros/scripts - one name, one
 thing - but a script's OWN name doesn't have to avoid built-in verbs, since
 it's only ever reached via `run <name>`.
 

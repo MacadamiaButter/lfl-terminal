@@ -1412,6 +1412,35 @@ fixed in the same session, each pinned by a test:
 
 No loops, conditionals, or `wait-for-element` - control flow reintroduces
 nondeterminism and erodes "every step is a step a human could approve" (design
-doc §8). No file export/import yet (P2, deferred) - scripts live only in
-`chrome.storage.local` for v1, so there is no new file-parsing attack surface
-in this build. No record-to-script capture (P3, deferred).
+doc §8). No record-to-script capture (P3, deferred).
+
+### P2 - script sharing + the verb whitelist (2026-07-14)
+
+`script export`/`import` (P2) serialize scripts to a plain-text `.lflscript`
+file and back. An imported file is UNTRUSTED TEXT: `parseScriptFile()` does only
+structural splitting, and every `{name, body}` pair is written through the same
+`setScript()` path a hand-typed script uses, which re-runs `parseScriptBody()`
+(step cap, index-verb rejection, games/funpack/nested-run locks) and the
+one-flat-namespace collision checks. A shared file cannot smuggle in a
+`click [N]` step or silently overwrite an existing name. Export/import use a
+Blob download and an `<input type=file>` respectively - no new permission
+(`chrome.downloads` is deliberately not used).
+
+The lfl-lab brainstorm probe (2026-07-14) surfaced that `parseScriptBody()`
+alone has no positive verb whitelist - it excludes specific shapes (index
+verbs, games/funpack, nested `run`) but would accept a nonsense verb like
+`dance now`, or an implicit natural-language line like `book the flight`. That
+never granted a new capability (an unknown verb, typed or imported, falls
+through at run time to the same gated lanes as any typed command - the model
+proposes a fixed primitive, a human approves it, and the plan-preview shows the
+step first), but it left the "a script only composes the fixed vocabulary"
+claim loose. `setScript()` now enforces a whitelist: a step's leading word must
+be a known command (`LFL.commandRegistry.names()`, passed in from terminal.js),
+a currently-defined alias, or `ask` (the explicit model-lane prefix). Enforced
+at both the typed and the import write path, since both go through
+`setScript()`. **Documented residual:** aliases are allowed by NAME (they expand
+at dispatch, where `validateResolvedStep()` re-checks the expansion's index/game
+shape); an alias whose expansion is itself an unknown verb passes the whitelist
+and, at run time, falls through to the gated model lane rather than being
+refused - never a new capability, always human-approved, but not refused at
+define time.
