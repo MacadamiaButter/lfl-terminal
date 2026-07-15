@@ -240,6 +240,13 @@ const M3_NEW_COMMAND_NAMES = [
   // scripts v1 (2026-07-14, LFL-TERMINAL-SCRIPTS-DESIGN.md) - same guarantee:
   // none of these may ever appear as a model-emittable action.
   'script', 'run', 'pause',
+  // brainstorm lane (2026-07-15, LFL-TERMINAL-BRAINSTORM-LANE-DESIGN.md) -
+  // same guarantee, plus its OWN schema uses a completely different shape
+  // (`script`/`reason`, no `action` enum at all - see
+  // tests/brainstorm_lane_isolation.test.js for that lane's own proof); this
+  // list only needs to confirm "teach" itself never leaks into the OTHER two
+  // lanes' action enums.
+  'teach',
 ];
 
 async function testVocabularyLock() {

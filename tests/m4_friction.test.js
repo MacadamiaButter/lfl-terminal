@@ -714,7 +714,7 @@ function testDidYouMean() {
     assert.strictEqual(registry.damerauLevenshtein('serach', 'search'), 1);
   });
 
-  check('integration: against the REAL registered command surface (LFL.commandRegistry.names()), "serach" still resolves to "search"', () => {
+  check('integration: against the REAL registered command surface (LFL.commandRegistry.names()), "serach" still resolves to "search" first', () => {
     const sandbox = buildSandbox();
     const realNames = sandbox.window.LFL.commandRegistry.names();
     assert.ok(realNames.includes('search'), 'sanity: search must be a real registered name');
@@ -723,7 +723,16 @@ function testDidYouMean() {
     // Map/capLines comments above; convert before deepStrictEqual so the
     // comparison isn't tripped up by a harmless cross-realm artifact.
     const r = Array.from(sandbox.window.LFL.registry.didYouMean('serach', realNames));
-    assert.deepStrictEqual(r, ['search']);
+    // brainstorm lane (2026-07-15): registering `teach` added a second real
+    // candidate within the distance-2 threshold (damerauLevenshtein('serach',
+    // 'teach') === 2, vs 'search' at distance 1 - see the two direct
+    // damerauLevenshtein checks above) - closest-first ordering means
+    // "search" still sorts first, exactly as before; "teach" now legitimately
+    // joins it as a second suggestion rather than the old single-candidate
+    // list. This is the algorithm working as designed against a slightly
+    // larger registered surface, not a regression - update this expectation
+    // again if a future command narrows the gap further.
+    assert.deepStrictEqual(r, ['search', 'teach']);
   });
 }
 

@@ -61,6 +61,11 @@
   reg.register({ name: 'script', argSpec: 'script new|ls|show|rm <name> | export [<name>|--all] | import', help: 'define/list/show/remove a named, parameterized, multi-step script; export to or import from a plain-text .lflscript file (v1/P2)' });
   reg.register({ name: 'run', argSpec: 'run <name> [args...]', help: 'preview then run a defined script, substituting $1..$9/$@ - Enter to run, Esc to cancel (v1)' });
   reg.register({ name: 'pause', argSpec: 'pause "<instruction>"', help: 'inside a script: stop and hand control back for a manual step (e.g. an index-addressed click); "continue" resumes (v1)' });
+  // brainstorm lane (2026-07-15, LFL-TERMINAL-BRAINSTORM-LANE-DESIGN.md) -
+  // dispatched by terminal.js (`teach` needs chrome.* async access and the
+  // plan-preview approval card, same posture as script/run above). Opt-in,
+  // off by default (`teach on`/`teach off`); a bare `teach` prints status.
+  reg.register({ name: 'teach', argSpec: 'teach <goal> [as <name>] | teach on|off', help: 'describe a workflow, the local model drafts a script you approve (opt-in, off by default)' });
   // M4a "friction trio" - three deterministic tools that never call the
   // local model, registered here for help/man text same as everything
   // above; dispatched inside tryDeterministic() below except `here`, which

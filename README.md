@@ -129,6 +129,8 @@ macro <name> = <cmd1> && <cmd2> define a named && chain (depth-1)
 unmacro <name>                  remove a macro
 script new|ls|show|rm <name>    define/list/show/remove a named, multi-step script (v1)
 run <name> [args...]            preview then run a script, substituting $1..$9/$@
+teach <goal> [as <name>]        draft a script from a goal (opt-in, off by default - see below)
+teach on | teach off            enable/disable the brainstorm lane
 origins                         origins visited by this tab this session
 autoopen                        toggle auto-opening the terminal on this site (opt-in per origin, off by default)
 dev on | dev off                toggle a test-only DOM hook (off by default)
@@ -156,6 +158,28 @@ is refused at save/import time, so a script only ever composes the fixed
 vocabulary. Names are shared across aliases/macros/scripts - one name, one
 thing - but a script's OWN name doesn't have to avoid built-in verbs, since
 it's only ever reached via `run <name>`.
+
+`teach` is opt-in and **off by default** - `teach on` turns it on for this
+browser profile. Once on, `teach check the wunderground forecast for santa fe
+as weather` sends only that typed goal text to your local model (no page
+content of any kind, ever - same isolation guarantee as `go`'s nav-lane
+above) and asks it to draft a script body using the same fixed vocabulary a
+human would type by hand. The draft is validated through the exact same
+`script new` path before you ever see an approval prompt - an invalid draft
+(e.g. one that tries to address a page element by number) is shown with the
+failing line and the reason, and nothing is saved; you re-run `teach` with a
+clearer description or write it by hand instead. A valid draft is shown as
+numbered steps with a save-or-discard approval card, same top-layer card as
+everything else in this README; if you didn't give it a name with `as
+<name>`, you're asked for one after approving. Once saved, a taught script is
+an ordinary script - `run <name>` gives it the identical plan-preview and
+per-step approval every hand-typed script gets. Drafting quality depends
+entirely on the model behind your endpoint - both a 4B and a 35B measured
+20/20 valid-script authorship on the internal probe with the shipped system
+prompt (see `docs/threat-model.md`'s M6 section for numbers and caveats); a
+weaker model just means more drafts get rejected by the validator, never a
+wider trust boundary, since the same fixed vocabulary and approval gate cover
+every draft regardless of which model wrote it.
 
 A bare number by itself (after `ls`) does the sensible default thing for
 that item: opens a link, clicks a button, or tells you how to fill a field.
@@ -190,12 +214,15 @@ unsafe click targets) still applies exactly the same either way.
   target (covers `href`, `formaction`, enclosing `<form action>`, `<area>`,
   and SVG `<a>`, re-resolved from the live DOM at execution time, not
   cached).
-- **Two model lanes, never mixed.** The page-content lane (used for
+- **Three model lanes, never mixed.** The page-content lane (used for
   ordinary proposals) can never grant a cross-origin navigation - that's a
   hard block regardless of what the model outputs. The `go` command's
   nav-lane is the one thing that can navigate cross-origin, and it's
   reachable only from text you typed, never from page content or model
-  reasoning about page content.
+  reasoning about page content. The `teach` brainstorm lane is narrower
+  still: its only output is a candidate script BODY - inert data, never
+  executed by the lane itself - and it never sees page content either, only
+  the goal text you typed.
 - **Top-layer approval UI + occlusion re-check.** The approval card renders
   in the browser's top layer so page CSS/z-index can't cover or move it,
   and execution re-verifies the approve control is genuinely visible

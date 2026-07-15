@@ -179,6 +179,12 @@
     // segment rather than through a dedicated `_handle*Command` - see
     // terminal.js's `_handlePauseSegment()`.
     'script', 'run', 'pause',
+    // brainstorm lane (2026-07-15, LFL-TERMINAL-BRAINSTORM-LANE-DESIGN.md):
+    // `teach` asks the local model to draft a script from a plain-language
+    // goal - same shadowing footgun as every other built-in (an
+    // `alias teach = ...`/`macro teach = ...` would silently make the verb
+    // unreachable by its own name), so it is reserved the same way.
+    'teach',
   ]);
 
   // M4b (design doc §3/§5): games are never allowed to run as part of a
@@ -390,35 +396,53 @@
     // principle be hand-edited or corrupted between writes, e.g. by a future
     // P2 file import - re-validating on every run keeps that path's trust
     // boundary independent of what write-time already checked).
-    function setScript(name, body) {
-      if (!validName(name)) return { ok: false, reason: `invalid script name "${name}" - letters/digits/-/_ only, must start with a letter` };
-      // Only the script system's own three self-referential names are
-      // refused here, NOT the full built-in verb surface - see
-      // SCRIPT_SELF_NAMES's own comment (design doc §3): a script is reached
-      // only via `run <name>`, so it does not shadow anything by sharing a
-      // word with an ordinary verb like `search`.
-      if (SCRIPT_SELF_NAMES.has((name || '').toLowerCase())) return { ok: false, reason: `"${name}" is a script-system command - cannot be used as a script name` };
-      // one flat user namespace (design doc §9 sign-off #8) - a script may
-      // not collide with an existing alias or macro name, symmetric with the
-      // scripts[name] checks setAlias/setMacro perform above.
-      if (aliases[name]) return { ok: false, reason: `"${name}" is already an alias name - unalias it first` };
-      if (macros[name]) return { ok: false, reason: `"${name}" is already a macro name - unmacro it first` };
-      // scripts v1 P2 fix (2026-07-14, portability build): setScript() must
-      // reject an EXISTING script of the same name too, not just cross-type
-      // alias/macro collisions - matching what checkNameAvailable() already
-      // promises (its own comment above says exactly this: "cross-checked
-      // against aliases/macros too... setScript() re-runs the same checks at
-      // save time"). The hand-typed `script new <name>` UI flow never
-      // exercised this gap because terminal.js calls checkNameAvailable()
-      // BEFORE capturing a body, which already blocks re-using a taken
-      // script name - but a caller that writes straight to setScript()
-      // (scripts v1 P2's `script import`, in particular - an untrusted
-      // file's script MUST NOT silently overwrite an existing script of the
-      // same name any more than it may silently overwrite an alias/macro)
-      // hit exactly this hole. Redefining your OWN script by name is still
-      // possible the same way an alias/macro already requires:
-      // `script rm <name>` first, then `script new <name>` again.
-      if (scripts[name]) return { ok: false, reason: `"${name}" is already a script name - remove it first (script rm ${name})` };
+    // brainstorm lane (2026-07-15, LFL-TERMINAL-BRAINSTORM-LANE-DESIGN.md §4):
+    // the pure "would setScript accept this?" check, factored OUT of
+    // setScript() below so the `teach` flow can validate a model-drafted body
+    // (and render the verdict + numbered steps) BEFORE the human approves it,
+    // without writing anything to storage on a draft that is never saved -
+    // "validate first without persisting, write only on approval". This is
+    // exactly setScript()'s own rule set, run against the same closed-over
+    // aliases/macros/scripts/knownVerbSet state, so there is still exactly
+    // ONE definition of "what makes a script valid" (no duplicated rules to
+    // drift apart). `name` is OPTIONAL here (unlike setScript(), which always
+    // requires one): the no-`as <name>` teach flow validates the BODY alone
+    // first and only learns the name afterward (typed on the input line,
+    // approved separately) - passing `name` as null/undefined skips every
+    // name-specific check (validName/self-name/collisions) and validates only
+    // the body + verb whitelist; passing a real name runs the full check,
+    // identical to what setScript() itself will re-run at save time.
+    function validateScriptBody(name, body) {
+      if (name !== null && name !== undefined) {
+        if (!validName(name)) return { ok: false, reason: `invalid script name "${name}" - letters/digits/-/_ only, must start with a letter` };
+        // Only the script system's own three self-referential names are
+        // refused here, NOT the full built-in verb surface - see
+        // SCRIPT_SELF_NAMES's own comment (design doc §3): a script is reached
+        // only via `run <name>`, so it does not shadow anything by sharing a
+        // word with an ordinary verb like `search`.
+        if (SCRIPT_SELF_NAMES.has((name || '').toLowerCase())) return { ok: false, reason: `"${name}" is a script-system command - cannot be used as a script name` };
+        // one flat user namespace (design doc §9 sign-off #8) - a script may
+        // not collide with an existing alias or macro name, symmetric with the
+        // scripts[name] checks setAlias/setMacro perform above.
+        if (aliases[name]) return { ok: false, reason: `"${name}" is already an alias name - unalias it first` };
+        if (macros[name]) return { ok: false, reason: `"${name}" is already a macro name - unmacro it first` };
+        // scripts v1 P2 fix (2026-07-14, portability build): setScript() must
+        // reject an EXISTING script of the same name too, not just cross-type
+        // alias/macro collisions - matching what checkNameAvailable() already
+        // promises (its own comment above says exactly this: "cross-checked
+        // against aliases/macros too... setScript() re-runs the same checks at
+        // save time"). The hand-typed `script new <name>` UI flow never
+        // exercised this gap because terminal.js calls checkNameAvailable()
+        // BEFORE capturing a body, which already blocks re-using a taken
+        // script name - but a caller that writes straight to setScript()
+        // (scripts v1 P2's `script import`, in particular - an untrusted
+        // file's script MUST NOT silently overwrite an existing script of the
+        // same name any more than it may silently overwrite an alias/macro)
+        // hit exactly this hole. Redefining your OWN script by name is still
+        // possible the same way an alias/macro already requires:
+        // `script rm <name>` first, then `script new <name>` again.
+        if (scripts[name]) return { ok: false, reason: `"${name}" is already a script name - remove it first (script rm ${name})` };
+      }
       const parsed = parseScriptBody(body, { maxSteps: SCRIPT_MAX_STEPS });
       if (!parsed.ok) return { ok: false, reason: parsed.reason };
       // Verb whitelist (scripts P2 hardening - see knownVerbSet's comment
@@ -427,13 +451,14 @@
       // `ask`; anything else (a nonsense verb, or an implicit
       // natural-language step that would otherwise be routed to the page-lane
       // model) is refused. Runs on the parsed steps AFTER parseScriptBody's
-      // own structural/index/games/pause checks, so those specific messages
-      // still win for the cases they cover. Aliases are allowed by NAME here
-      // (they expand at dispatch, where validateResolvedStep re-checks the
-      // index/games shape of the expansion); documented residual: an alias
-      // whose expansion is itself an unknown verb passes this check and, at
-      // run time, falls through to the gated model lane (never a new
-      // capability, always human-approved) rather than being refused.
+      // own structural/index/games/pause/teach checks, so those specific
+      // messages still win for the cases they cover. Aliases are allowed by
+      // NAME here (they expand at dispatch, where validateResolvedStep
+      // re-checks the index/games shape of the expansion); documented
+      // residual: an alias whose expansion is itself an unknown verb passes
+      // this check and, at run time, falls through to the gated model lane
+      // (never a new capability, always human-approved) rather than being
+      // refused.
       if (knownVerbSet.size > 0) {
         for (let i = 0; i < parsed.steps.length; i++) {
           const head = firstWord(parsed.steps[i]).toLowerCase();
@@ -442,14 +467,20 @@
           }
         }
       }
+      return { ok: true, steps: parsed.steps, arity: parsed.arity, usesRest: parsed.usesRest, stepCount: parsed.stepCount };
+    }
+
+    function setScript(name, body) {
+      const v = validateScriptBody(name, body);
+      if (!v.ok) return v;
       scripts[name] = {
-        body: parsed.steps.join('\n'),
-        arity: parsed.arity,
-        usesRest: parsed.usesRest,
-        stepCount: parsed.stepCount,
+        body: v.steps.join('\n'),
+        arity: v.arity,
+        usesRest: v.usesRest,
+        stepCount: v.stepCount,
       };
       persist();
-      return { ok: true, stepCount: parsed.stepCount, arity: parsed.arity };
+      return { ok: true, stepCount: v.stepCount, arity: v.arity };
     }
 
     function unsetScript(name) {
@@ -472,6 +503,8 @@
       setAlias, unsetAlias, getAlias, listAliases,
       setMacro, unsetMacro, getMacro, listMacros,
       setScript, unsetScript, getScript, listScripts,
+      // brainstorm lane: validate-without-writing, see its own comment above.
+      validateScriptBody,
     };
   }
 
@@ -649,6 +682,16 @@
       if (FUNPACK_NAMES.has(head)) {
         return { ok: false, reason: `step ${i + 1}: "${head}" cannot run inside a script - it does not run in chains or scripts` };
       }
+      // brainstorm lane (LFL-TERMINAL-BRAINSTORM-LANE-DESIGN.md §4): `teach`
+      // is excluded from the script-step surface the SAME way as SCRIPT_SELF_
+      // NAMES - checked here, structurally, BEFORE the knownVerbSet whitelist
+      // in setScript()/validateScriptBody() even runs, so this holds whether
+      // or not `teach` happens to be a registered command name (it is, for
+      // help/man text) - a script can never contain a `teach` step, typed or
+      // imported, no matter what the whitelist would otherwise allow.
+      if (head === 'teach') {
+        return { ok: false, reason: `step ${i + 1}: "teach" cannot run inside a script - the brainstorm lane is never chain/script-eligible` };
+      }
       if (head === 'pause') {
         if (!/^pause\s+"[^"]+"\s*$/i.test(step)) {
           return { ok: false, reason: `step ${i + 1}: pause requires a quoted instruction, e.g. pause "click the buy button"` };
@@ -777,7 +820,9 @@
   // self-inflicted and every executor hard block still applies.
   function validateResolvedStep(stepText) {
     const head = firstWord(stepText).toLowerCase();
-    if (head === 'run' || head === 'script') {
+    // brainstorm lane: `teach` gets the same post-indirection block as
+    // run/script - see parseScriptBody()'s matching define-time check above.
+    if (head === 'run' || head === 'script' || head === 'teach') {
       return { ok: false, reason: `"${head}" cannot run as a script/chain step` };
     }
     if (GAME_NAMES.has(head)) {

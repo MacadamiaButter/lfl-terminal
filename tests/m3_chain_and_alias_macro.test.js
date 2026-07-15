@@ -335,13 +335,19 @@ function testExpansionFunctions() {
     // executor.js has one for the LLM lane. Scripts v1 (2026-07-14) added
     // checkNameAvailable/setScript/unsetScript/getScript/listScripts to this
     // same store - same posture, same lock, extend the list rather than
-    // relax the check.
+    // relax the check. Brainstorm lane (2026-07-15) added
+    // validateScriptBody - it is NOT a write path (it never touches the
+    // `scripts` map or calls persist(); setScript() itself is refactored to
+    // call it internally - see registry.js's own comment on the function),
+    // so it does not weaken this test's guarantee; still enumerated
+    // explicitly, same "extend the list rather than relax the check" rule.
     const store = registry.createAliasStore(fakeStorageArea());
     const surface = Object.keys(store).sort();
     assert.deepStrictEqual(surface, [
       'checkNameAvailable', 'getAlias', 'getMacro', 'getScript', 'isLoaded',
       'listAliases', 'listMacros', 'listScripts', 'load', 'setAlias',
       'setMacro', 'setScript', 'unsetAlias', 'unsetMacro', 'unsetScript',
+      'validateScriptBody',
     ].sort());
   });
 }

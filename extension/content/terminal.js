@@ -152,6 +152,7 @@
       this.state = {
         mode: 'idle', // 'idle' | 'awaiting-approval' | 'awaiting-nav-confirm' (M3)
                        // | 'awaiting-script-run' | 'editing-script' (scripts v1)
+                       // | 'awaiting-teach-save' | 'awaiting-teach-name' (brainstorm lane)
         pendingCrossOriginUrl: null,
         pendingProposal: null,
         pendingNav: null, // M3: {url, origin, modelResolved} - see _handleGo/_confirmOrNavigate
@@ -167,6 +168,13 @@
         // separate textarea element - see those methods' own comments.
         scriptEditName: null,
         scriptEditBuffer: null,
+        // brainstorm lane (LFL-TERMINAL-BRAINSTORM-LANE-DESIGN.md §4): the
+        // in-progress draft awaiting approval (and, if no `as <name>` was
+        // typed, awaiting a name too) - { goal, name, body, steps }. `name`
+        // is null until either typed with `teach ... as <name>` or captured
+        // on the input line after approval - see _approveTeachSave()/
+        // _captureTeachName()/_rejectTeachSave()/_cancelTeachName() below.
+        pendingTeach: null,
         history: [],
         historyIdx: -1,
         // M4a: the `ls`-built index->element listing context ({entries, map,
@@ -216,6 +224,15 @@
       // resolves, which is the safe default direction to fail in.
       this._devHooksEnabled = false;
       this._loadDevHooksFlag();
+      // brainstorm lane (design doc §2 invariant 6, §9 sign-off): opt-in,
+      // OFF by default. Loaded async from storage.local `lflBrainstormEnabled`
+      // - stays false (the safe/no-op default) until that resolves, same
+      // fail-safe-default posture as _devHooksEnabled above. `teach on`/
+      // `teach off` (see _setTeachEnabled()) both write storage AND update
+      // this cached flag synchronously, so a toggle takes effect immediately
+      // within the same session without waiting on another async read.
+      this._brainstormEnabled = false;
+      this._loadBrainstormFlag();
       // funpack v1: persisted theme choice (storage.local `lflTheme`) --
       // loaded async, applied via _applyTheme() as soon as it resolves;
       // stays on the 'default' theme's fallback CSS values until then, the
@@ -316,6 +333,17 @@
           if (chrome.runtime.lastError) return;
           this._devHooksEnabled = !!(res && res.lflDevHooks);
           this._updateTestHook();
+        });
+      } catch (_e) { /* storage unavailable - stays off, the safe default */ }
+    }
+
+    // brainstorm lane (design doc §2 invariant 6): mirrors _loadDevHooksFlag()
+    // exactly - see this._brainstormEnabled's own comment in the constructor.
+    _loadBrainstormFlag() {
+      try {
+        chrome.storage.local.get(['lflBrainstormEnabled'], (res) => {
+          if (chrome.runtime.lastError) return;
+          this._brainstormEnabled = !!(res && res.lflBrainstormEnabled);
         });
       } catch (_e) { /* storage unavailable - stays off, the safe default */ }
     }
@@ -564,13 +592,20 @@
       return this.state.mode === 'awaiting-approval' || this.state.mode === 'awaiting-nav-confirm'
         // scripts v1: the plan-preview gate (§9 sign-off #5) reuses the same
         // approval-card Enter/Esc/Tab-trap machinery as approval/nav-confirm.
-        || this.state.mode === 'awaiting-script-run';
+        || this.state.mode === 'awaiting-script-run'
+        // brainstorm lane: the "save this draft?" card reuses the SAME
+        // machinery too (design doc §3/§4). 'awaiting-teach-name' is
+        // deliberately NOT included here - it is an ordinary typing mode
+        // (capturing a name on the input line), same posture as
+        // 'editing-script', not an approval card.
+        || this.state.mode === 'awaiting-teach-save';
     }
 
     _approvePending() {
       if (this.state.mode === 'awaiting-approval') return this._approveProposal();
       if (this.state.mode === 'awaiting-nav-confirm') return this._approveNav();
       if (this.state.mode === 'awaiting-script-run') return this._approveScriptRun();
+      if (this.state.mode === 'awaiting-teach-save') return this._approveTeachSave();
       return undefined;
     }
 
@@ -578,6 +613,7 @@
       if (this.state.mode === 'awaiting-approval') return this._rejectProposal();
       if (this.state.mode === 'awaiting-nav-confirm') return this._rejectNav();
       if (this.state.mode === 'awaiting-script-run') return this._rejectScriptRun();
+      if (this.state.mode === 'awaiting-teach-save') return this._rejectTeachSave();
       return undefined;
     }
 
@@ -657,6 +693,27 @@
           return;
         }
         return; // swallow history/resize/etc. shortcuts while capturing a script body
+      }
+      // brainstorm lane (design doc §3): the "no `as <name>` was given"
+      // follow-up - a single line capturing the name to save the already-
+      // approved draft under. Same single-line-capture pattern as
+      // 'editing-script' just above (native <input> can't hold a name AND a
+      // multi-line body at once, but a name is only ever one line anyway).
+      // Checked before the resize/history branches for the same reason.
+      if (this.state.mode === 'awaiting-teach-name') {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          const line = this.inputEl.value.trim();
+          this.inputEl.value = '';
+          this._captureTeachName(line);
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          this._cancelTeachName();
+          return;
+        }
+        return; // swallow history/resize/etc. shortcuts while capturing a name
       }
       // collapse+resize (2026-07-14): Ctrl+backtick folds/unfolds; Ctrl+Up/Down
       // step the height presets. Handled before the plain Arrow history branches
@@ -755,6 +812,17 @@
         const name = this.state.pendingScriptRun && this.state.pendingScriptRun.name;
         this._auditPush({ action: 'run', reason: name }, 'rejected(closed)', '(overlay closed while a script preview was pending)');
         this.state.pendingScriptRun = null;
+        this.state.mode = 'idle';
+        this.proposalEl.hidden = true;
+        this.inputEl.readOnly = false;
+        this._seq++;
+      } else if (this.state.mode === 'awaiting-teach-save') {
+        // brainstorm lane: same posture as awaiting-script-run above -
+        // nothing was ever persisted while a draft was only pending approval
+        // (setScript() only runs on approve), so closing just discards it.
+        const label = (this.state.pendingTeach && this.state.pendingTeach.name) || '(unnamed)';
+        this._auditPush({ action: 'teach', reason: label }, 'rejected(closed)', '(overlay closed while a teach draft was pending)');
+        this.state.pendingTeach = null;
         this.state.mode = 'idle';
         this.proposalEl.hidden = true;
         this.inputEl.readOnly = false;
@@ -1064,6 +1132,11 @@
       // needs the async plan-preview approval flow).
       if (/^script(\s|$)/i.test(raw)) { this._handleScriptCommand(raw); return; }
       if (/^run(\s|$)/i.test(raw)) { this._handleRunCommand(raw); return; }
+      // brainstorm lane (LFL-TERMINAL-BRAINSTORM-LANE-DESIGN.md) - same
+      // "standalone control command, no chain participation" posture as
+      // script/run just above (`teach` needs this.state/this._aliasStore
+      // access, the async SW round trip, and the plan-preview approval flow).
+      if (/^teach(\s|$)/i.test(raw)) { this._handleTeachCommand(raw); return; }
       // funpack v1: fortune/stats/theme/cowsay -- same "standalone control
       // command, no chain participation" posture as the M3 cluster just
       // above (they need chrome.storage.local access engine.js's
@@ -1200,7 +1273,12 @@
       // a command that can never legitimately be a chain step (nested runs
       // are the depth-1 lock; `script` mid-chain is meaningless). Same
       // friendly-refusal posture as the games' fromChain block below.
-      if (firstTok === 'run' || firstTok === 'script') {
+      // `teach` (brainstorm lane, LFL-TERMINAL-BRAINSTORM-LANE-DESIGN.md §4)
+      // gets the SAME dispatch-time refusal, for the same reason: a chain
+      // segment, macro body, or alias expansion is never a human directly
+      // typing at the prompt, and the brainstorm lane's whole invariant is
+      // "only a human typing at the terminal can trigger it".
+      if (firstTok === 'run' || firstTok === 'script' || firstTok === 'teach') {
         const msg = `"${firstTok}" cannot run as a chain/macro step - invoke it directly from the prompt`;
         this.printError(msg);
         this._auditPush({ action: firstTok }, 'blocked', msg);
@@ -1864,6 +1942,292 @@
       this._auditPush({ action: 'run', reason: run.name }, 'rejected', '(not run)');
       this.state.pendingScriptRun = null;
       this._settle(null, 'rejected (script not run)');
+    }
+
+    // ---- brainstorm lane (2026-07-15, LFL-TERMINAL-BRAINSTORM-LANE-DESIGN.md) ----
+    //
+    // `teach <goal text> [as <name>]` - describe a workflow in plain words;
+    // the local model (background/service-worker.js's BRAINSTORM_LLM_REQUEST
+    // lane) drafts a script BODY; the body is validated through the SAME
+    // real registry.js path a hand-typed `script new` body goes through
+    // (this._aliasStore.validateScriptBody()/setScript() - single source of
+    // truth, no reimplemented rules); the human approves (or discards)
+    // before anything is ever saved. `teach on`/`teach off` toggle the
+    // opt-in (default OFF - design §2 invariant 6); a bare `teach` is
+    // status + one-line help. See _isAwaitingSomething()/_approvePending()/
+    // _rejectPending() above for how 'awaiting-teach-save' joins the
+    // existing approval-card machinery, and the 'awaiting-teach-name'
+    // branch in _onInputKeydown() for the no-`as <name>` follow-up prompt.
+
+    _printTeachStatus() {
+      const msg = this._brainstormEnabled
+        ? 'teach is ON - type: teach <goal text> [as <name>] to draft a script'
+        : 'teach is OFF - type "teach on" to enable (asks your local model to draft scripts you approve)';
+      this.printInfo(msg);
+      this._auditPush({ action: 'teach' }, 'auto', msg);
+      this._settle(true, msg);
+    }
+
+    _setTeachEnabled(on) {
+      this._brainstormEnabled = !!on;
+      try { chrome.storage.local.set({ lflBrainstormEnabled: this._brainstormEnabled }); } catch (_e) { /* best-effort */ }
+      const msg = `teach ${this._brainstormEnabled ? 'enabled' : 'disabled'}`;
+      this.printOk(msg);
+      this._auditPush({ action: 'teach' }, 'auto', msg);
+      this._settle(true, msg);
+    }
+
+    async _handleTeachCommand(raw) {
+      const m = raw.match(/^teach(?:\s+(.*))?$/i);
+      const rest = (m && m[1] || '').trim();
+
+      if (!rest) { this._printTeachStatus(); return; }
+      if (/^on$/i.test(rest)) { this._setTeachEnabled(true); return; }
+      if (/^off$/i.test(rest)) { this._setTeachEnabled(false); return; }
+
+      // Opt-in gate (design §2 invariant 6, §3): while off, a draft attempt
+      // prints one line and makes ZERO network/SW-LLM calls - checked BEFORE
+      // any parsing of the goal/name, before the rate-limit check, before
+      // chrome.runtime.sendMessage is ever reached.
+      if (!this._brainstormEnabled) {
+        const msg = 'teach is off - type "teach on" to enable (asks your local model to draft scripts you approve)';
+        this.printInfo(msg);
+        this._auditPush({ action: 'teach' }, 'blocked', msg);
+        this._settle(false, msg);
+        return;
+      }
+
+      // Trailing ` as <name>` is optional - `name` is the last token, and
+      // must be a plausible script-name token (letters/digits/-/_, starting
+      // with a letter - the same shape registry.js's NAME_RE requires) or it
+      // is NOT treated as a name (so a goal that happens to end in the word
+      // "as" followed by ordinary prose, e.g. "...treat me as a beginner",
+      // does not misfire - a real name is one bare word, not a phrase).
+      const asMatch = rest.match(/^(.*)\s+as\s+([a-z][a-z0-9_-]*)\s*$/i);
+      const goal = (asMatch ? asMatch[1] : rest).trim();
+      const name = asMatch ? asMatch[2].toLowerCase() : null;
+
+      if (!goal) {
+        const msg = 'usage: teach <goal text> [as <name>]';
+        this.printError(msg);
+        this._settle(false, msg);
+        return;
+      }
+
+      // Same early-check UX as `script new <name>` (see _handleScriptCommand):
+      // if a name was given, check it BEFORE spending an LLM call on a draft
+      // that could never be saved under it.
+      if (name) {
+        const avail = this._aliasStore.checkNameAvailable(name);
+        if (!avail.ok) {
+          this.printError(`teach: ${avail.reason}`);
+          this._settle(false, avail.reason);
+          return;
+        }
+      }
+
+      // Same LLM-call rate-limit budget as the page-lane/nav-lane (design
+      // §4: "a draft costs one slot") - checked/recorded via the SW-
+      // authoritative limiter, same _rlCheck/_rlRecord helpers _handleGo()/
+      // _runLlm() already use.
+      const budgetCheck = await this._rlCheck('llm');
+      if (!budgetCheck.allowed) {
+        this.printError(budgetCheck.reason);
+        this._auditPush({ action: 'teach' }, 'blocked', budgetCheck.reason);
+        this._settle(false, budgetCheck.reason);
+        return;
+      }
+      await this._rlRecord('llm');
+
+      this.printInfo('… asking the local model to draft a script');
+      let resp;
+      try {
+        // THE isolation-critical call: the payload sent to the model
+        // contains ONLY `goal` (this typed text) - no page content of any
+        // kind. See service-worker.js's buildBrainstormPayload() and
+        // tests/brainstorm_lane_isolation.test.js for the proof.
+        resp = await chrome.runtime.sendMessage({ type: 'BRAINSTORM_LLM_REQUEST', goal });
+      } catch (e) {
+        resp = { ok: false, error: 'local model offline - deterministic commands still work (' + (e && e.message ? e.message : 'messaging error') + ')' };
+      }
+      if (!resp || !resp.ok) {
+        const errMsg = (resp && resp.error) || 'local model offline - deterministic commands still work';
+        this.printError(errMsg);
+        this._auditPush({ action: 'teach' }, 'n/a', errMsg);
+        this._settle(false, errMsg);
+        return;
+      }
+
+      const draft = resp.action || {};
+      const body = typeof draft.script === 'string' ? draft.script : '';
+      if (!body.trim()) {
+        const msg = 'the local model returned no script - try re-running with a clearer description';
+        this.printError(msg);
+        this._auditPush({ action: 'teach' }, 'n/a', msg);
+        this._settle(false, msg);
+        return;
+      }
+
+      // Validate WITHOUT persisting (design §4 - "validate first without
+      // persisting... call setScript() only on approval"). `name` may be
+      // null here (no `as <name>` was given) - validateScriptBody() skips
+      // the name-specific checks in that case and validates the body alone;
+      // the name is checked for real (checkNameAvailable(), again, since
+      // time has passed) once one is captured, in _captureTeachName() below.
+      const validated = this._aliasStore.validateScriptBody(name, body);
+
+      if (!validated.ok) {
+        // INVALID draft (design §3): show the model's raw proposed steps
+        // (same line-filtering parseScriptBody() itself uses - trimmed,
+        // blank/comment lines dropped - so the numbering matches what the
+        // reason's "step N" refers to), the reason, and a hint. No approval
+        // card, nothing saved, NO auto-retry (§9 sign-off #4).
+        const rawLines = body.split('\n').map((l) => l.trim()).filter((l) => l.length > 0 && l.charAt(0) !== '#');
+        const stepsText = rawLines.length
+          ? rawLines.map((s, i) => `  ${i + 1}. ${s}`).join('\n')
+          : '  (model returned no usable lines)';
+        this.printInfo(stepsText);
+        const msg = `draft rejected: ${validated.reason}`;
+        this.printError(msg);
+        this.printInfo('re-run "teach" with a clearer description, or write it by hand with "script new"');
+        this._auditPush({ action: 'teach', reason: validated.reason }, 'blocked', msg);
+        this._settle(false, msg);
+        return;
+      }
+
+      // VALID draft: numbered steps (same rendering as `script show`) + the
+      // approval card - reuses the SAME top-layer card + occlusion probe as
+      // `run`'s plan-preview (_probeApprovalOcclusion(), _approvePending()/
+      // _rejectPending() routing via 'awaiting-teach-save').
+      this.state.pendingTeach = { goal, name, body, steps: validated.steps };
+      this.state.mode = 'awaiting-teach-save';
+      this.glossEl.textContent = name ? `TEACH: save as "${name}"?` : 'TEACH: save this script?';
+      const stepsText = validated.steps.map((s, i) => `${i + 1}. ${s}`).join('\n');
+      this.detailEl.textContent = name
+        ? stepsText
+        : `${stepsText}\n(you will be asked for a name after approving)`;
+      this.proposalEl.hidden = false;
+      this.inputEl.readOnly = true;
+      this._seq++;
+      this._updateTestHook();
+      if (this.approveBtn) this.approveBtn.focus();
+    }
+
+    async _approveTeachSave() {
+      const draft = this.state.pendingTeach;
+      if (!draft || this._approvalBusy) return;
+      this._approvalBusy = true;
+      try {
+        // M2.1-style occlusion re-check, same clickjacking-style reasoning as
+        // every other approval gate (_approveProposal()/_approveNav()/
+        // _approveScriptRun()).
+        const occlusion = this._probeApprovalOcclusion();
+        if (occlusion.occluded) {
+          this.proposalEl.hidden = true;
+          this.inputEl.readOnly = false;
+          this.inputEl.focus();
+          this.state.mode = 'idle';
+          const msg = `approval UI was covered - draft discarded for safety (${occlusion.reason})`;
+          this.printError(msg);
+          this._auditPush({ action: 'teach', reason: draft.name || '(unnamed)' }, 'aborted(occluded)', msg);
+          this.state.pendingTeach = null;
+          this._settle(false, msg);
+          return;
+        }
+
+        if (draft.name) {
+          // A name was already given and already checked available - save
+          // now through the real setScript() (which re-validates everything,
+          // same defense-in-depth posture as `run`'s re-parse of a stored
+          // body - see that method's own comment).
+          this.proposalEl.hidden = true;
+          this.inputEl.readOnly = false;
+          this.state.mode = 'idle';
+          this.state.pendingTeach = null;
+          const res = this._aliasStore.setScript(draft.name, draft.body);
+          if (res.ok) {
+            const msg = `script "${draft.name}" saved (${res.stepCount} step(s)${res.arity ? `, ${res.arity} arg(s)` : ''}) - try: run ${draft.name}`;
+            this.printOk(msg);
+            this._auditPush({ action: 'teach', reason: draft.name }, 'approved', msg);
+            this._settle(true, msg);
+          } else {
+            const msg = `teach: could not save "${draft.name}" - ${res.reason}`;
+            this.printError(msg);
+            this._auditPush({ action: 'teach', reason: draft.name }, 'blocked', msg);
+            this._settle(false, msg);
+          }
+          this.inputEl.focus();
+          return;
+        }
+
+        // No name was given (design §3): prompt once for one on the input
+        // line, reusing the script editor's line-capture pattern - see the
+        // 'awaiting-teach-name' branch in _onInputKeydown().
+        this.proposalEl.hidden = true;
+        this.state.mode = 'awaiting-teach-name';
+        this.inputEl.readOnly = false;
+        this.inputEl.value = '';
+        this.inputEl.focus();
+        this.printInfo('name for this script? (Esc to discard)');
+        this._settle(true, 'awaiting a name for the drafted script');
+      } finally {
+        this._approvalBusy = false;
+      }
+    }
+
+    _rejectTeachSave() {
+      const draft = this.state.pendingTeach;
+      if (!draft) return;
+      this.proposalEl.hidden = true;
+      this.inputEl.readOnly = false;
+      this.inputEl.focus();
+      this.state.mode = 'idle';
+      this.printInfo('draft discarded');
+      this._auditPush({ action: 'teach', reason: draft.name || '(unnamed)' }, 'rejected', '(not saved)');
+      this.state.pendingTeach = null;
+      this._settle(null, 'rejected (draft not saved)');
+    }
+
+    // The no-`as <name>` follow-up (see _approveTeachSave()'s last branch and
+    // the 'awaiting-teach-name' case in _onInputKeydown()). `name` is
+    // whatever the human typed, already trimmed; empty input reprompts
+    // rather than silently discarding (Esc is the explicit discard gesture -
+    // _cancelTeachName() below).
+    _captureTeachName(name) {
+      const draft = this.state.pendingTeach;
+      if (!draft) { this.state.mode = 'idle'; return; }
+      if (!name) {
+        this.printError('a name is required - type one, or Esc to discard');
+        return; // stay in 'awaiting-teach-name', let them try again
+      }
+      const lower = name.toLowerCase();
+      const avail = this._aliasStore.checkNameAvailable(lower);
+      if (!avail.ok) {
+        this.printError(`teach: ${avail.reason} - try another name, or Esc to discard`);
+        return; // stay in the mode, retry
+      }
+      const res = this._aliasStore.setScript(lower, draft.body);
+      this.state.mode = 'idle';
+      this.state.pendingTeach = null;
+      if (res.ok) {
+        const msg = `script "${lower}" saved (${res.stepCount} step(s)${res.arity ? `, ${res.arity} arg(s)` : ''}) - try: run ${lower}`;
+        this.printOk(msg);
+        this._auditPush({ action: 'teach', reason: lower }, 'approved', msg);
+        this._settle(true, msg);
+      } else {
+        const msg = `teach: could not save "${lower}" - ${res.reason}`;
+        this.printError(msg);
+        this._auditPush({ action: 'teach', reason: lower }, 'blocked', msg);
+        this._settle(false, msg);
+      }
+    }
+
+    _cancelTeachName() {
+      this.state.mode = 'idle';
+      this.state.pendingTeach = null;
+      this.printInfo('draft discarded');
+      this._auditPush({ action: 'teach' }, 'rejected', '(not saved)');
+      this._settle(null, 'rejected (draft not saved)');
     }
 
     // ---- funpack v1: fortune / stats / theme / cowsay ----

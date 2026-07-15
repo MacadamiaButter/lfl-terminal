@@ -521,14 +521,182 @@ check('import (via setScript) inherits the whitelist: a shared file with a nonse
 });
 
 // =====================================================================
-// [9] Verify-pass fix (2026-07-14 Fable, CRITICAL) - the SW-backed queue
+// [9] brainstorm lane (2026-07-15, LFL-TERMINAL-BRAINSTORM-LANE-DESIGN.md) -
+// registry.js locks: teach is reserved, excluded from the script-step
+// surface (typed AND imported, structurally - not just a whitelist miss),
+// and validateScriptBody()/setScript() give the identical verdict a fake
+// drafted-model-response body would get (the "validation path" proof, design
+// doc §7 gate item 3: a bad draft is rejected and never persisted; a good
+// draft validates but is NOT written until the real write path - what
+// terminal.js's approval flow calls - actually runs).
+// =====================================================================
+console.log('\n[9] brainstorm lane - teach reserved, excluded from script steps (typed + imported), validation-path proof');
+
+check('teach is reserved: cannot be an alias name', () => {
+  const store = registry.createAliasStore(fakeStorageArea());
+  assert.strictEqual(store.setAlias('teach', 'go example.com').ok, false);
+});
+
+check('teach is reserved: cannot be a macro name', () => {
+  const store = registry.createAliasStore(fakeStorageArea());
+  assert.strictEqual(store.setMacro('teach', 'go example.com').ok, false);
+});
+
+check('teach as a script step is rejected at DEFINE time (the typed "script new" path, via parseScriptBody)', () => {
+  const p = registry.parseScriptBody('go example.com\nteach do something\n');
+  assert.strictEqual(p.ok, false);
+  assert.match(p.reason, /brainstorm lane is never chain\/script-eligible/);
+});
+
+check('teach as a script step is rejected even when a known-verb list INCLUDES "teach" (structural exclusion, not merely a whitelist miss - the SCRIPT_SELF_NAMES pattern)', () => {
+  const store = registry.createAliasStore(fakeStorageArea(), ['go', 'search', 'teach']);
+  const res = store.setScript('bad', 'go example.com\nteach do something\n');
+  assert.strictEqual(res.ok, false);
+  assert.match(res.reason, /brainstorm lane is never chain\/script-eligible/);
+  assert.strictEqual(store.getScript('bad'), null);
+});
+
+check('teach as a script step is rejected via IMPORT too (parseScriptFile -> setScript path)', () => {
+  const store = registry.createAliasStore(fakeStorageArea());
+  const file = '#!lflscript v1\n#!script evil\ngo example.com\nteach draft another script\n';
+  const parsed = registry.parseScriptFile(file);
+  assert.strictEqual(parsed.ok, true); // structurally fine - the file format itself has no opinion on step content
+  const res = store.setScript(parsed.scripts[0].name, parsed.scripts[0].body);
+  assert.strictEqual(res.ok, false);
+  assert.match(res.reason, /brainstorm lane is never chain\/script-eligible/);
+  assert.strictEqual(store.getScript('evil'), null);
+});
+
+check('validateResolvedStep rejects "teach ..." post-indirection, same as run/script', () => {
+  assert.strictEqual(registry.validateResolvedStep('teach draft something').ok, false);
+});
+
+check('validation-path unit: a fake drafted-model body containing "click 3" is rejected with the index-address reason, and is never persisted by validateScriptBody() or setScript()', () => {
+  const store = registry.createAliasStore(fakeStorageArea());
+  const fakeModelBody = 'go example.com\nclick 3\n'; // what a poorly-behaved draft might return
+  const validated = store.validateScriptBody('mydraft', fakeModelBody);
+  assert.strictEqual(validated.ok, false);
+  assert.match(validated.reason, /ls-listing index/);
+  assert.strictEqual(store.getScript('mydraft'), null, 'validateScriptBody() must never write, even on a valid-shaped name');
+  const res = store.setScript('mydraft', fakeModelBody);
+  assert.strictEqual(res.ok, false);
+  assert.strictEqual(store.getScript('mydraft'), null);
+});
+
+check('validation-path unit: a valid drafted body validates OK but is NOT persisted until the real write path (setScript, i.e. the approval flow) actually runs', () => {
+  const store = registry.createAliasStore(fakeStorageArea());
+  const fakeModelBody = 'go example.com\nsearch "socks"\n';
+  const validated = store.validateScriptBody('checkout', fakeModelBody);
+  assert.strictEqual(validated.ok, true);
+  assert.strictEqual(store.getScript('checkout'), null, '"validate first without persisting" - design doc §4');
+  const res = store.setScript('checkout', fakeModelBody);
+  assert.strictEqual(res.ok, true);
+  assert.notStrictEqual(store.getScript('checkout'), null);
+});
+
+check('validation-path unit: no `as <name>` yet - validateScriptBody(undefined, body) validates the BODY ALONE, skipping name checks', () => {
+  const store = registry.createAliasStore(fakeStorageArea());
+  const fakeModelBody = 'go example.com\n';
+  const validated = store.validateScriptBody(undefined, fakeModelBody);
+  assert.strictEqual(validated.ok, true);
+  assert.strictEqual(validated.steps.length, 1);
+});
+
+check('validation-path unit: a name collision with an existing ALIAS is refused at save time (checkNameAvailable/setScript, the same check the no-name follow-up prompt uses)', () => {
+  const store = registry.createAliasStore(fakeStorageArea());
+  store.setAlias('wiki', 'go en.wikipedia.org');
+  const res = store.setScript('wiki', 'go example.com\n');
+  assert.strictEqual(res.ok, false);
+  assert.match(res.reason, /already an alias name/);
+});
+
+check('validation-path unit: a name collision with an existing SCRIPT is refused the same way', () => {
+  const store = registry.createAliasStore(fakeStorageArea());
+  store.setScript('checkout', 'go example.com\n');
+  const validated = store.validateScriptBody('checkout', 'go other.example.com\n');
+  assert.strictEqual(validated.ok, false);
+  assert.match(validated.reason, /already a script name/);
+});
+
+check('validation-path unit: a name collision with an existing MACRO is refused the same way', () => {
+  const store = registry.createAliasStore(fakeStorageArea());
+  store.setMacro('morning', 'go example.com && search "news"');
+  const validated = store.validateScriptBody('morning', 'go example.com\n');
+  assert.strictEqual(validated.ok, false);
+  assert.match(validated.reason, /already a macro name/);
+});
+
+// ---- [9b] terminal.js / service-worker.js / manifest.json - static
+// source-shape checks. Same documented-weaker-substitute posture as
+// tests/m3_hardening.test.js's own terminal.js checks (see that file's
+// header comment: terminal.js needs attachShadow/popover/elementsFromPoint,
+// a much heavier DOM surface than this project's Node test harness
+// supports, so dispatch-wiring and the opt-in gate are pinned structurally
+// here rather than behaviorally).
+console.log('\n[9b] brainstorm lane - terminal.js/manifest.json static source-shape checks (documented DOM-test-harness limitation)');
+
+const fsForShapeChecks = require('fs');
+const TERMINAL_PATH_FOR_TEACH = path.join(ROOT, 'extension', 'content', 'terminal.js');
+const teachTerminalSrc = fsForShapeChecks.readFileSync(TERMINAL_PATH_FOR_TEACH, 'utf8');
+
+check('_dispatchSegment refuses "teach" as a chain/macro/alias-expansion segment, the SAME dispatch-time check as run/script', () => {
+  assert.match(
+    teachTerminalSrc,
+    /firstTok === 'run' \|\| firstTok === 'script' \|\| firstTok === 'teach'/,
+    '_dispatchSegment must refuse teach the same way as run/script',
+  );
+});
+
+check('a bare "teach" is dispatched from _submitCommand via an explicit typed-text regex (never reachable from chain/macro/alias context)', () => {
+  assert.match(
+    teachTerminalSrc,
+    /if \(\/\^teach\(\\s\|\$\)\/i\.test\(raw\)\) \{ this\._handleTeachCommand\(raw\); return; \}/,
+    '_submitCommand must gate teach behind an explicit typed-text regex, same posture as script/run',
+  );
+});
+
+check('opt-in gate: _handleTeachCommand checks _brainstormEnabled and returns BEFORE the BRAINSTORM_LLM_REQUEST send - zero network calls while off', () => {
+  const idx = teachTerminalSrc.indexOf('async _handleTeachCommand(raw) {');
+  assert.ok(idx >= 0, '_handleTeachCommand not found');
+  const nextMethodIdx = teachTerminalSrc.indexOf('\n    async _approveTeachSave()', idx);
+  assert.ok(nextMethodIdx > idx, '_approveTeachSave not found after _handleTeachCommand');
+  const body = teachTerminalSrc.slice(idx, nextMethodIdx);
+  const gateIdx = body.indexOf('if (!this._brainstormEnabled) {');
+  // The actual call site, not just any mention of the string (a comment a
+  // few lines above the gate explains WHY it exists using this same phrase -
+  // matching the real `await chrome.runtime.sendMessage(` invocation avoids
+  // that comment giving a false-positive "call" position).
+  const sendIdx = body.indexOf('await chrome.runtime.sendMessage({ type: \'BRAINSTORM_LLM_REQUEST\'');
+  assert.ok(gateIdx >= 0, 'the opt-in gate check must be present in _handleTeachCommand');
+  assert.ok(sendIdx >= 0, 'the BRAINSTORM_LLM_REQUEST send call must be present in _handleTeachCommand');
+  assert.ok(gateIdx < sendIdx, 'the opt-in gate must run BEFORE the network call, not after');
+  const gateBranch = body.slice(gateIdx, sendIdx);
+  assert.match(gateBranch, /return;/, 'the opt-in gate branch must return, not fall through to the network call');
+});
+
+check('teach is present in registry.js\'s RESERVED_NAMES set - structural pin (the alias/macro-shadowing lock)', () => {
+  const registrySrc = fsForShapeChecks.readFileSync(path.join(ROOT, 'extension', 'content', 'registry.js'), 'utf8');
+  const idx = registrySrc.indexOf('const RESERVED_NAMES = new Set([');
+  const endIdx = registrySrc.indexOf(']);', idx);
+  assert.ok(idx >= 0 && endIdx > idx, 'RESERVED_NAMES definition not found');
+  assert.match(registrySrc.slice(idx, endIdx), /'teach'/, 'teach must be present in RESERVED_NAMES');
+});
+
+check('manifest.json is unchanged: permissions exactly ["storage"], host_permissions exactly ["http://127.0.0.1:1238/*"] - no new host permission for the brainstorm lane (design doc §2 invariant 5, §5)', () => {
+  const manifest = JSON.parse(fsForShapeChecks.readFileSync(path.join(ROOT, 'extension', 'manifest.json'), 'utf8'));
+  assert.deepStrictEqual(manifest.permissions, ['storage']);
+  assert.deepStrictEqual(manifest.host_permissions, ['http://127.0.0.1:1238/*']);
+});
+
+// =====================================================================
+// [10] Verify-pass fix (2026-07-14 Fable, CRITICAL) - the SW-backed queue
 // must hold a full script's remaining steps. The old MAX_QUEUE_SEGMENTS=5
 // SILENTLY truncated a 20-step script's queue to 5 (steps 7..20 dropped
 // mid-run with no error). Round-trips a 19-item queue through the REAL
 // service-worker.js TS_* handlers via vm (same loading pattern as
 // tests/m3_hardening.test.js's buildSwInstance).
 // =====================================================================
-console.log('\n[9] service-worker queue capacity - a 19-step remainder survives TS_QUEUE_SET/PEEK intact');
+console.log('\n[10] service-worker queue capacity - a 19-step remainder survives TS_QUEUE_SET/PEEK intact');
 
 const fs = require('fs');
 const vm = require('vm');

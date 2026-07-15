@@ -88,6 +88,20 @@
  *       arrival-check). All under one storage key per tab
  *       (`termstate:<tabId>`), same single-round-trip shape as
  *       `ratelimit:<tabId>`. `chrome.tabs.onRemoved` clears this key too.
+ *
+ * FOURTH ROLE, added for the brainstorm lane (2026-07-15,
+ * LFL-TERMINAL-BRAINSTORM-LANE-DESIGN.md): a THIRD, narrowest LLM lane - the
+ * user describes a workflow in plain words and the model drafts a SCRIPT BODY
+ * (never executed here; it is validated through registry.js's real
+ * parseScriptBody()/setScript() path and human-approved on the content side
+ * exactly like a hand-typed `script new` body - see terminal.js's `teach`
+ * handling). See buildBrainstormPayload() below and
+ * tests/brainstorm_lane_isolation.test.js for the same isolation proof the
+ * nav-lane already holds itself to: the payload sent to the model contains
+ * ONLY the user's typed goal text, nothing scraped from any page. Shares this
+ * file's single fetch sink and the same RL_* rate-limit budget as the other
+ * two lanes (a draft costs one LLM-call slot, gated/recorded by terminal.js
+ * exactly the way it already gates the nav-lane's `go` resolution call).
  */
 
 // Loads the real content/ratelimit.js source into this worker's own global
@@ -357,15 +371,128 @@ function buildNavLanePayload(msg) {
   };
 }
 
-// Generic loopback caller both lanes share - same endpoint, same timeout,
-// same fail-open-to-error posture, same response-parsing shape. `payload`
-// is the already-built request body (buildPayload()'s or
-// buildNavLanePayload()'s return value) - this function itself has no idea
-// which lane it's serving, which is exactly what makes "both lanes share
-// the single fetch sink" true by construction rather than by convention.
-async function callLocalModelWithPayload(payload) {
+// ---- brainstorm lane (design doc LFL-TERMINAL-BRAINSTORM-LANE-DESIGN.md §4) ----
+//
+// A THIRD, narrowest LLM lane: the user describes a workflow in plain words
+// (`teach <goal>`); the model drafts a SCRIPT BODY, a composition of the
+// existing fixed script verbs, never a new primitive and never executed by
+// this file - the content side validates it through the real
+// parseScriptBody()/setScript() path and requires human approval before it is
+// ever saved (see terminal.js's `teach` handling). The isolation guarantee
+// this file must hold is the SAME ONE buildNavLanePayload() already holds
+// (see that function's own comment): buildBrainstormPayload() below reads
+// exactly one field off `msg` (`.goal`) and nothing else, no matter what
+// other fields a caller's message object happens to carry - proven directly
+// against the real onMessage listener + a captured fetch body by
+// tests/brainstorm_lane_isolation.test.js, not by trusting this comment.
+//
+// SYSTEM PROMPT PROVENANCE: ported VERBATIM from lfl-lab's
+// brainstorm/probe.py, the SYSTEM_PROMPT constant (the "strict" variant, NOT
+// NAIVE_SYSTEM_PROMPT - the probe's own module docstring explains the naive
+// variant exists only to demonstrate a weaker prompt's failure modes, never
+// to be shipped). Measured 20/20 twice against real endpoints (the 35B and,
+// as of 2026-07-15, the 4B on this project's own :1238) - see the design
+// doc's §5 for the full measurement writeup. KEEP IN SYNC WITH THE PROBE: if
+// this string drifts from lfl-lab's copy, the probe's own numbers stop being
+// evidence about what this product actually ships - the design doc's §7
+// follow-up is to have the probe read this string directly instead of
+// keeping its own copy, closing that gap for good.
+const BRAINSTORM_SYSTEM_PROMPT = [
+  'You are helping a user author a SCRIPT for a browser terminal extension called lfl-terminal.',
+  '',
+  'A script is plain text, ONE STEP PER LINE. You may use ONLY the verbs listed below. Never invent a new verb, and never use any verb not on this list.',
+  '',
+  'Allowed verbs (this is the complete list):',
+  '  go <destination>              navigate to a URL, domain, or site name',
+  '                                 example: go en.wikipedia.org',
+  '  open <link text>               follow a link by its VISIBLE TEXT, never by a number',
+  '                                 example: open "Contact us"',
+  '  search "<query>"               fill and submit the page\'s search box',
+  '                                 example: search "Eiffel Tower"',
+  '  scroll up                      scroll the page up',
+  '  scroll down                    scroll the page down',
+  '  fill <label> with "<text>"     fill a form field identified by its VISIBLE LABEL, never by a number',
+  '                                 example: fill email with "me@example.com"',
+  '  pause "<instruction>"          stop the script and hand control back to a human for ONE manual step',
+  '                                 example: pause "click the blue Submit button"',
+  '',
+  'Use pause "<instruction>" for ANYTHING you cannot express with the verbs above: clicking a specific button, choosing an option from a dropdown, checking a checkbox, picking a search result by its position (first, third, ...), entering a password, or any other step that would need to point at a page element by a number or a position. Describe the manual action in plain words inside the quotes.',
+  '',
+  'HARD RULES, always followed, no exceptions:',
+  '1. Only the verbs listed above. Never write "click <N>", "select <N>", a bare number on its own line, "fill <N> with ...", or "open <N>" - all of these address a page element by a numbered index, which is unsafe to replay later because the page can change between runs. If a step would need one of these, write a pause "<instruction>" step instead.',
+  '2. Never write "run <name>" - a script may not call another script.',
+  '3. Never write a game (snake, 2048, games, sl) or a fun-pack command (fortune, stats, theme, cowsay) - none of these are allowed inside a script.',
+  '4. At most 20 steps total.',
+  '5. Output ONLY the script body: one step per line, no step numbers, no markdown code fences, no headings, no explanation before or after. Just the lines of the script.',
+  '',
+  'Now write the script body for the following goal.',
+].join('\n');
+
+// Structured output, same reasoning as NAV_RESPONSE_SCHEMA/RESPONSE_SCHEMA
+// above: parsing must never depend on the model resisting markdown fences.
+// `script` is required; `reason` is optional free text the model may use to
+// explain its choices (never shown as anything other than inert text on the
+// content side - see terminal.js).
+const BRAINSTORM_RESPONSE_SCHEMA = {
+  type: 'json_schema',
+  json_schema: {
+    name: 'lfl_script_draft',
+    schema: {
+      type: 'object',
+      properties: {
+        script: { type: 'string' },
+        reason: { type: 'string' },
+      },
+      required: ['script'],
+    },
+  },
+};
+
+const BRAINSTORM_MAX_TOKENS = 512;
+// A large single-slot model drafting up to a 20-line script can take
+// noticeably longer than the ~30s the page-/nav-lane's short, few-shot-heavy
+// prompts need - design doc §4. Passed explicitly to
+// callLocalModelWithPayload() below; the other two lanes keep the shared
+// LLM_TIMEOUT_MS default, byte-equivalent to their pre-brainstorm-lane
+// behavior.
+const BRAINSTORM_TIMEOUT_MS = 90000;
+
+// THE isolation-critical function: reads `msg.goal` and NOTHING else off the
+// caller's message object. Do not "helpfully" add fields here - that is
+// exactly the mistake this lane exists to structurally prevent (same
+// warning as buildNavLanePayload() above, same enforcement mechanism: a
+// poisoned-message unit test against the real fetch body, not just this
+// comment). The user message content is JSON.stringify({goal: msg.goal}),
+// deliberately mirroring the nav-lane's {command} shape rather than the
+// probe's own plain-text user turn - consistency across all three lanes' own
+// wire format, per the design doc's §4 sign-off (the probe's measured
+// numbers are about the SYSTEM prompt's authoring reliability, which does
+// not depend on whether the one-line user turn is wrapped in JSON).
+function buildBrainstormPayload(msg) {
+  const userMsg = { role: 'user', content: JSON.stringify({ goal: msg.goal }) };
+  return {
+    messages: [{ role: 'system', content: BRAINSTORM_SYSTEM_PROMPT }, userMsg],
+    response_format: BRAINSTORM_RESPONSE_SCHEMA,
+    max_tokens: BRAINSTORM_MAX_TOKENS,
+    temperature: TEMPERATURE,
+    stream: false,
+  };
+}
+
+// Generic loopback caller all three lanes share - same endpoint, same
+// fail-open-to-error posture, same response-parsing shape. `payload` is the
+// already-built request body (buildPayload()'s/buildNavLanePayload()'s/
+// buildBrainstormPayload()'s return value) - this function itself has no
+// idea which lane it's serving, which is exactly what makes "every lane
+// shares the single fetch sink" true by construction rather than by
+// convention. `timeoutMs` is OPTIONAL (added for the brainstorm lane - design
+// doc §4): defaults to the pre-existing LLM_TIMEOUT_MS so the page-lane and
+// nav-lane callers below are byte-equivalent to their old behavior; the
+// brainstorm lane passes BRAINSTORM_TIMEOUT_MS explicitly.
+async function callLocalModelWithPayload(payload, timeoutMs) {
+  const effectiveTimeoutMs = typeof timeoutMs === 'number' ? timeoutMs : LLM_TIMEOUT_MS;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), LLM_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), effectiveTimeoutMs);
   try {
     const resp = await fetch(LLM_ENDPOINT, {
       method: 'POST',
@@ -391,7 +518,7 @@ async function callLocalModelWithPayload(payload) {
     return { ok: true, action: parsed };
   } catch (e) {
     if (e && e.name === 'AbortError') {
-      return { ok: false, error: 'local model offline - deterministic commands still work (timeout after 30s)' };
+      return { ok: false, error: `local model offline - deterministic commands still work (timeout after ${Math.round(effectiveTimeoutMs / 1000)}s)` };
     }
     return { ok: false, error: 'local model offline - deterministic commands still work (' + (e && e.message ? e.message : 'network error') + ')' };
   } finally {
@@ -405,6 +532,10 @@ function callLocalModel(msg) {
 
 function callNavLaneModel(msg) {
   return callLocalModelWithPayload(buildNavLanePayload(msg));
+}
+
+function callBrainstormLaneModel(msg) {
+  return callLocalModelWithPayload(buildBrainstormPayload(msg), BRAINSTORM_TIMEOUT_MS);
 }
 
 // ---- M2.3 rate-limit authority (per-tab, chrome.storage.session-backed) ----
@@ -683,6 +814,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (msg.type === 'NAV_LLM_REQUEST') {
     callNavLaneModel(msg).then(sendResponse);
+    return true;
+  }
+  if (msg.type === 'BRAINSTORM_LLM_REQUEST') {
+    callBrainstormLaneModel(msg).then(sendResponse);
     return true;
   }
   if (msg.type === 'RL_CHECK' || msg.type === 'RL_RECORD' || msg.type === 'RL_RESUME' || msg.type === 'RL_BUDGET') {

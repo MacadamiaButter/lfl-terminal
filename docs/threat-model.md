@@ -1444,3 +1444,182 @@ shape); an alias whose expansion is itself an unknown verb passes the whitelist
 and, at run time, falls through to the gated model lane rather than being
 refused - never a new capability, always human-approved, but not refused at
 define time.
+
+## M6 - brainstorm lane (2026-07-15)
+
+`teach <goal text> [as <name>]` - the user describes a workflow in plain
+words; the local model drafts a script BODY (a composition of the existing
+fixed script verbs, never a new primitive, never executed by this feature);
+the draft is validated through the same `parseScriptBody()`/`setScript()`
+path a hand-typed `script new` body uses; the human approves (or discards)
+before anything is saved. Opt-in, OFF by default (`teach on`/`teach off`,
+persisted `lflBrainstormEnabled`). Design doc:
+`LFL-TERMINAL-BRAINSTORM-LANE-DESIGN.md`.
+
+### A third payload builder - the same isolation proof standard as the nav lane
+
+`background/service-worker.js` gains a THIRD LLM lane
+(`BRAINSTORM_LLM_REQUEST` -> `buildBrainstormPayload()`), the narrowest of
+the three: `buildBrainstormPayload(msg)` reads exactly ONE field off the
+caller's message (`msg.goal`) and nothing else - no element list, no page
+title, no origin, no scrollback, no page bytes of any kind. This is the
+identical isolation guarantee `buildNavLanePayload()` already holds (M3,
+above), proven the identical way: `tests/brainstorm_lane_isolation.test.js`
+is a direct clone of `tests/m3_nav_lane_isolation.test.js`'s method - it
+loads the REAL, unmodified `service-worker.js` via `vm`, sends a
+`BRAINSTORM_LLM_REQUEST` whose message object carries extra
+`elementList`/`title`/`origin`/`scrollback`/`pageText` fields (what a
+hypothetical caller bug might accidentally attach), captures the exact
+fetch body sent to `127.0.0.1:1238`, and asserts none of those fields appear
+anywhere in it - the parsed user-message content has exactly the key
+`['goal']`, nothing else. A contrast case proves the isolation is specific
+to this lane, not a global no-op: the same extra fields sent via the
+existing page-lane (`LFL_LLM_REQUEST`) DO appear in its body, and both other
+lanes' response-schema shapes (the page-lane's 8-primitive `action` enum,
+the nav-lane's `[navigate, abort]` enum) are unchanged. The brainstorm
+lane's own schema (`lfl_script_draft`, requiring `script`, optional
+`reason`) is structurally different from either - it has no `action` enum
+at all, so there is nothing there for the vocabulary-lock test
+(`tests/m3_hardening.test.js`) to check beyond confirming `teach` itself
+never leaks into the OTHER two lanes' enums (it doesn't - `teach` is a
+registered command name for `help`/`man` text only, structurally decoupled
+from what either model-facing schema can express).
+
+The system prompt itself is ported VERBATIM from `lfl-lab`'s
+`brainstorm/probe.py` (the `SYSTEM_PROMPT` "strict" variant, not
+`NAIVE_SYSTEM_PROMPT` - that variant exists in the probe only to
+demonstrate a weaker prompt's failure modes). Measured 20/20 against both a
+35B and, as of 2026-07-15, the 4B behind this project's own `:1238` - see
+design doc §5. The comment above `BRAINSTORM_SYSTEM_PROMPT` in
+`service-worker.js` records this provenance and flags it to keep in sync
+with the probe; the design doc's own follow-up (§7 item) is to have the
+probe read this string directly from the shipped source instead of keeping
+a second copy, closing that drift risk for good. One deliberate departure
+from the probe's own wire format: the user turn is `JSON.stringify({goal:
+...})`, mirroring the nav-lane's `{command}` shape (and the page-lane's
+multi-field shape) rather than the probe's plain-text user message - a
+consistency choice across all three lanes' transport, not a change to what
+the SYSTEM prompt teaches or what was measured.
+
+### "Model writes a malicious script the user rubber-stamps" - authorship, not capability
+
+The steps a draft proposes are shown in full, numbered, before the
+approval card ever appears (the same rendering `script show` uses). A saved
+draft is, from that point on, an ordinary script: `run <name>` gives it the
+exact same plan-preview, per-step approval, and `validateResolvedStep()`
+hard blocks as any hand-typed script (see M5, above) - nothing about being
+model-drafted grants it a wider trust boundary. The primitives the model
+can propose are the same fixed set `script new` already limits an author
+to (`go`/`open`/`search`/`scroll`/`fill <label>`/`pause`) - a hostile draft
+cannot express anything a hostile human-typed script could not, and both
+face identical gates at both save time and run time. The lane adds
+authorship, not capability.
+
+### "Page content reaches the drafting model"
+
+Structurally impossible by the same construction as the nav lane (see
+above) - `buildBrainstormPayload()` never reads anything but `msg.goal`.
+`tests/brainstorm_lane_isolation.test.js`'s poisoned-message test is the
+proof; this paragraph is not.
+
+### Validate-without-persisting - `registry.js`'s `validateScriptBody()`
+
+`setScript()` both validates a body AND writes it - but the brainstorm
+flow's approval gate must sit BETWEEN "the model proposed this" and "this
+is saved", so the draft has to be validated (to render the VALID/INVALID
+verdict and the numbered steps) before the human has approved anything to
+write. `registry.js` is refactored so `setScript()`'s own rule set - name
+validity/self-name/collision checks, `parseScriptBody()`, the verb
+whitelist - lives in a new pure `validateScriptBody(name, body)`, with
+`setScript()` itself now just "validate, then write if ok". `name` is
+optional: when the human didn't type `as <name>`, `teach` validates the
+BODY ALONE first (name checks skipped) and only learns - and separately
+checks with `checkNameAvailable()` - a name once one is captured on the
+input line after approval. There is exactly one definition of "what makes a
+script valid" either way; nothing is duplicated. `tests/m5_scripts.test.js`
+§9's "validation-path unit" checks pin this directly: a fake drafted body
+containing `click 3` is rejected with the index-address reason and never
+persisted by either `validateScriptBody()` or `setScript()`; a valid body
+validates but stays unpersisted until `setScript()` (the real write path,
+called only from the approval flow) actually runs; name collisions with an
+existing alias/macro/script are refused the same way `script new` already
+refuses them.
+
+### Reachability - `teach` is refused everywhere a human isn't directly typing it
+
+Three locks, mirroring `run`/`script` exactly (§9's "New reserved names"
+precedent, extended):
+
+1. `teach` is in `RESERVED_NAMES` - an alias or macro can never be named
+   `teach` (same shadowing-footgun rationale as every other built-in).
+2. `_dispatchSegment()` refuses `teach` as a chain segment, a macro-body
+   step, or an alias expansion - the identical dispatch-time friendly
+   refusal `run`/`script` already get (a chain segment/macro body/alias
+   expansion is never a human directly typing at the prompt, and the whole
+   point of this lane is "only a human typing at the terminal can trigger
+   it"). Pinned by a structural source-shape check in
+   `tests/m5_scripts.test.js` §9b (this project has no DOM test harness for
+   `terminal.js` - see M3's "Test-hook gating"/`event.isTrusted` sections
+   above for the same documented limitation and the same static-source-
+   shape-check substitute).
+3. `teach` is excluded from the script-step verb surface the SAME way as
+   `SCRIPT_SELF_NAMES` (`run`/`script`/`pause`) - `parseScriptBody()`
+   rejects a `teach ...` step at define time, structurally, BEFORE the
+   knownVerbSet whitelist even runs, so this holds regardless of whether
+   `teach` happens to be a registered command name (it is, for `help`/`man`
+   text). A script can never contain a `teach` step, typed or imported
+   (`tests/m5_scripts.test.js` §9 proves both paths); `validateResolvedStep()`
+   gets the matching post-indirection block, same as `run`/`script`.
+
+### Opt-in, off by default
+
+`lflBrainstormEnabled` defaults to `false` (unset storage reads as falsy);
+`teach <goal>` while off prints one line and returns before the rate-limit
+check, before `chrome.runtime.sendMessage`, before any network activity -
+pinned by a structural source-shape check confirming the
+`_brainstormEnabled` gate in `_handleTeachCommand()` runs (and returns)
+strictly before the `BRAINSTORM_LLM_REQUEST` send call in source order
+(same documented DOM-harness-limitation posture as the reachability checks
+above).
+
+### Rate limit + endpoint - no new surface
+
+A draft costs one LLM-call rate-limit slot, checked/recorded through the
+exact same SW-authoritative `RL_CHECK`/`RL_RECORD` messages the page-lane
+and nav-lane already use - there is no separate "brainstorm budget" to
+reason about. The call goes through the same single `callLocalModelWithPayload()`
+fetch sink to the same `http://127.0.0.1:1238` endpoint;
+`extension/manifest.json` is byte-unchanged (no new `host_permissions`,
+`permissions` still exactly `["storage"]` - pinned directly in
+`tests/m5_scripts.test.js` §9b). `callLocalModelWithPayload()` gained an
+optional `timeoutMs` parameter (default unchanged at the pre-existing 30s,
+so the page-lane and nav-lane are byte-equivalent to their prior behavior);
+the brainstorm lane passes 90s, since drafting up to a 20-line script from
+a single-slot local model can run longer than either short, few-shot-heavy
+prior lane's prompt needs. Both the 512-token cap and the 90s timeout are
+asserted directly against the real captured request/AbortController wiring
+in `tests/brainstorm_lane_isolation.test.js`.
+
+### Disclosed residual - the goal text is the user's own judgment call
+
+A user can paste hostile text into their own goal (e.g. copy-pasted
+instructions from an untrusted source, asking the model to draft something
+harmful). This is the same class of risk as a user hand-typing a hostile
+script directly into `script new` - the containment is unchanged either
+way: the validator (fixed vocabulary, no index addressing, no nested
+run/games/funpack/teach), the full-steps-shown approval card, and every
+`run`-time hard block (credential guard, click-target guard, occlusion
+probe) all still apply. The brainstorm lane does not widen what a user can
+ultimately get the terminal to do - only who authors the script text before
+those same gates see it.
+
+### Scope exclusions (v1)
+
+No memory - stateless, single-shot per invocation (terminal-scoped memory
+across multiple `teach` turns is its own future design, not built here). No
+automatic retry on an INVALID verdict - the human re-runs `teach` with a
+clearer description, or writes the script by hand with `script new`. Single
+endpoint only (v1 hits whatever is behind the one existing `:1238`
+endpoint; a separate, second brainstorm-only endpoint was considered and
+explicitly deferred - it would need a new `host_permissions` entry, a CWS
+re-review, and a config surface the product does not have yet).
