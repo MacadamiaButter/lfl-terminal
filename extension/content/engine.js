@@ -58,7 +58,7 @@
   // terminal.js (script/run need chrome.* async access; pause is dispatched
   // as an ordinary chain segment via _dispatchSegment - see that file's
   // _handleScriptCommand()/_handleRunCommand()/_handlePauseSegment()).
-  reg.register({ name: 'script', argSpec: 'script new|ls|show|rm <name>', help: 'define/list/show/remove a named, parameterized, multi-step script (v1)' });
+  reg.register({ name: 'script', argSpec: 'script new|ls|show|rm <name> | export [<name>|--all] | import', help: 'define/list/show/remove a named, parameterized, multi-step script; export to or import from a plain-text .lflscript file (v1/P2)' });
   reg.register({ name: 'run', argSpec: 'run <name> [args...]', help: 'preview then run a defined script, substituting $1..$9/$@ - Enter to run, Esc to cancel (v1)' });
   reg.register({ name: 'pause', argSpec: 'pause "<instruction>"', help: 'inside a script: stop and hand control back for a manual step (e.g. an index-addressed click); "continue" resumes (v1)' });
   // M4a "friction trio" - three deterministic tools that never call the

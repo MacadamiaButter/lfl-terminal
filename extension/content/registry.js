@@ -381,6 +381,22 @@
       // scripts[name] checks setAlias/setMacro perform above.
       if (aliases[name]) return { ok: false, reason: `"${name}" is already an alias name - unalias it first` };
       if (macros[name]) return { ok: false, reason: `"${name}" is already a macro name - unmacro it first` };
+      // scripts v1 P2 fix (2026-07-14, portability build): setScript() must
+      // reject an EXISTING script of the same name too, not just cross-type
+      // alias/macro collisions - matching what checkNameAvailable() already
+      // promises (its own comment above says exactly this: "cross-checked
+      // against aliases/macros too... setScript() re-runs the same checks at
+      // save time"). The hand-typed `script new <name>` UI flow never
+      // exercised this gap because terminal.js calls checkNameAvailable()
+      // BEFORE capturing a body, which already blocks re-using a taken
+      // script name - but a caller that writes straight to setScript()
+      // (scripts v1 P2's `script import`, in particular - an untrusted
+      // file's script MUST NOT silently overwrite an existing script of the
+      // same name any more than it may silently overwrite an alias/macro)
+      // hit exactly this hole. Redefining your OWN script by name is still
+      // possible the same way an alias/macro already requires:
+      // `script rm <name>` first, then `script new <name>` again.
+      if (scripts[name]) return { ok: false, reason: `"${name}" is already a script name - remove it first (script rm ${name})` };
       const parsed = parseScriptBody(body, { maxSteps: SCRIPT_MAX_STEPS });
       if (!parsed.ok) return { ok: false, reason: parsed.reason };
       scripts[name] = {
@@ -603,6 +619,96 @@
     }
     const { arity, usesRest } = computeArity(steps);
     return { ok: true, steps, arity, usesRest, stepCount: steps.length };
+  }
+
+  // ---- scripts v1 P2 (2026-07-14, portability - LFL-TERMINAL-SCRIPTS-DESIGN.md
+  // "P2 - portability" phase, §9 sign-off #4) ----
+  //
+  // A `.lflscript` file is plain step-per-line text with a `#!lflscript v1`
+  // header the importer version-gates on - not JSON. These two functions
+  // (serializeScripts/parseScriptFile) handle ONLY the FILE'S STRUCTURE:
+  // splitting it into {name, body} pairs, or building one from the stored
+  // scripts object. Neither one validates a body in any way - that is
+  // deliberate. setScript()/parseScriptBody() above is the ONE body-
+  // validation path this store has, for a hand-typed `script new` body and
+  // an imported body alike (see setScript()'s own comment on this). The
+  // importer (terminal.js's `script import`) MUST feed every {name, body}
+  // pair parseScriptFile() returns through setScript() before it is ever
+  // stored - never write the `scripts` map directly from a parsed file. A
+  // file is untrusted text; setScript() is what makes it trusted, exactly
+  // the same way typing a body at the `script new` prompt does.
+  const LFLSCRIPT_HEADER = '#!lflscript v1';
+  const LFLSCRIPT_SECTION_RE = /^#!script\s+(\S+)\s*$/i;
+
+  // Deterministic + round-trippable: scripts sorted by name, each rendered
+  // as a `#!script <name>` header line followed by its stored body verbatim
+  // (the body is already comment/blank-line-stripped - see setScript()/
+  // parseScriptBody() - so nothing further needs stripping here).
+  function serializeScripts(scriptsObj) {
+    const obj = scriptsObj || {};
+    const names = Object.keys(obj).sort();
+    const parts = [LFLSCRIPT_HEADER];
+    for (const name of names) {
+      const entry = obj[name];
+      const body = (entry && typeof entry.body === 'string') ? entry.body : '';
+      parts.push(`#!script ${name}`);
+      parts.push(body);
+    }
+    return parts.join('\n') + '\n';
+  }
+
+  // Parses raw file text into {ok:true, version, scripts:[{name, body}]} or
+  // {ok:false, reason}. Version-gates on the header: the first non-blank
+  // line MUST be exactly LFLSCRIPT_HEADER, or the whole file is rejected
+  // outright (no best-effort parse of a format this importer doesn't
+  // recognize - a future v2 format gets its own gate, not a silent
+  // fallback). Anything before the first `#!script <name>` section header
+  // (besides blank lines) is a structural error, not a script - rejected
+  // with a clear reason rather than silently discarded. A duplicate name
+  // within one file is rejected too (silently merging two bodies under one
+  // name would be confusing, not a security question - just good hygiene).
+  function parseScriptFile(text) {
+    const raw = typeof text === 'string' ? text : '';
+    const lines = raw.split('\n');
+    let i = 0;
+    while (i < lines.length && lines[i].trim() === '') i++;
+    if (i >= lines.length || lines[i].trim() !== LFLSCRIPT_HEADER) {
+      return { ok: false, reason: `not a recognized .lflscript file (missing or unknown "${LFLSCRIPT_HEADER}" header)` };
+    }
+    i++;
+
+    const scripts = [];
+    const seenNames = new Set();
+    let current = null; // { name, lines: [] }
+
+    function closeCurrent() {
+      if (current) scripts.push({ name: current.name, body: current.lines.join('\n').trim() });
+    }
+
+    for (; i < lines.length; i++) {
+      const line = lines[i];
+      const m = line.match(LFLSCRIPT_SECTION_RE);
+      if (m) {
+        closeCurrent();
+        const name = m[1];
+        const lower = name.toLowerCase();
+        if (seenNames.has(lower)) {
+          return { ok: false, reason: `duplicate script name "${name}" in file` };
+        }
+        seenNames.add(lower);
+        current = { name, lines: [] };
+        continue;
+      }
+      if (!current) {
+        if (line.trim() === '') continue; // blank lines before the first section are harmless
+        return { ok: false, reason: 'malformed .lflscript file: content found before any "#!script <name>" header' };
+      }
+      current.lines.push(line);
+    }
+    closeCurrent();
+
+    if (scripts.length === 0) return { ok: false, reason: 'no scripts found in file' };
+    return { ok: true, version: 'v1', scripts };
   }
 
   // Verify fix (2026-07-14 Fable pass, MED): re-validate each step AFTER
@@ -881,5 +987,7 @@
     // scripts v1
     parseScriptBody, substituteParams, tokenizeArgs, stepIsIndexAddressed,
     validateResolvedStep, SCRIPT_MAX_STEPS,
+    // scripts v1 P2 (portability)
+    serializeScripts, parseScriptFile,
   };
 });

@@ -1383,7 +1383,7 @@
       const rest = (m && m[2] || '').trim();
 
       if (!sub) {
-        const msg = 'usage: script new|ls|show|rm <name>';
+        const msg = 'usage: script new|ls|show|rm <name> | export [<name>|--all] | import';
         this.printInfo(msg);
         this._settle(true, msg);
         return;
@@ -1468,9 +1468,168 @@
         return;
       }
 
-      const msg = `unknown script subcommand "${sub}" - try: script new|ls|show|rm <name>`;
+      if (sub === 'export') {
+        this._handleScriptExport(rest);
+        return;
+      }
+
+      if (sub === 'import') {
+        this._handleScriptImport();
+        return;
+      }
+
+      const msg = `unknown script subcommand "${sub}" - try: script new|ls|show|rm <name> | export [<name>|--all] | import`;
       this.printError(msg);
       this._settle(false, msg);
+    }
+
+    // ---- scripts v1 P2 (2026-07-14, portability) - export/import a plain
+    // `.lflscript` file. NO NEW PERMISSIONS: export is a Blob URL + a
+    // transient <a download> click, import is a transient <input type=file>
+    // - both are ordinary page-level DOM APIs, needing no downloads-style
+    // extension permission at all (see manifest.json, unchanged: permissions
+    // stay exactly ["storage"]). Both transient elements live in THIS
+    // instance's own closed shadow root (this.shadow), never the page's
+    // document - the host page can neither see nor interfere with them, and
+    // there is nothing left behind afterwards.
+    //
+    // THE SECURITY INVARIANT (import): an imported file is untrusted text.
+    // _importScriptText() below feeds every {name, body} pair the parser
+    // extracts through this._aliasStore.setScript() - the EXACT SAME write
+    // path a hand-typed `script new` uses, which re-runs parseScriptBody()
+    // (step cap, index-verb rejection, games/funpack/nested-run locks) AND
+    // the one-flat-namespace collision checks against existing
+    // aliases/macros/scripts (registry.js's setScript()). parseScriptFile()
+    // itself validates NOTHING but the file's structural shape (the version
+    // header + name/body splitting) - it cannot be the thing that decides an
+    // imported script is safe, and it doesn't try to be.
+
+    _handleScriptExport(rest) {
+      const arg = (rest || '').trim();
+      const all = !arg || arg === '--all';
+      let toExport;
+      let filename;
+      if (all) {
+        toExport = this._aliasStore.listScripts();
+        if (Object.keys(toExport).length === 0) {
+          const msg = 'no scripts defined - nothing to export';
+          this.printError(msg);
+          this._settle(false, msg);
+          return;
+        }
+        filename = 'scripts.lflscript';
+      } else {
+        const name = arg.toLowerCase();
+        const s = this._aliasStore.getScript(name);
+        if (s === null) {
+          const msg = `no such script: ${arg}`;
+          this.printError(msg);
+          this._settle(false, msg);
+          return;
+        }
+        toExport = { [name]: s };
+        filename = `${name}.lflscript`;
+      }
+      const text = LFL.registry.serializeScripts(toExport);
+      const names = Object.keys(toExport).sort();
+      const ok = this._downloadTextFile(filename, text);
+      const msg = ok
+        ? `exported ${names.length} script(s) to ${filename}: ${names.join(', ')}`
+        : `export failed - could not create the download`;
+      if (ok) this.printOk(msg); else this.printError(msg);
+      this._auditPush({ action: 'script', reason: `export ${names.join(',')}` }, ok ? 'auto' : 'blocked', msg);
+      this._settle(ok, msg);
+    }
+
+    // Thin DOM glue - cannot be unit-tested headlessly (no real file-save
+    // dialog in Node). See this build's report for the manual smoke steps.
+    _downloadTextFile(filename, text) {
+      try {
+        const blob = new Blob([text], { type: 'text/plain' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        this.shadow.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        return true;
+      } catch (_e) {
+        return false;
+      }
+    }
+
+    // Thin DOM glue - cannot be unit-tested headlessly (no real file-picker
+    // dialog in Node). See this build's report for the manual smoke steps.
+    // The 'cancel' event on <input type=file> (Chrome/Edge, which is this
+    // project's v1 target browser - see README) fires when the picker is
+    // dismissed with no file chosen; 'change' fires once a file IS chosen.
+    _handleScriptImport() {
+      this.printInfo('opening file picker for a .lflscript file...');
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.lflscript,text/plain';
+      this.shadow.appendChild(input);
+
+      const finish = (cb) => {
+        input.remove();
+        cb();
+      };
+      const reportCancelled = () => {
+        const msg = 'import cancelled - no file chosen';
+        this.printInfo(msg);
+        this._settle(false, msg);
+      };
+
+      input.addEventListener('change', () => {
+        const file = input.files && input.files[0];
+        if (!file) { finish(reportCancelled); return; }
+        file.text().then((text) => {
+          finish(() => this._importScriptText(text, file.name));
+        }).catch((e) => {
+          finish(() => {
+            const msg = `could not read file: ${e && e.message ? e.message : e}`;
+            this.printError(msg);
+            this._settle(false, msg);
+          });
+        });
+      });
+      input.addEventListener('cancel', () => finish(reportCancelled));
+      input.click();
+    }
+
+    // The one function that decides whether an imported script is safe to
+    // keep: every {name, body} pair from the (untrusted) parsed file is
+    // written through this._aliasStore.setScript() - see this section's
+    // header comment for why that is the ONLY acceptable write path.
+    _importScriptText(text, filename) {
+      const parsed = LFL.registry.parseScriptFile(text);
+      if (!parsed.ok) {
+        const msg = `import failed: ${parsed.reason}`;
+        this.printError(msg);
+        this._auditPush({ action: 'script', reason: `import ${filename || ''}` }, 'blocked', msg);
+        this._settle(false, msg);
+        return;
+      }
+      const imported = [];
+      const skipped = [];
+      for (const entry of parsed.scripts) {
+        const lname = (entry.name || '').toLowerCase();
+        const res = this._aliasStore.setScript(lname, entry.body);
+        if (res.ok) {
+          imported.push(`${lname} (${res.stepCount} step(s))`);
+        } else {
+          skipped.push(`${entry.name}: ${res.reason}`);
+        }
+      }
+      const lines = [`import from ${filename || '(file)'}: ${imported.length} imported, ${skipped.length} skipped`];
+      if (imported.length) lines.push(`  imported: ${imported.join(', ')}`);
+      skipped.forEach((s) => lines.push(`  skipped: ${s}`));
+      const msg = lines.join('\n');
+      if (imported.length) this.printOk(msg); else this.printError(msg);
+      this._auditPush({ action: 'script', reason: `import ${filename || ''}` }, imported.length ? 'auto' : 'blocked', msg.slice(0, 200));
+      this._settle(imported.length > 0, msg);
     }
 
     // One line of an in-progress `script new` capture - see the
