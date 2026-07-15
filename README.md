@@ -174,12 +174,23 @@ everything else in this README; if you didn't give it a name with `as
 <name>`, you're asked for one after approving. Once saved, a taught script is
 an ordinary script - `run <name>` gives it the identical plan-preview and
 per-step approval every hand-typed script gets. Drafting quality depends
-entirely on the model behind your endpoint - both a 4B and a 35B measured
-20/20 valid-script authorship on the internal probe with the shipped system
-prompt (see `docs/threat-model.md`'s M6 section for numbers and caveats); a
+entirely on the model behind your endpoint - measured on the open bench
+(lfl-lab's brainstorm probe, whose default mode builds the request with this
+extension's own payload code, so the numbers are about the exact bytes on
+the wire): a 4B scored 20/20 valid drafts, a 35B 19/20, its one miss an
+over-the-step-cap draft the validator rejected - exactly the designed
+failure mode (see `docs/threat-model.md`'s M6 section for caveats). A
 weaker model just means more drafts get rejected by the validator, never a
 wider trust boundary, since the same fixed vocabulary and approval gate cover
 every draft regardless of which model wrote it.
+
+One phrasing tip that matters: name the destination explicitly. `teach go
+to en.wikipedia.org, search for the eiffel tower, then open the eiffel
+tower article` reliably gets a `go` step; `teach search wikipedia for the
+eiffel tower` tends to read to a small model as "use the search box on
+whatever page I'm on," and the draft will skip the navigation entirely.
+The draft is always shown before you save, so a missing `go` step is
+visible in the approval card - this tip just saves you a re-teach.
 
 A bare number by itself (after `ls`) does the sensible default thing for
 that item: opens a link, clicks a button, or tells you how to fill a field.

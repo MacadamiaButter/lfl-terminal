@@ -775,6 +775,39 @@ function testTaughtArgShapes() {
     assert.strictEqual(det.output, 'no visible link matching "Nonexistent Link"');
   });
 
+  check('equal-score matches tie-break toward the SHORTEST visible text, not document order', () => {
+    // Live smoke 2026-07-15: on the Eiffel Tower article (no exact-text
+    // link visible), first-wins picked the longer "(Delaunay series)"
+    // hatnote purely because it appeared earliest among prefix matches.
+    const longer = fakeAnchor('/wiki/Eiffel_Tower_(Delaunay_series)');
+    longer.textContent = 'Eiffel Tower (Delaunay series)';
+    const shorter = fakeAnchor('/wiki/Eiffel_Tower_facts');
+    shorter.textContent = 'Eiffel Tower facts';
+    sandbox.document.__qsa = [longer, shorter]; // longer FIRST
+    sandbox.location.href = 'https://example.com/page';
+    sandbox.window.LFL.engine.tryDeterministic('open "Eiffel Tower"', freshState());
+    assert.strictEqual(sandbox.location.href, 'https://example.com/wiki/Eiffel_Tower_facts');
+  });
+
+  check('an EXACT match still beats a shorter prefix match - score outranks the length tie-break', () => {
+    const prefix = fakeAnchor('/wiki/ET_facts');
+    prefix.textContent = 'Eiffel Tower f';
+    const exact = fakeAnchor('/wiki/Eiffel_Tower');
+    exact.textContent = 'Eiffel Tower';
+    sandbox.document.__qsa = [prefix, exact];
+    sandbox.location.href = 'https://example.com/page';
+    sandbox.window.LFL.engine.tryDeterministic('open "Eiffel Tower"', freshState());
+    assert.strictEqual(sandbox.location.href, 'https://example.com/wiki/Eiffel_Tower');
+  });
+
+  check('non-matching links never tie-break their way in - no-match detection intact', () => {
+    const unrelated = fakeAnchor('/contact');
+    unrelated.textContent = 'Contact';
+    sandbox.document.__qsa = [unrelated];
+    const det = sandbox.window.LFL.engine.tryDeterministic('open "zzz-nothing"', freshState());
+    assert.match(det.output, /no visible link matching/);
+  });
+
   check('fill <label> with "<text>" and NO prior listing -> auto-builds the listing, strips value quotes, fills', () => {
     const el = fakeInput({ type: 'text' });
     sandbox.window.LFL.axtree.build = () => {

@@ -220,6 +220,7 @@
     const links = visibleLinks();
     let best = null;
     let bestScore = -1;
+    let bestLen = Infinity;
     for (const a of links) {
       const text = (a.textContent || '').trim().toLowerCase();
       if (!text) continue;
@@ -227,8 +228,15 @@
       if (text === query) score = 3;
       else if (text.startsWith(query)) score = 2;
       else if (text.includes(query)) score = 1;
-      if (score > bestScore) {
+      if (score < 0) continue; // non-matches never tie-break their way in
+      // Tie-break equal scores toward the SHORTEST visible text - the link
+      // closest to what was actually typed. Live smoke 2026-07-15: on the
+      // Eiffel Tower article (no exact-text link visible), first-wins picked
+      // the "Eiffel Tower (Delaunay series)" hatnote purely because it
+      // appeared earliest among equal prefix matches.
+      if (score > bestScore || (score === bestScore && text.length < bestLen)) {
         bestScore = score;
+        bestLen = text.length;
         best = a;
       }
     }
