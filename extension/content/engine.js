@@ -211,7 +211,11 @@
   }
 
   function doOpen(linkText, state) {
-    const query = linkText.trim().toLowerCase();
+    // Quoted link text is stripped to what the quotes contain - see
+    // stripOuterQuotes()'s own comment (the brainstorm-lane prompt teaches
+    // `open "Contact us"`, which must match a link whose text is Contact us).
+    const stripped = stripOuterQuotes(linkText);
+    const query = stripped.toLowerCase();
     if (!query) return { output: 'usage: open <link text>' };
     const links = visibleLinks();
     let best = null;
@@ -228,7 +232,12 @@
         best = a;
       }
     }
-    if (!best) return { output: `no visible link matching "${linkText}"` };
+    // Echo the STRIPPED text, not the raw arg: echoing the raw arg made a
+    // genuine no-match on `open "Eiffel Tower"` print the same doubled-quote
+    // message (no visible link matching ""Eiffel Tower"") as the pre-strip
+    // bug it replaced - indistinguishable from the fix not being loaded at
+    // all (live smoke 2026-07-15, twice).
+    if (!best) return { output: `no visible link matching "${stripped}"` };
     let url;
     try {
       url = new URL(best.getAttribute('href'), document.baseURI);
@@ -399,6 +408,23 @@
 
   function fillableFieldEntries(entries) {
     return entries.filter((e) => classifyEntry(e) === 'field');
+  }
+
+  // ---- pure: strip ONE symmetric pair of surrounding double quotes ----
+  // The brainstorm lane's system prompt (and plain shell habit) teaches
+  // quoted arguments - `open "Contact us"`, `fill email with "me@example.com"`
+  // - and `search` already tolerates them, but `open`/`fill` previously
+  // matched the quote characters LITERALLY (live smoke 2026-07-15:
+  // `open "Eiffel Tower"` -> no visible link matching ""Eiffel Tower"").
+  // Only a symmetric OUTER pair is stripped; interior quotes are preserved
+  // and an unmatched quote is left alone (fail toward matching what the
+  // user actually typed rather than guessing).
+  function stripOuterQuotes(s) {
+    const t = (s || '').trim();
+    if (t.length >= 2 && t.charAt(0) === '"' && t.charAt(t.length - 1) === '"') {
+      return t.slice(1, -1).trim();
+    }
+    return t;
   }
 
   // ---- pure: does a visible text node's content match a find query? ----
@@ -619,7 +645,19 @@
   }
 
   function doFillLabel(label, text, state) {
-    if (!state.listingContext) return { output: 'no listing - run `ls` first' };
+    // fill-by-label used to demand the `ls` ritual first ("no listing - run
+    // `ls` first"), which a taught script (brainstorm lane, live smoke
+    // 2026-07-15) can never have performed - the prompt teaches
+    // `fill <label> with "<text>"` with no mention of `ls`. Build the SAME
+    // deterministic listing doLs() builds, fresh, right before use: a fresh
+    // snapshot is strictly safer than a stale one (same live-DOM resolve
+    // either way), and everything downstream is unchanged - doFillIndex()
+    // still routes through executor.execute(), whose hard blocks
+    // (credential fields included) apply exactly as before.
+    if (!state.listingContext) {
+      const built = LFL.axtree.build();
+      state.listingContext = { entries: built.entries, map: built.map, notes: built.notes };
+    }
     const fields = fillableFieldEntries(state.listingContext.entries);
     const res = pickLabelMatch(fields, label);
     if (res.none) return { output: `no fillable field matching "${label}" - try \`ls fields\`` };
@@ -1048,10 +1086,15 @@
 
     // `fill <N> with <text>` (index form) checked before the label form -
     // an all-digit first token is unambiguously an index, never a label.
+    // Both fill forms strip a symmetric outer quote pair from the VALUE
+    // (and the label form from the label too) - the brainstorm-lane prompt
+    // teaches `fill email with "me@example.com"`, and typing literal quote
+    // characters into the field was never what anyone meant. See
+    // stripOuterQuotes()'s own comment.
     m = trimmed.match(/^fill\s+(\d+)\s+with\s+([\s\S]*)$/i);
-    if (m) return doFillIndex(parseInt(m[1], 10), m[2], state);
+    if (m) return doFillIndex(parseInt(m[1], 10), stripOuterQuotes(m[2]), state);
     m = trimmed.match(/^fill\s+(\S[\s\S]*?)\s+with\s+([\s\S]*)$/i);
-    if (m) return doFillLabel(m[1], m[2], state);
+    if (m) return doFillLabel(stripOuterQuotes(m[1]), stripOuterQuotes(m[2]), state);
 
     // ---- M4a: `find` (bare form advances to the next match) ----
     m = trimmed.match(/^find(?:\s+(.+))?$/i);

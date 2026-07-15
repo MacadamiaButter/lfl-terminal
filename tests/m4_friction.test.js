@@ -736,6 +736,100 @@ function testDidYouMean() {
   });
 }
 
+// =====================================================================
+// Part 9 - taught-script argument shapes (brainstorm-lane live smoke,
+// 2026-07-15): the shipped system prompt teaches `open "<link text>"` and
+// `fill <label> with "<text>"` - quoted arguments must match what the
+// quotes CONTAIN (previously the quote characters were matched literally:
+// `open "Eiffel Tower"` -> no visible link matching ""Eiffel Tower""), and
+// fill-by-label must not demand a manual `ls` first (a taught script has
+// never run one - doFillLabel now auto-builds the same deterministic
+// listing doLs() builds). Deterministic parsing/listing changes only - the
+// executor's hard blocks are asserted unchanged by the credential case.
+// =====================================================================
+
+function testTaughtArgShapes() {
+  console.log('\n[9] taught-script argument shapes - quoted open/fill + fill auto-listing');
+
+  const sandbox = buildSandbox();
+
+  check('open "<quoted text>" matches a link whose visible text has NO quotes', () => {
+    const el = fakeAnchor('/wiki/Eiffel_Tower');
+    el.textContent = 'Eiffel Tower';
+    sandbox.document.__qsa = [el];
+    sandbox.location.href = 'https://example.com/page';
+    const det = sandbox.window.LFL.engine.tryDeterministic('open "Eiffel Tower"', freshState());
+    assert.strictEqual(sandbox.location.href, 'https://example.com/wiki/Eiffel_Tower');
+    assert.strictEqual(det.navInitiated, true);
+  });
+
+  check('open with an UNMATCHED leading quote is left alone (matches literally, gentle no-match)', () => {
+    sandbox.document.__qsa = [];
+    const det = sandbox.window.LFL.engine.tryDeterministic('open "half', freshState());
+    assert.match(det.output, /no visible link matching/);
+  });
+
+  check('no-match on a QUOTED arg echoes the STRIPPED text - never the doubled-quote message the pre-strip bug printed', () => {
+    sandbox.document.__qsa = [];
+    const det = sandbox.window.LFL.engine.tryDeterministic('open "Nonexistent Link"', freshState());
+    assert.strictEqual(det.output, 'no visible link matching "Nonexistent Link"');
+  });
+
+  check('fill <label> with "<text>" and NO prior listing -> auto-builds the listing, strips value quotes, fills', () => {
+    const el = fakeInput({ type: 'text' });
+    sandbox.window.LFL.axtree.build = () => {
+      const map = new Map();
+      map.set(1, el);
+      return { entries: [{ index: 1, ref: el, role: 'textbox', name: 'Email', tag: 'input', extra: 'type=text' }], map, notes: [] };
+    };
+    const state = freshState();
+    const det = sandbox.window.LFL.engine.tryDeterministic('fill Email with "me@example.com"', state);
+    assert.match(det.output, /filled \[1\]/);
+    assert.strictEqual(el.value, 'me@example.com');
+    assert.ok(state.listingContext, 'listing context must have been auto-built');
+  });
+
+  check('fill "<quoted label>" matches the unquoted field name too', () => {
+    const el = fakeInput({ type: 'text' });
+    const ctx = makeListingContext([{ index: 1, tag: 'input', role: 'textbox', name: 'Email', extra: 'type=text', el }]);
+    const det = sandbox.window.LFL.engine.tryDeterministic('fill "Email" with hello', freshState(ctx));
+    assert.match(det.output, /filled \[1\]/);
+    assert.strictEqual(el.value, 'hello');
+  });
+
+  check('auto-built listing still routes through the executor credential hard block - value never written', () => {
+    const el = fakeInput({ type: 'password' });
+    sandbox.window.LFL.axtree.build = () => {
+      const map = new Map();
+      map.set(1, el);
+      return { entries: [{ index: 1, ref: el, role: 'textbox', name: 'Password', tag: 'input', extra: 'type=password' }], map, notes: [] };
+    };
+    const det = sandbox.window.LFL.engine.tryDeterministic('fill Password with "hunter2"', freshState());
+    assert.match(det.output, /credentials never go through the model/);
+    assert.strictEqual(el.value, '');
+  });
+
+  check('fill <N> with "<quoted>" strips the outer quotes from the value (index form, listing present)', () => {
+    const el = fakeInput({ type: 'text' });
+    const ctx = makeListingContext([{ index: 1, tag: 'input', role: 'textbox', name: 'Query', extra: 'type=text', el }]);
+    const det = sandbox.window.LFL.engine.tryDeterministic('fill 1 with "intel arc"', freshState(ctx));
+    assert.match(det.output, /filled \[1\]/);
+    assert.strictEqual(el.value, 'intel arc');
+  });
+
+  check('interior quotes are preserved - only ONE symmetric outer pair is stripped', () => {
+    const el = fakeInput({ type: 'text' });
+    const ctx = makeListingContext([{ index: 1, tag: 'input', role: 'textbox', name: 'Query', extra: 'type=text', el }]);
+    sandbox.window.LFL.engine.tryDeterministic('fill 1 with "say "hi" now"', freshState(ctx));
+    assert.strictEqual(el.value, 'say "hi" now');
+  });
+
+  check('fill <N> (index form) with NO listing still errors - index steps are snapshot-bound by design', () => {
+    const det = sandbox.window.LFL.engine.tryDeterministic('fill 1 with x', freshState());
+    assert.match(det.output, /no listing/);
+  });
+}
+
 // ---- run everything ----
 
 console.log('tests/m4_friction.test.js - M4a friction trio: ls+actions, read/find, here+did-you-mean');
@@ -747,6 +841,7 @@ testBareNumber();
 testReadFindPureHelpers();
 testHerePureHelpers();
 testDidYouMean();
+testTaughtArgShapes();
 
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
