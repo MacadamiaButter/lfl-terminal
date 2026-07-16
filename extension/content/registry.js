@@ -185,6 +185,11 @@
     // `alias teach = ...`/`macro teach = ...` would silently make the verb
     // unreachable by its own name), so it is reserved the same way.
     'teach',
+    // popover redesign (2026-07-15, LFL-TERMINAL-POPOVER-REDESIGN.md): `config`
+    // (anchor/middle-click settings), `pin`/`unpin` (freeze the floating panel
+    // in place) - same shadowing footgun as every other standalone control
+    // command above.
+    'config', 'pin', 'unpin',
   ]);
 
   // M4b (design doc §3/§5): games are never allowed to run as part of a
@@ -1068,6 +1073,65 @@
     return cur;
   }
 
+  // Popover redesign (2026-07-15, LFL-TERMINAL-POPOVER-REDESIGN.md §4): pure
+  // placement geometry for the cursor-anchored floating panel. All inputs/
+  // outputs are CSS px, viewport-relative (the panel is `position:fixed`, so
+  // its origin IS the viewport). No DOM, no clock, no randomness - terminal.js
+  // supplies the anchor point, the panel's estimated box, and the current
+  // viewport size; this only does the arithmetic, which is what makes it
+  // unit-testable the same way clampPanelHeightVh/stepPanelPreset are above.
+  const PANEL_PLACEMENT_MARGIN = 8;   // min gap kept from every viewport edge
+  const PANEL_PLACEMENT_OFFSET = 14;  // gap between the anchor point and the panel's near edge
+
+  // Given an anchor point (typically the pointer position at trigger time)
+  // and the panel's box, returns the {left, top} that keeps the panel fully
+  // on-screen: prefers below-and-right of the anchor, shifts left if it would
+  // overflow the right edge, and flips above the anchor (rather than just
+  // clamping down) if it would overflow the bottom edge - clamping only as
+  // the last resort, when the panel is taller or wider than the viewport has
+  // room for either way.
+  function placePanel(opts) {
+    opts = opts || {};
+    const margin = Number.isFinite(opts.margin) ? opts.margin : PANEL_PLACEMENT_MARGIN;
+    const anchorX = Number(opts.anchorX) || 0;
+    const anchorY = Number(opts.anchorY) || 0;
+    const panelW = Math.max(0, Number(opts.panelW) || 0);
+    const panelH = Math.max(0, Number(opts.panelH) || 0);
+    const vpW = Math.max(1, Number(opts.vpW) || 0);
+    const vpH = Math.max(1, Number(opts.vpH) || 0);
+
+    let left = anchorX;
+    const maxLeft = vpW - margin - panelW;
+    const minLeft = margin;
+    if (left > maxLeft) left = maxLeft;
+    if (left < minLeft) left = minLeft;
+
+    let top = anchorY + PANEL_PLACEMENT_OFFSET;
+    const minTop = margin;
+    const maxTop = vpH - margin - panelH;
+    if (top > maxTop) {
+      // Flip above the anchor instead of just clamping down against the
+      // bottom edge - keeps the panel from sitting on top of (and hiding)
+      // whatever the anchor point itself was.
+      const flipped = anchorY - panelH - PANEL_PLACEMENT_OFFSET;
+      top = flipped >= minTop ? flipped : minTop;
+    }
+    if (top < minTop) top = minTop;
+
+    return { left, top };
+  }
+
+  // Deterministic anchor for keyboard-triggered opens (backtick/Ctrl+K/
+  // toolbar) - there is no meaningful pointer position to anchor to (the
+  // mouse could be anywhere), so spawning under a stale/unrelated cursor
+  // position would be worse than a predictable, centered-near-top spot.
+  function defaultAnchor(vpW, vpH, panelW) {
+    const w = Math.max(0, Number(vpW) || 0);
+    const h = Math.max(0, Number(vpH) || 0);
+    const pw = Math.max(0, Number(panelW) || 0);
+    return { x: (w - pw) / 2, y: h * 0.12 };
+  }
+
   return {
     createRegistry, createAliasStore, splitChain, expandAlias, expandMacro,
     damerauLevenshtein, didYouMean, autoOpenMatch, toggleAutoOpen,
@@ -1077,5 +1141,7 @@
     validateResolvedStep, SCRIPT_MAX_STEPS,
     // scripts v1 P2 (portability)
     serializeScripts, parseScriptFile,
+    // popover redesign
+    placePanel, defaultAnchor, PANEL_PLACEMENT_MARGIN, PANEL_PLACEMENT_OFFSET,
   };
 });

@@ -20,15 +20,23 @@
 :host {
   all: initial;
   position: fixed;
-  /* Anchored flush to the viewport bottom: an earlier version offset the
-     whole panel up (40px, then 64px) to clear Chrome's bottom-left status
-     bubble (the "amazon.com/..." destination/hover URL), but that left a
-     transparent strip below the panel where the page showed through. Instead
-     the panel now reaches the bottom edge and the input ROW carries extra
-     bottom padding (see .lfl-inputrow) so its text sits above the bubble
-     while the input-colored block fills down to the edge. Keep in sync with
-     CSS_TEXT in terminal.js. */
-  inset: auto 0 0 0;
+  /* Popover redesign (2026-07-15): the overlay defaults to a cursor-anchored
+     FLOATING panel - terminal.js sets `left`/`top` inline per open() (see
+     _placeAt()/registry.placePanel), so no inset/edge anchoring belongs here
+     any more. `.lfl-dock` (below) is the opt-in legacy bottom-docked bar
+     (`config anchor dock`) that restores the old flush-bottom geometry.
+     `inset: auto` is LOAD-BEARING (verify pass 2026-07-15): the UA popover
+     stylesheet supplies `inset: 0`, and with only left/top overridden inline
+     the leftover right:0/bottom:0 would stretch this transparent host to the
+     viewport's bottom-right corner - swallowing every page click in that
+     region. `all: initial` above already resets inset to auto at author
+     origin (which beats UA origin), but that protection is too subtle to
+     lean on silently - this explicit declaration is here so removing
+     `all: initial` (or reordering) can never quietly reintroduce the
+     click-dead zone. Verified live: host shrink-wraps to the panel and
+     clicks land on page content right next to it.
+     Keep in sync with CSS_TEXT in terminal.js. */
+  inset: auto;
   margin: 0;
   padding: 0;
   border: none;
@@ -41,6 +49,17 @@
   display: block;
 }
 
+/* Legacy dock-bottom mode (`config anchor dock`) - anchored flush to the
+   viewport bottom, full width. Applied via `:host(.lfl-dock)` because this
+   rule targets the host element from inside its OWN shadow tree, same
+   cascade trick the header comment above describes for the popover UA
+   defaults. terminal.js clears any inline left/top before adding this class
+   (inline styles win over this rule's `inset` shorthand otherwise). Keep in
+   sync with CSS_TEXT in terminal.js. */
+:host(.lfl-dock) {
+  inset: auto 0 0 0;
+}
+
 .lfl-panel {
   display: none;
   flex-direction: column;
@@ -49,12 +68,35 @@
   line-height: 1.45;
   color: var(--lfl-fg, #dbe4f0);
   background: var(--lfl-bg, #0b0e14);
-  border-top: 2px solid var(--lfl-accent, #e0a339);
-  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.55);
+  /* Popover redesign (2026-07-15): the default is now a bounded floating
+     box (border-radius + full border + drop shadow), not a full-width bar -
+     see `.lfl-panel.lfl-dock` below for the restored legacy look.
+     min-width in ch (not px) so it scales with font-size and comfortably
+     fits the widest program frame (snake's 24-col board, ~26ch incl.
+     borders) even at the narrowest allowed panel width. Keep in sync with
+     CSS_TEXT in terminal.js. */
+  width: min(520px, 92vw);
+  min-width: 32ch;
+  border: 1px solid var(--lfl-accent, #e0a339);
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
   /* default cap, lowered from 46vh so the panel starts modest; terminal.js
      sets an inline max-height from the persisted/preset height. Keep in sync
      with CSS_TEXT in terminal.js. */
   max-height: 34vh;
+}
+
+/* Legacy dock-bottom mode's panel look: full-width bar, square corners, top
+   accent border instead of a full border, shadow cast upward. Toggled on
+   `.lfl-panel` in lockstep with `.lfl-dock` on the host (see terminal.js's
+   open()). Keep in sync with CSS_TEXT in terminal.js. */
+.lfl-panel.lfl-dock {
+  width: auto;
+  min-width: 0;
+  border: none;
+  border-top: 2px solid var(--lfl-accent, #e0a339);
+  border-radius: 0;
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.55);
 }
 
 /**
@@ -222,6 +264,29 @@
   font-size: 10px;
 }
 
+/* Popover redesign (2026-07-15): pin toggle, rightmost in the titlebar. Only
+   meaningful in floating (non-dock) mode - pinning a full-width docked bar
+   has nothing to drag it to, but the button is left visible in both modes
+   rather than conditionally removed, matching every other titlebar control
+   here (none of them hide themselves for a mode where they'd be a no-op).
+   Keep in sync with CSS_TEXT in terminal.js. */
+.lfl-pin-btn {
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--lfl-border, #2a3140);
+  border-radius: 3px;
+  color: var(--lfl-dim, #5d7290);
+  letter-spacing: normal;
+  text-transform: none;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.lfl-pin-btn.active {
+  border-color: var(--lfl-accent, #e0a339);
+  color: var(--lfl-accent-bright, #f5a623);
+}
+
 .lfl-output {
   flex: 1;
   overflow-y: auto;
@@ -344,13 +409,22 @@
 .lfl-inputrow {
   display: flex;
   align-items: center;
-  /* extra bottom padding lifts the input text ~1.5 rows so it clears Chrome's
-     bottom-left status bubble, while this row's own input-bg fills the gap
-     down to the viewport bottom (the panel is anchored flush there now, so
-     no page shows through). Keep in sync with CSS_TEXT in terminal.js. */
-  padding: 6px 10px 26px 10px;
+  /* Popover redesign (2026-07-15): ordinary padding by default now that the
+     panel floats instead of sitting flush against the viewport bottom - the
+     Chrome hover-URL bubble clearance below only applies in dock mode. Keep
+     in sync with CSS_TEXT in terminal.js. */
+  padding: 6px 10px 8px 10px;
   border-top: 1px solid var(--lfl-border, #2a3140);
   background: var(--lfl-input-bg, #0e131c);
+}
+
+/* Legacy dock-bottom mode only: extra bottom padding lifts the input text
+   ~1.5 rows so it clears Chrome's bottom-left status bubble (the
+   "example.com/..." destination/hover URL), while this row's own input-bg
+   fills the gap down to the viewport bottom. Keep in sync with CSS_TEXT in
+   terminal.js. */
+.lfl-panel.lfl-dock .lfl-inputrow {
+  padding-bottom: 26px;
 }
 
 .lfl-prompt {

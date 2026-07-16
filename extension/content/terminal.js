@@ -82,8 +82,10 @@
 
   // Kept in sync with content/terminal.css - see the TODO note there.
   const CSS_TEXT = `
-:host{all:initial;position:fixed;inset:auto 0 0 0;margin:0;padding:0;border:none;width:auto;height:auto;background:transparent;color:inherit;overflow:visible;z-index:2147483647;display:block;}
-.lfl-panel{display:none;flex-direction:column;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.45;color:var(--lfl-fg,#dbe4f0);background:var(--lfl-bg,#0b0e14);border-top:2px solid var(--lfl-accent,#e0a339);box-shadow:0 -8px 24px rgba(0,0,0,.55);max-height:34vh;}
+:host{all:initial;position:fixed;inset:auto;margin:0;padding:0;border:none;width:auto;height:auto;background:transparent;color:inherit;overflow:visible;z-index:2147483647;display:block;}
+:host(.lfl-dock){inset:auto 0 0 0;}
+.lfl-panel{display:none;flex-direction:column;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.45;color:var(--lfl-fg,#dbe4f0);background:var(--lfl-bg,#0b0e14);width:min(520px,92vw);min-width:32ch;border:1px solid var(--lfl-accent,#e0a339);border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.6);max-height:34vh;}
+.lfl-panel.lfl-dock{width:auto;min-width:0;border:none;border-top:2px solid var(--lfl-accent,#e0a339);border-radius:0;box-shadow:0 -8px 24px rgba(0,0,0,.55);}
 .lfl-panel.lfl-open{display:flex;}
 .lfl-panel.lfl-collapsed .lfl-output{display:none;}
 .lfl-resizer{flex:0 0 auto;height:7px;cursor:ns-resize;background:var(--lfl-titlebar-bg,#151a24);}
@@ -96,6 +98,8 @@
 .lfl-titlebar .lfl-caret{color:var(--lfl-dim,#5d7290);margin-right:2px;font-size:10px;}
 .lfl-titlebar .lfl-badge{color:var(--lfl-accent,#e0a339);}
 .lfl-titlebar .lfl-budget{margin-left:auto;color:var(--lfl-dim,#5d7290);letter-spacing:normal;text-transform:none;font-size:10px;}
+.lfl-pin-btn{margin-left:8px;padding:1px 6px;border:1px solid var(--lfl-border,#2a3140);border-radius:3px;color:var(--lfl-dim,#5d7290);letter-spacing:normal;text-transform:none;font-size:10px;cursor:pointer;}
+.lfl-pin-btn.active{border-color:var(--lfl-accent,#e0a339);color:var(--lfl-accent-bright,#f5a623);}
 .lfl-output{flex:1;overflow-y:auto;padding:8px 10px;white-space:pre-wrap;word-break:break-word;}
 .lfl-line{margin:0 0 4px 0;}
 .lfl-line.lfl-cmd{color:var(--lfl-cmd,#8fd0ff);}
@@ -116,7 +120,8 @@
 .lfl-approve-btn:focus{outline:2px solid var(--lfl-ok,#7ee787);outline-offset:2px;}
 .lfl-reject-btn{background:var(--lfl-reject-bg,#3a1c1c);border:1px solid var(--lfl-error,#ff6b6b);color:var(--lfl-error,#ff6b6b);}
 .lfl-reject-btn:focus{outline:2px solid var(--lfl-error,#ff6b6b);outline-offset:2px;}
-.lfl-inputrow{display:flex;align-items:center;padding:6px 10px 26px 10px;border-top:1px solid var(--lfl-border,#2a3140);background:var(--lfl-input-bg,#0e131c);}
+.lfl-inputrow{display:flex;align-items:center;padding:6px 10px 8px 10px;border-top:1px solid var(--lfl-border,#2a3140);background:var(--lfl-input-bg,#0e131c);}
+.lfl-panel.lfl-dock .lfl-inputrow{padding-bottom:26px;}
 .lfl-prompt{color:var(--lfl-accent,#e0a339);margin-right:6px;}
 .lfl-input{flex:1;background:transparent;border:none;outline:none;color:var(--lfl-fg,#dbe4f0);font:inherit;}
 .lfl-input::placeholder{color:var(--lfl-dim-input,#4b5768);}
@@ -238,6 +243,22 @@
       // stays on the 'default' theme's fallback CSS values until then, the
       // safe default direction. See _loadTheme()/_applyTheme() below.
       this._loadTheme();
+      // Popover redesign (2026-07-15, LFL-TERMINAL-POPOVER-REDESIGN.md): the
+      // floating-panel placement prefs. Fail-closed to the safe/default
+      // direction (cursor mode, unpinned, middle-click OFF) until storage
+      // resolves - same posture as _devHooksEnabled/_brainstormEnabled above.
+      // `_lastPointer` is the last TRUSTED pointer position seen anywhere on
+      // the page (see _onPointerMove()) - null until one arrives, which is
+      // exactly what makes a keyboard-triggered open fall back to
+      // _keyboardAnchor() instead of an unrelated stale position (design §5).
+      this._anchorMode = 'cursor';
+      this._pinned = false;
+      this._panelPos = null;
+      this._middleClickOpen = false;
+      this._middleClickModifier = 'none';
+      this._lastPointer = null;
+      this._titlebarDragged = false;
+      this._loadPlacementPrefs();
       this.elementMap = new Map();
       this._lastCommand = '';
       // Monotonic counter bumped at every "settle" point (deterministic result
@@ -348,6 +369,37 @@
       } catch (_e) { /* storage unavailable - stays off, the safe default */ }
     }
 
+    // Popover redesign (2026-07-15): loads the five placement/trigger prefs
+    // in one round trip. Any missing/malformed stored value falls back to
+    // the safe default already set in the constructor rather than throwing
+    // or applying garbage - same fail-closed-to-default posture as every
+    // other _load*Flag() method in this class.
+    _loadPlacementPrefs() {
+      try {
+        chrome.storage.local.get(
+          ['lflAnchorMode', 'lflPanelPinned', 'lflPanelPos', 'lflMiddleClickOpen', 'lflMiddleClickModifier'],
+          (res) => {
+            if (chrome.runtime.lastError || !res) return;
+            if (res.lflAnchorMode === 'dock' || res.lflAnchorMode === 'cursor') this._anchorMode = res.lflAnchorMode;
+            this._pinned = !!res.lflPanelPinned;
+            if (res.lflPanelPos && typeof res.lflPanelPos.left === 'number' && typeof res.lflPanelPos.top === 'number') {
+              this._panelPos = res.lflPanelPos;
+            }
+            this._middleClickOpen = !!res.lflMiddleClickOpen;
+            this._middleClickModifier = res.lflMiddleClickModifier === 'alt' ? 'alt' : 'none';
+            this._applyPinButtonState();
+          },
+        );
+      } catch (_e) { /* storage unavailable - stays cursor/unpinned/middle-click-off */ }
+    }
+
+    // Single best-effort write path for every placement/trigger pref -
+    // callers pass only the keys they're changing (chrome.storage.local.set
+    // merges, it does not replace the whole bag).
+    _persistPlacementPrefs(patch) {
+      try { chrome.storage.local.set(patch); } catch (_e) { /* best-effort */ }
+    }
+
     async _restoreTerminalState() {
       // Scrollback restore - display-only, rendered via the DOM-only helper
       // (never re-persisted, never re-executed, never fed into either LLM
@@ -452,8 +504,18 @@
       const titlebar = document.createElement('div');
       titlebar.className = 'lfl-titlebar';
       titlebar.title = 'click to fold / unfold (or Ctrl+`)';
+      // Popover redesign (2026-07-15): dragging the titlebar (while pinned)
+      // moves the floating panel - see _startTitlebarDrag(). That has to be
+      // disambiguated from the pre-existing click-to-collapse toggle below:
+      // mousedown starts a potential drag, and the 'click' handler skips the
+      // collapse toggle if that gesture actually moved the panel past the
+      // threshold (_titlebarDragged), so a real drag never ALSO folds the
+      // panel on release.
+      titlebar.addEventListener('mousedown', (e) => this._startTitlebarDrag(e));
       titlebar.addEventListener('click', (e) => {
         if (!LFL.guards.isTrustedInputEvent(e)) return; // M3 H1 - see guards.js
+        if (this._titlebarDragged) { this._titlebarDragged = false; return; }
+        if (e.target === this.pinBtn) return; // the pin button handles its own click below
         this._toggleCollapse();
       });
       this.caretEl = document.createElement('span');
@@ -466,10 +528,25 @@
       hint.textContent = '` toggle · Esc close · Ctrl+` fold · Ctrl+Up/Down size';
       this.budgetEl = document.createElement('span');
       this.budgetEl.className = 'lfl-budget';
+      // Popover redesign: pin toggle - freezes the floating panel at its
+      // current spot (draggable via the titlebar) instead of re-anchoring to
+      // the cursor on every open. No-op-looking in dock mode (nothing to pin
+      // a full-width bar to) but left visible there too, same as every other
+      // titlebar control.
+      this.pinBtn = document.createElement('span');
+      this.pinBtn.className = 'lfl-pin-btn';
+      this.pinBtn.title = 'pin panel in place (drag titlebar to move) - or type "pin"/"unpin"';
+      this.pinBtn.textContent = 'pin';
+      this.pinBtn.addEventListener('click', (e) => {
+        if (!LFL.guards.isTrustedInputEvent(e)) return; // M3 H1 - see guards.js
+        e.stopPropagation(); // don't also fire the titlebar's own collapse toggle
+        this._togglePinned();
+      });
       titlebar.appendChild(this.caretEl);
       titlebar.appendChild(badge);
       titlebar.appendChild(hint);
       titlebar.appendChild(this.budgetEl);
+      titlebar.appendChild(this.pinBtn);
 
       this.outputEl = document.createElement('div');
       this.outputEl.className = 'lfl-output';
@@ -540,6 +617,35 @@
     _wireEvents() {
       document.addEventListener('keydown', this._onGlobalKeydown.bind(this), true);
       this.inputEl.addEventListener('keydown', this._onInputKeydown.bind(this));
+      // Popover redesign (2026-07-15): tracks the last TRUSTED pointer
+      // position anywhere on the page, so a mouse-triggered open can anchor
+      // the panel there (see open()/_placeAt()). isTrusted-gated (design §5/
+      // §7) so a page cannot dispatch a synthetic pointermove to pre-seed
+      // where our panel will draw - see guards.js's isTrustedInputEvent.
+      // passive+capture: cheap (never calls preventDefault) and sees the
+      // event regardless of whether page script stops propagation on it.
+      document.addEventListener('pointermove', this._onPointerMove.bind(this), { passive: true, capture: true });
+      // Popover redesign: opt-in middle-click trigger (default OFF - see
+      // _handleConfigCommand()/config middleclick). auxclick is the correct
+      // event for acting on a completed non-primary-button click per spec.
+      // Verify fix (2026-07-15 Fable pass): Chrome engages middle-click
+      // autoscroll at MOUSEDOWN time (the scroll-origin marker appears
+      // before the button is even released, on platforms that have
+      // autoscroll at all - Windows; Linux Chrome has none), so a
+      // preventDefault() in the auxclick handler fires too late to suppress
+      // it. The mousedown listener below cancels the default under EXACTLY
+      // the same conditions _onAuxClick() acts on (same trust gate, same
+      // enable/modifier flags, same inert-background test), so autoscroll
+      // never starts for a click this feature is about to consume - and is
+      // left completely untouched for every click it isn't.
+      document.addEventListener('auxclick', this._onAuxClick.bind(this), true);
+      document.addEventListener('mousedown', (e) => {
+        if (!LFL.guards.isTrustedInputEvent(e)) return; // M3 H1 - see guards.js
+        if (e.button !== 1 || !this._middleClickOpen) return;
+        if (this._middleClickModifier === 'alt' && !e.altKey) return;
+        if (!this._isInertBackgroundTarget(e.target)) return;
+        e.preventDefault();
+      }, true);
       // Toolbar button (SW -> content, 2026-07-14): the browser-action click
       // handler in the service worker sends TOGGLE_TERMINAL to this tab. This is
       // an extension-internal message (a web page cannot reach a content
@@ -761,7 +867,37 @@
       return this.panel.classList.contains('lfl-open');
     }
 
-    open() {
+    // Popover redesign (2026-07-15): `opts.anchor` ({x, y}, viewport-relative)
+    // is where a mouse-triggered open (currently only the opt-in middle-click
+    // handler) wants the panel to spawn. Every other trigger (backtick,
+    // Ctrl+K, the toolbar button, a restored open-state after navigation)
+    // omits it, which falls back to _keyboardAnchor() - see design §5/§6 for
+    // why a keyboard-triggered open must never use a possibly-stale/unrelated
+    // pointer position instead.
+    open(opts) {
+      opts = opts || {};
+      if (this._anchorMode === 'dock') {
+        // Legacy bottom-docked bar (`config anchor dock`) - clear any
+        // leftover inline left/top from a previous cursor-mode placement
+        // FIRST: inline styles win over the `:host(.lfl-dock)` rule's inset
+        // shorthand for those same two longhands, so a stale inline position
+        // would otherwise fight the dock geometry (see terminal.css's own
+        // comment on this).
+        this.host.style.left = '';
+        this.host.style.top = '';
+        this.host.classList.add('lfl-dock');
+        this.panel.classList.add('lfl-dock');
+      } else {
+        this.host.classList.remove('lfl-dock');
+        this.panel.classList.remove('lfl-dock');
+        if (this._pinned && this._panelPos) {
+          this.host.style.left = `${this._panelPos.left}px`;
+          this.host.style.top = `${this._panelPos.top}px`;
+        } else {
+          const anchor = opts.anchor || this._keyboardAnchor();
+          this._placeAt(anchor.x, anchor.y);
+        }
+      }
       if (this._popoverSupported) {
         try { this.host.showPopover(); } catch (_e) { /* already open - ignore */ }
       }
@@ -839,6 +975,158 @@
     toggle() {
       if (this.isOpen()) this.close();
       else this.open();
+    }
+
+    // ---- popover redesign (2026-07-15, LFL-TERMINAL-POPOVER-REDESIGN.md) ----
+    //
+    // Cursor-anchored floating panel: placement math is pure (registry.js's
+    // placePanel/defaultAnchor, unit-tested in tests/panel_placement.test.js)
+    // - everything here is the DOM/storage glue around it, mirroring the
+    // collapse+resize section's own split below.
+
+    // isTrusted-gated (design §5/§7): a page must not be able to pre-seed
+    // where our panel will spawn by dispatching a synthetic pointermove.
+    _onPointerMove(e) {
+      if (!LFL.guards.isTrustedInputEvent(e)) return;
+      this._lastPointer = { x: e.clientX, y: e.clientY };
+    }
+
+    // Deterministic fallback anchor for keyboard/toolbar-triggered opens (no
+    // real pointer position to use - see design §5). Estimates the panel's
+    // width from the same CSS formula as the stylesheet (`min(520px, 92vw)`)
+    // since the panel has no laid-out box to measure while `display:none`.
+    _keyboardAnchor() {
+      const vpW = window.innerWidth || document.documentElement.clientWidth || 800;
+      const vpH = window.innerHeight || document.documentElement.clientHeight || 600;
+      const width = Math.min(520, vpW * 0.92);
+      return LFL.registry.defaultAnchor(vpW, vpH, width);
+    }
+
+    // Computes and applies the panel's on-screen position for the given
+    // anchor point (viewport-relative px). Panel width/height are ESTIMATED
+    // from the same CSS the stylesheet uses (the real box can't be measured
+    // while `display:none`) - close enough for placement purposes; the panel
+    // is a fixed-position overlay, not laid-out content, so an estimate that
+    // is off by a few px never causes reflow or clipping, only a placement
+    // that is a little less than pixel-perfect.
+    _placeAt(anchorX, anchorY) {
+      const vpW = window.innerWidth || document.documentElement.clientWidth || 800;
+      const vpH = window.innerHeight || document.documentElement.clientHeight || 600;
+      const width = Math.min(520, vpW * 0.92);
+      const heightVh = this._panelHeightVh || LFL.registry.PANEL_DEFAULT_VH;
+      const height = Math.min((heightVh / 100) * vpH, vpH - 2 * LFL.registry.PANEL_PLACEMENT_MARGIN);
+      const { left, top } = LFL.registry.placePanel({
+        anchorX, anchorY, panelW: width, panelH: height, vpW, vpH,
+      });
+      this.host.style.left = `${left}px`;
+      this.host.style.top = `${top}px`;
+    }
+
+    // Pin toggle (titlebar button + `pin`/`unpin` commands - see
+    // _handlePinCommand()). Pinning captures the panel's CURRENT on-screen
+    // spot as the persisted anchor for future opens; unpinning drops it, so
+    // the next open re-anchors to the cursor (or the keyboard fallback)
+    // again. Only meaningful in cursor mode - has no effect on a docked bar,
+    // but toggling it is harmless there too (the position is simply unused
+    // until the user switches back to cursor mode).
+    _togglePinned() {
+      this._pinned = !this._pinned;
+      if (this._pinned) {
+        const rect = this.host.getBoundingClientRect();
+        this._panelPos = { left: rect.left, top: rect.top };
+      } else {
+        this._panelPos = null;
+      }
+      this._persistPlacementPrefs({ lflPanelPinned: this._pinned, lflPanelPos: this._panelPos });
+      this._applyPinButtonState();
+    }
+
+    _applyPinButtonState() {
+      if (this.pinBtn) this.pinBtn.classList.toggle('active', this._pinned);
+    }
+
+    // Drag-to-move (only meaningful once pinned - see _togglePinned()).
+    // Mirrors _startResize()'s isTrusted-gated mousemove/mouseup pattern.
+    // Disambiguated from the titlebar's ordinary click-to-collapse toggle by
+    // a 4px movement threshold (`_titlebarDragged`) - the 'click' handler
+    // (see _buildDom()) checks that flag and skips the collapse toggle if
+    // this gesture actually moved the panel.
+    _startTitlebarDrag(e) {
+      if (!LFL.guards.isTrustedInputEvent(e)) return; // M3 H1 - see guards.js
+      if (!this._pinned) return;
+      if (e.target === this.pinBtn) return; // the pin button handles its own click
+      const startX = e.clientX;
+      const startY = e.clientY;
+      const rect = this.host.getBoundingClientRect();
+      const startLeft = rect.left;
+      const startTop = rect.top;
+      this._titlebarDragged = false;
+      const onMove = (ev) => {
+        const dx = ev.clientX - startX;
+        const dy = ev.clientY - startY;
+        if (!this._titlebarDragged && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) this._titlebarDragged = true;
+        if (!this._titlebarDragged) return;
+        const vpW = window.innerWidth || document.documentElement.clientWidth || 800;
+        const vpH = window.innerHeight || document.documentElement.clientHeight || 600;
+        const panelRect = this.panel.getBoundingClientRect();
+        const left = Math.min(Math.max(startLeft + dx, 0), Math.max(0, vpW - panelRect.width));
+        const top = Math.min(Math.max(startTop + dy, 0), Math.max(0, vpH - panelRect.height));
+        this.host.style.left = `${left}px`;
+        this.host.style.top = `${top}px`;
+      };
+      const onUp = () => {
+        window.removeEventListener('mousemove', onMove, true);
+        window.removeEventListener('mouseup', onUp, true);
+        if (this._titlebarDragged) {
+          const finalRect = this.host.getBoundingClientRect();
+          this._panelPos = { left: finalRect.left, top: finalRect.top };
+          this._persistPlacementPrefs({ lflPanelPos: this._panelPos });
+        }
+      };
+      window.addEventListener('mousemove', onMove, true);
+      window.addEventListener('mouseup', onUp, true);
+    }
+
+    // Opt-in middle-click trigger (design §6.1) - default OFF
+    // (`lflMiddleClickOpen`, toggled via `config middleclick on|off|alt`).
+    // Plain middle-click natively starts autoscroll (Linux/Windows) and
+    // opens links in a new tab; hijacking it unconditionally across
+    // `<all_urls>` would break ordinary browsing. Resolution: only acts on
+    // INERT background (never a link/button/field/selection/our own host -
+    // see _isInertBackgroundTarget()), and only when enabled; every other
+    // middle-click passes through untouched, native behavior intact.
+    _onAuxClick(e) {
+      if (!LFL.guards.isTrustedInputEvent(e)) return; // M3 H1 - see guards.js
+      if (e.button !== 1) return; // middle button only
+      if (!this._middleClickOpen) return;
+      if (this._middleClickModifier === 'alt' && !e.altKey) return;
+      if (!this._isInertBackgroundTarget(e.target)) return;
+      e.preventDefault(); // suppress native autoscroll for the click we're about to act on
+      if (this.isOpen()) {
+        this.close();
+      } else {
+        this.open({ anchor: { x: e.clientX, y: e.clientY } });
+      }
+    }
+
+    // True only for a click on ordinary page background: not a link/button/
+    // form field/contenteditable/summary (native middle-click on those keeps
+    // its own meaning - open-in-tab, native widget behavior, etc.), not
+    // inside our own overlay, and not while the user has an active text
+    // selection (a middle-click there is very likely "I meant to interact
+    // with my selection", not "summon the terminal").
+    _isInertBackgroundTarget(target) {
+      if (!target) return true;
+      if (this.host && (target === this.host || (typeof this.host.contains === 'function' && this.host.contains(target)))) {
+        return false;
+      }
+      const interactive = typeof target.closest === 'function'
+        ? target.closest('a[href], button, input, textarea, select, [contenteditable], summary, label')
+        : null;
+      if (interactive) return false;
+      const sel = typeof window.getSelection === 'function' ? window.getSelection() : null;
+      if (sel && !sel.isCollapsed) return false;
+      return true;
     }
 
     // ---- collapse + resize (2026-07-14) ----
@@ -1146,6 +1434,13 @@
       if (/^stats$/i.test(raw)) { this._handleStats(); return; }
       if (/^theme(\s|$)/i.test(raw)) { this._handleTheme(raw); return; }
       if (/^cowsay(\s|$)/i.test(raw)) { this._handleCowsay(raw); return; }
+      // Popover redesign (2026-07-15) - same "standalone control command, no
+      // chain participation" posture as the rest of this cluster (they need
+      // chrome.storage.local access this file's synchronous engine.js
+      // counterpart doesn't have).
+      if (/^config(\s|$)/i.test(raw)) { this._handleConfigCommand(raw); return; }
+      if (/^pin$/i.test(raw)) { this._handlePinCommand(true); return; }
+      if (/^unpin$/i.test(raw)) { this._handlePinCommand(false); return; }
 
       this._runChain(raw);
     }
@@ -2329,6 +2624,116 @@
       this._settle(true, msg);
     }
 
+    // ---- popover redesign: `config` / `pin` / `unpin` (2026-07-15) ----
+
+    _configStatusText() {
+      const mc = !this._middleClickOpen
+        ? 'off'
+        : (this._middleClickModifier === 'alt' ? 'on (alt+middle-click)' : 'on (plain middle-click)');
+      return [
+        `anchor: ${this._anchorMode}  (config anchor cursor|dock)`,
+        `pinned: ${this._pinned ? 'yes' : 'no'}  (pin / unpin, or the titlebar pin button)`,
+        `middle-click open: ${mc}  (config middleclick on|off|alt|plain)`,
+      ].join('\n');
+    }
+
+    _handleConfigCommand(raw) {
+      const parts = raw.trim().split(/\s+/);
+      if (parts.length === 1) {
+        const msg = this._configStatusText();
+        this.printInfo(msg);
+        this._auditPush({ action: 'config' }, 'auto', msg.slice(0, 160));
+        this._settle(true, msg);
+        return;
+      }
+      const sub = parts[1].toLowerCase();
+      if (sub === 'anchor') {
+        const val = (parts[2] || '').toLowerCase();
+        if (val !== 'cursor' && val !== 'dock') {
+          const msg = 'config anchor: expected "cursor" or "dock"';
+          this.printError(msg);
+          this._auditPush({ action: 'config' }, 'blocked', msg);
+          this._settle(false, msg);
+          return;
+        }
+        this._anchorMode = val;
+        this._persistPlacementPrefs({ lflAnchorMode: val });
+        const msg = `anchor mode set: ${val}`;
+        this.printOk(msg);
+        this._auditPush({ action: 'config' }, 'auto', msg);
+        this._settle(true, msg);
+        return;
+      }
+      if (sub === 'middleclick') {
+        const val = (parts[2] || '').toLowerCase();
+        if (val === 'on') {
+          this._middleClickOpen = true;
+          this._middleClickModifier = 'none';
+          this._persistPlacementPrefs({ lflMiddleClickOpen: true, lflMiddleClickModifier: 'none' });
+          const msg = 'middle-click open: ON - plain middle-click over inert page background summons the panel; '
+            + 'native middle-click autoscroll no longer starts there (links/buttons/fields/selected text are unaffected)';
+          this.printOk(msg);
+          this._auditPush({ action: 'config' }, 'auto', msg.slice(0, 160));
+          this._settle(true, msg);
+          return;
+        }
+        if (val === 'off') {
+          this._middleClickOpen = false;
+          this._persistPlacementPrefs({ lflMiddleClickOpen: false });
+          const msg = 'middle-click open: OFF - native middle-click autoscroll restored';
+          this.printOk(msg);
+          this._auditPush({ action: 'config' }, 'auto', msg);
+          this._settle(true, msg);
+          return;
+        }
+        if (val === 'alt') {
+          this._middleClickOpen = true;
+          this._middleClickModifier = 'alt';
+          this._persistPlacementPrefs({ lflMiddleClickOpen: true, lflMiddleClickModifier: 'alt' });
+          const msg = 'middle-click open: ON, Alt+middle-click only - plain middle-click keeps native autoscroll';
+          this.printOk(msg);
+          this._auditPush({ action: 'config' }, 'auto', msg);
+          this._settle(true, msg);
+          return;
+        }
+        if (val === 'plain') {
+          this._middleClickModifier = 'none';
+          this._persistPlacementPrefs({ lflMiddleClickModifier: 'none' });
+          const msg = 'middle-click modifier reset: plain middle-click (must also be "on" to take effect)';
+          this.printOk(msg);
+          this._auditPush({ action: 'config' }, 'auto', msg);
+          this._settle(true, msg);
+          return;
+        }
+        const msg = 'config middleclick: expected "on", "off", "alt", or "plain"';
+        this.printError(msg);
+        this._auditPush({ action: 'config' }, 'blocked', msg);
+        this._settle(false, msg);
+        return;
+      }
+      const msg = `config: unknown setting "${parts[1]}" - try: config anchor cursor|dock, config middleclick on|off|alt|plain`;
+      this.printError(msg);
+      this._auditPush({ action: 'config' }, 'blocked', msg);
+      this._settle(false, msg);
+    }
+
+    _handlePinCommand(shouldPin) {
+      if (this._pinned === shouldPin) {
+        const msg = shouldPin ? 'panel is already pinned' : 'panel is already unpinned';
+        this.printInfo(msg);
+        this._auditPush({ action: shouldPin ? 'pin' : 'unpin' }, 'auto', msg);
+        this._settle(true, msg);
+        return;
+      }
+      this._togglePinned();
+      const msg = shouldPin
+        ? 'panel pinned - drag the titlebar to move it, or type "unpin"'
+        : 'panel unpinned - reopens at the cursor';
+      this.printOk(msg);
+      this._auditPush({ action: shouldPin ? 'pin' : 'unpin' }, 'auto', msg);
+      this._settle(true, msg);
+    }
+
     _handleCowsay(raw) {
       const m = raw.match(/^cowsay\s+([\s\S]+)$/i);
       const text = m ? m[1].trim() : '';
@@ -3466,6 +3871,15 @@
             }
           : null,
         pendingNav: this.state.pendingNav ? Object.assign({}, this.state.pendingNav) : null,
+        // Popover redesign (2026-07-15): exposes placement state the same
+        // way as everything else here - so a test can verify anchor mode/
+        // pin state without piercing the closed shadow root (see class
+        // header comment on why the panel/pin-button internals are
+        // otherwise invisible to page-context JS).
+        anchorMode: this._anchorMode,
+        pinned: this._pinned,
+        middleClickOpen: this._middleClickOpen,
+        middleClickModifier: this._middleClickModifier,
       };
       this.host.setAttribute('data-lfl-state', JSON.stringify(payload));
     }

@@ -1623,3 +1623,56 @@ endpoint only (v1 hits whatever is behind the one existing `:1238`
 endpoint; a separate, second brainstorm-only endpoint was considered and
 explicitly deferred - it would need a new `host_permissions` entry, a CWS
 re-review, and a config surface the product does not have yet).
+
+## Popover redesign (2026-07-15, LFL-TERMINAL-POPOVER-REDESIGN.md)
+
+A presentation/placement change only: the overlay now defaults to a
+cursor-anchored floating panel (spawned near the pointer, or a deterministic
+top-center spot for keyboard/toolbar triggers) instead of a full-width bar
+docked to the viewport bottom, plus an opt-in pin/drag mode and an opt-in
+middle-click trigger. None of the approval gate, execution guards, isolation
+boundaries, or storage/rate-limit machinery documented elsewhere in this file
+changed - every hard block still applies exactly as before regardless of
+where the panel happens to be drawn on screen.
+
+### New surface, and how it's gated
+
+Three new event listeners were added: a `pointermove` capture (remembers the
+last real pointer position, purely to anchor the NEXT open - see design §5),
+an `auxclick` handler (the opt-in middle-click trigger, off by default - see
+design §6.1), and a titlebar `mousedown` (drag-to-move, only live once the
+panel is pinned). All three are gated by the same `isTrustedInputEvent` check
+(H1, above) every other input handler in this file uses - a page cannot
+dispatch a synthetic pointermove/auxclick/mousedown to pre-seed where the
+panel will spawn, drag it somewhere of the page's choosing, or fake the
+middle-click trigger itself. Opening the panel (however it's triggered) does
+not execute or mutate anything - the approval gate, occlusion probe, and
+every executor-level hard block are unchanged and still run at their usual
+point, unaffected by which anchor mode drew the box.
+
+### Middle-click's inert-background heuristic - disclosed residual
+
+The opt-in middle-click trigger (`config middleclick on`) only acts when the
+click target is not a link/button/form field/`contenteditable`/`summary`/
+`label` and there is no active text selection (`_isInertBackgroundTarget()`).
+This is a best-effort heuristic, not a security boundary: a page could in
+principle style an interactive-looking element to visually resemble
+background, or vice versa, biasing where a middle-click "lands" from the
+user's perspective. This is the same class of residual the site-level "what
+it will not do" disclosure already covers for the model-proposal lane (a page
+can try to bias which legitimate action gets proposed) - here the equivalent
+statement is "a page can try to bias where inert background appears to be".
+The heuristic being wrong in either direction only changes whether the
+terminal opens/closes at a given click; it cannot make an unapproved action
+execute, and toggling `config middleclick off` (the default) removes this
+surface entirely.
+
+### Scope exclusions
+
+No auto-hide/light-dismiss on outside click (the panel keeps its existing
+`popover="manual"` semantics - see M2.1, above - explicit close/Esc/toggle
+only). No touch/pointer-device-specific gestures beyond the mouse-only
+middle-click and drag - a touch-only device falls back to the keyboard/
+toolbar triggers and the deterministic anchor. No multi-monitor-aware
+placement beyond the single `window.innerWidth/innerHeight` viewport the
+panel already lives in.

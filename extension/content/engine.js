@@ -54,6 +54,13 @@
   reg.register({ name: 'origins', argSpec: 'origins', help: 'list origins visited by this tab this session (M3)' });
   reg.register({ name: 'dev', argSpec: 'dev on | dev off', help: 'toggle the data-lfl-state test hook (off by default - see docs/threat-model.md H2) (M3)' });
   reg.register({ name: 'autoopen', argSpec: 'autoopen', help: 'toggle auto-opening the terminal when you land on THIS site (e.g. your start page) - opt-in per origin, off by default' });
+  // Popover redesign (2026-07-15, LFL-TERMINAL-POPOVER-REDESIGN.md) -
+  // dispatched by terminal.js, same posture as autoopen/theme just above
+  // (chrome.storage.local access this file's synchronous contract doesn't
+  // have).
+  reg.register({ name: 'config', argSpec: 'config | config anchor cursor|dock | config middleclick on|off|alt|plain', help: 'view or change panel placement settings: cursor-anchored (default) vs docked-bottom, and the opt-in middle-click trigger' });
+  reg.register({ name: 'pin', argSpec: 'pin', help: 'freeze the floating panel at its current spot (drag the titlebar to move it) instead of re-anchoring to the cursor on every open' });
+  reg.register({ name: 'unpin', argSpec: 'unpin', help: 'undo `pin` - the panel goes back to re-anchoring at the cursor (or the keyboard fallback spot) on every open' });
   // scripts v1 (2026-07-14, LFL-TERMINAL-SCRIPTS-DESIGN.md) - dispatched by
   // terminal.js (script/run need chrome.* async access; pause is dispatched
   // as an ordinary chain segment via _dispatchSegment - see that file's
