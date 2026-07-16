@@ -250,18 +250,38 @@
   color: var(--lfl-dim, #5d7290);
   margin-right: 2px;
   font-size: 10px;
+  flex-shrink: 0;
 }
 
+/* Atomic titlebar labels never break or shrink - the badge in particular must
+   stay "lfl-terminal" on one line (its hyphen is a break opportunity flexbox
+   would otherwise wrap at in the narrow floating panel). The hint below is the
+   ONE flexible element that absorbs slack and truncates. Keep in sync with
+   CSS_TEXT in terminal.js. */
 .lfl-titlebar .lfl-badge {
   color: var(--lfl-accent, #e0a339);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* The shortcut hint: takes the middle slack, truncates with an ellipsis on a
+   narrow panel instead of forcing the row to wrap (full text is in the
+   titlebar's title tooltip). Keep in sync with CSS_TEXT in terminal.js. */
+.lfl-titlebar .lfl-titlehint {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .lfl-titlebar .lfl-budget {
-  margin-left: auto;
   color: var(--lfl-dim, #5d7290);
   letter-spacing: normal;
   text-transform: none;
   font-size: 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 /* Popover redesign (2026-07-15): pin toggle, rightmost in the titlebar. Only
@@ -280,6 +300,8 @@
   text-transform: none;
   font-size: 10px;
   cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .lfl-pin-btn.active {
