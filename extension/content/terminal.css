@@ -68,6 +68,12 @@
   line-height: 1.45;
   color: var(--lfl-fg, #dbe4f0);
   background: var(--lfl-bg, #0b0e14);
+  /* Theme the scrollbar (UA default is a bright bar that fights the dark
+     panel). Standard properties inherit into every scrollable child
+     (output scrollback, program frames); thumb = the theme's border tone,
+     transparent track lets the panel bg show through. */
+  scrollbar-color: var(--lfl-border, #2a3140) transparent;
+  scrollbar-width: thin;
   /* Popover redesign (2026-07-15): the default is now a bounded floating
      box (border-radius + full border + drop shadow), not a full-width bar -
      see `.lfl-panel.lfl-dock` below for the restored legacy look.

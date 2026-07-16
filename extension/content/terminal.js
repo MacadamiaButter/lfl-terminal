@@ -84,7 +84,7 @@
   const CSS_TEXT = `
 :host{all:initial;position:fixed;inset:auto;margin:0;padding:0;border:none;width:auto;height:auto;background:transparent;color:inherit;overflow:visible;z-index:2147483647;display:block;}
 :host(.lfl-dock){inset:auto 0 0 0;}
-.lfl-panel{display:none;flex-direction:column;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.45;color:var(--lfl-fg,#dbe4f0);background:var(--lfl-bg,#0b0e14);width:min(520px,92vw);min-width:32ch;border:1px solid var(--lfl-accent,#e0a339);border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.6);max-height:34vh;}
+.lfl-panel{display:none;flex-direction:column;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.45;color:var(--lfl-fg,#dbe4f0);background:var(--lfl-bg,#0b0e14);scrollbar-color:var(--lfl-border,#2a3140) transparent;scrollbar-width:thin;width:min(520px,92vw);min-width:32ch;border:1px solid var(--lfl-accent,#e0a339);border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.6);max-height:34vh;}
 .lfl-panel.lfl-dock{width:auto;min-width:0;border:none;border-top:2px solid var(--lfl-accent,#e0a339);border-radius:0;box-shadow:0 -8px 24px rgba(0,0,0,.55);}
 .lfl-panel.lfl-open{display:flex;}
 .lfl-panel.lfl-collapsed .lfl-output{display:none;}
