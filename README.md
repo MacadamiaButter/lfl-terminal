@@ -66,7 +66,7 @@ is a feature of this project, not an admission of failure.
 
 ## Status
 
-**v0.3.0, experimental.** Chrome only for now (Manifest V3 - Firefox support
+**v0.5.x, experimental.** Chrome only for now (Manifest V3 - Firefox support
 is on the roadmap). Requires a local `llama.cpp`-class server; the
 deterministic commands (`search`, `open`, `go`, etc.) work even with the
 model server offline, but anything routed to the LLM won't. CPU-only x86
