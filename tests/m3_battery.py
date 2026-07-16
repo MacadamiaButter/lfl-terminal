@@ -151,6 +151,14 @@ def open_terminal(page):
     # open()'s inputEl.focus() again - restoring real focus the same way an
     # actual confused user clicking the toggle key again would.
     #
+    # UPDATE (foundations sprint 2026-07-16): the PRODUCT BUG described above
+    # was since FIXED - see "FIX 3" at terminal.js:3445/3728/3748:
+    # `_rejectProposal()`, `_rejectNav()`, and `_approveProposal()`'s
+    # non-navigating paths now all call `inputEl.focus()` again after hiding
+    # the approval card. The close+reopen workaround below is left in place
+    # (harmless, still correct, no reason to churn a passing harness) but is
+    # now historical - a fresh page no longer needs it to keep typing focus.
+    #
     # This MUST blur first even in the already-open case: `_onGlobalKeydown`
     # special-cases `e.target === this.host` (i.e. focus is currently
     # somewhere inside our own closed shadow root, retargeted to the host at
