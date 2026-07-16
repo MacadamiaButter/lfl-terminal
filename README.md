@@ -10,6 +10,8 @@ machine.
 
 ![The floating terminal panel spawning at the cursor on a live Wikipedia article, running help, ls links, and read, then getting dragged by its title bar and pinned in place](docs/demo.gif)
 
+New here? The one-page [cheat sheet](docs/CHEATSHEET.md) covers every command, scripts, and the teach lane.
+
 *Deterministic commands driving a page, in the cursor-anchored floating panel - drag its title bar to move it, pin it to keep it put across opens. Model-proposed actions additionally require explicit approval.*
 
 ## It also plays snake
