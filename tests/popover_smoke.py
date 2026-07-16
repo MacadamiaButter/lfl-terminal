@@ -171,24 +171,50 @@ def run():
                 time.sleep(0.1)
             check("dev on: data-lfl-state now populated", state is not None)
 
-            # ---- case 1: default cursor mode spawns near a clicked point ----
+            # ---- case 1: backtick spawns AT the cursor (owner request 2026-07-16) ----
             toggle_terminal(page)  # close
-            page.mouse.move(300, 500)
-            toggle_terminal(page)  # reopen - keyboard trigger, so this uses the
-            # deterministic keyboard-fallback anchor (top-center), NOT the mouse
-            # position above - see design §5/§6. Confirms cursor mode is active
-            # (no .lfl-dock) and the panel is placed somewhere on-screen.
+            page.mouse.move(300, 500)  # this trusted pointer move is now the anchor
+            toggle_terminal(page)  # reopen via backtick -> lands at the last pointer,
+            # NOT top-center. left tracks anchorX (300) directly; top is anchorY+offset
+            # unless the panel would overflow the bottom, in which case placePanel flips
+            # it above (still cursor-anchored). Assert it is near the cursor, not centered.
             rect = host_rect(page)
             state = read_lfl_state(page)
             check("cursor mode is the default (state.anchorMode)", state and state.get("anchorMode") == "cursor")
             check("cursor mode: host has no .lfl-dock class", rect and rect["hasDock"] is False)
             check("cursor mode: host carries an inline position (not dock/inset)", rect and rect["inlineLeft"] != "" and rect["inlineTop"] != "")
             check(
-                "cursor mode: panel is placed within the viewport (not clipped off-screen)",
+                "backtick spawns at the cursor: left == anchorX (300), not screen-centered",
+                rect and abs(rect["left"] - 300) < 1,
+                detail=str(rect),
+            )
+            check(
+                "cursor spawn: panel still fully within the viewport",
                 rect and 0 <= rect["left"] <= 1280 and 0 <= rect["top"] <= 800,
                 detail=str(rect),
             )
             page.screenshot(path=str(SHOTS_DIR / "01-cursor-mode-open.png"))
+
+            # ---- case 1b: fresh page (no pointer yet) falls back to top-center ----
+            # Navigate to a fresh injection so _lastPointer is null. The panel
+            # was open, so it may auto-restore-open (also a no-pointer open, the
+            # exact path under test); if it does not, press backtick. Either way
+            # the open here has no pointer and must land top-center.
+            page.goto(f"http://127.0.0.1:{PORT}/safe-target.html")
+            page.wait_for_function(
+                "() => document.documentElement.hasAttribute('data-lfl-terminal-injected')", timeout=5000)
+            time.sleep(0.5)  # let _restoreTerminalState settle (may auto-reopen)
+            if not is_open(page):
+                page.evaluate("() => document.activeElement && document.activeElement.blur && document.activeElement.blur()")
+                page.keyboard.press("Backquote")
+                wait_open_state(page, True)
+            rect = host_rect(page)
+            centered_left = (1280 - min(520, 1280 * 0.92)) / 2
+            check(
+                "fresh page, no pointer: open falls back to top-center",
+                rect and abs(rect["left"] - centered_left) < 2,
+                detail=f"left={rect['left']} expected~{centered_left}",
+            )
 
             # ---- case 2: config anchor dock -> legacy full-width bottom bar ----
             submit_command(page, "config anchor dock")
@@ -207,6 +233,33 @@ def run():
             toggle_terminal(page)  # reopen in cursor mode
             rect = host_rect(page)
             check("back to cursor mode: .lfl-dock removed, inline position restored", rect and rect["hasDock"] is False and rect["inlineLeft"] != "")
+
+            # ---- case 3b: title bar is ALWAYS draggable (unpinned), and an
+            # unpinned drag does NOT persist - next open re-anchors to cursor ----
+            rect0 = host_rect(page)  # open, cursor mode, unpinned
+            grab_x = rect0["left"] + 60      # on the title bar, left of the pin button
+            grab_y = rect0["top"] + 12       # below the 7px resize grip
+            page.mouse.move(grab_x, grab_y)
+            page.mouse.down()
+            page.mouse.move(grab_x + 150, grab_y + 120, steps=8)  # exceed the 4px drag threshold
+            page.mouse.up()
+            rectD = host_rect(page)
+            state = read_lfl_state(page)
+            check(
+                "unpinned drag moves the panel (title bar always draggable)",
+                rectD and abs(rectD["left"] - (rect0["left"] + 150)) < 3,
+                detail=f"before={rect0['left']} after={rectD['left']}",
+            )
+            check("unpinned drag does not pin the panel", state and state.get("pinned") is False)
+            toggle_terminal(page)  # close
+            page.mouse.move(700, 400)  # a clearly different cursor position
+            toggle_terminal(page)  # reopen -> should re-anchor to the cursor, NOT the dragged spot
+            rectR = host_rect(page)
+            check(
+                "after an unpinned drag, reopen re-anchors to the cursor (drag did not persist)",
+                rectR and abs(rectR["left"] - 700) < 1 and abs(rectR["left"] - rectD["left"]) > 20,
+                detail=f"dragged={rectD['left']} reopened={rectR['left']} (cursor was 700)",
+            )
 
             # ---- case 4: pin freezes position across a close/reopen at a different anchor ----
             submit_command(page, "pin")

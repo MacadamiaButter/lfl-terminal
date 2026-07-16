@@ -503,7 +503,7 @@
 
       const titlebar = document.createElement('div');
       titlebar.className = 'lfl-titlebar';
-      titlebar.title = 'click to fold / unfold (or Ctrl+`)';
+      titlebar.title = 'drag to move · click to fold / unfold (or Ctrl+`)';
       // Popover redesign (2026-07-15): dragging the titlebar (while pinned)
       // moves the floating panel - see _startTitlebarDrag(). That has to be
       // disambiguated from the pre-existing click-to-collapse toggle below:
@@ -525,7 +525,7 @@
       badge.className = 'lfl-badge';
       badge.textContent = 'lfl-terminal';
       const hint = document.createElement('span');
-      hint.textContent = '` toggle · Esc close · Ctrl+` fold · Ctrl+Up/Down size';
+      hint.textContent = '` toggle · drag to move · Esc close · Ctrl+` fold';
       this.budgetEl = document.createElement('span');
       this.budgetEl.className = 'lfl-budget';
       // Popover redesign: pin toggle - freezes the floating panel at its
@@ -535,7 +535,7 @@
       // titlebar control.
       this.pinBtn = document.createElement('span');
       this.pinBtn.className = 'lfl-pin-btn';
-      this.pinBtn.title = 'pin panel in place (drag titlebar to move) - or type "pin"/"unpin"';
+      this.pinBtn.title = 'pin: keep the panel here across opens (otherwise it spawns at your cursor) - or type "pin"/"unpin"';
       this.pinBtn.textContent = 'pin';
       this.pinBtn.addEventListener('click', (e) => {
         if (!LFL.guards.isTrustedInputEvent(e)) return; // M3 H1 - see guards.js
@@ -894,7 +894,17 @@
           this.host.style.left = `${this._panelPos.left}px`;
           this.host.style.top = `${this._panelPos.top}px`;
         } else {
-          const anchor = opts.anchor || this._keyboardAnchor();
+          // Spawn where the user's attention already is (owner request,
+          // 2026-07-16): an explicit anchor (the middle-click point) wins;
+          // otherwise use the last TRUSTED pointer position seen on this page
+          // (backtick/Ctrl+K/toolbar all land at the cursor). A fresh page
+          // where the mouse has not moved yet has no pointer to anchor to
+          // (_lastPointer is null - it is reset per content-script injection,
+          // so a post-navigation reopen also lands here), and falls back to
+          // the deterministic top-center spot rather than a stale/unrelated
+          // position.
+          const anchor = opts.anchor
+            || (this._lastPointer ? { x: this._lastPointer.x, y: this._lastPointer.y } : this._keyboardAnchor());
           this._placeAt(anchor.x, anchor.y);
         }
       }
@@ -1053,7 +1063,13 @@
     // this gesture actually moved the panel.
     _startTitlebarDrag(e) {
       if (!LFL.guards.isTrustedInputEvent(e)) return; // M3 H1 - see guards.js
-      if (!this._pinned) return;
+      // The title bar is ALWAYS draggable (owner request, 2026-07-16 - the
+      // old "must pin first" gate was undiscoverable). Dragging while
+      // UNPINNED just moves the panel for the current open; the next open
+      // re-anchors to the cursor. Dragging while PINNED updates the
+      // remembered spot (persisted on release, below). So pin means "stop
+      // following my cursor, stay exactly here across opens" - not "unlock
+      // dragging".
       if (e.target === this.pinBtn) return; // the pin button handles its own click
       const startX = e.clientX;
       const startY = e.clientY;
@@ -1077,7 +1093,11 @@
       const onUp = () => {
         window.removeEventListener('mousemove', onMove, true);
         window.removeEventListener('mouseup', onUp, true);
-        if (this._titlebarDragged) {
+        // Only a PINNED drag updates the remembered spot. An unpinned drag
+        // moved the panel for this open only (inline left/top is already
+        // set); it deliberately persists nothing, so the next open still
+        // spawns at the cursor - pin is what makes a position stick.
+        if (this._titlebarDragged && this._pinned) {
           const finalRect = this.host.getBoundingClientRect();
           this._panelPos = { left: finalRect.left, top: finalRect.top };
           this._persistPlacementPrefs({ lflPanelPos: this._panelPos });
