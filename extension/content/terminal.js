@@ -103,7 +103,6 @@
 .lfl-pin-btn.active{border-color:var(--lfl-accent,#e0a339);color:var(--lfl-accent-bright,#f5a623);}
 .lfl-output{flex:1;overflow-y:auto;padding:8px 10px;white-space:pre-wrap;word-break:break-word;}
 .lfl-line{margin:0 0 4px 0;}
-.lfl-line.lfl-cmd{color:var(--lfl-cmd,#8fd0ff);}
 .lfl-line.lfl-cmd::before{content:'lfl> ';color:var(--lfl-accent,#e0a339);}
 .lfl-line.lfl-info{color:var(--lfl-info,#9fb0c3);}
 .lfl-line.lfl-error{color:var(--lfl-error,#ff6b6b);}
@@ -124,9 +123,15 @@
 .lfl-inputrow{display:flex;align-items:center;padding:6px 10px 8px 10px;border-top:1px solid var(--lfl-border,#2a3140);background:var(--lfl-input-bg,#0e131c);}
 .lfl-panel.lfl-dock .lfl-inputrow{padding-bottom:26px;}
 .lfl-prompt{color:var(--lfl-accent,#e0a339);margin-right:6px;}
-.lfl-input{flex:1;background:transparent;border:none;outline:none;color:var(--lfl-fg,#dbe4f0);font:inherit;}
+.lfl-inputwrap{position:relative;flex:1;}
+.lfl-synmirror{position:absolute;inset:0;z-index:0;overflow:hidden;white-space:pre;pointer-events:none;font:inherit;}
+.lfl-input{position:relative;z-index:1;display:block;width:100%;background:transparent;border:none;outline:none;color:transparent;caret-color:var(--lfl-fg,#dbe4f0);font:inherit;}
+.lfl-input::selection{background:rgba(224,163,57,.3);color:transparent;}
 .lfl-input::placeholder{color:var(--lfl-dim-input,#4b5768);}
 .lfl-input[readonly]{color:var(--lfl-dim-input,#4b5768);}
+.lfl-syn-cmd{color:var(--lfl-cmd,#8fd0ff);}
+.lfl-syn-str{color:var(--lfl-info,#9fb0c3);}
+.lfl-syn-op{color:var(--lfl-dim,#5d7290);}
 `;
 
   function createAuditLog() {
@@ -595,14 +600,31 @@
       const prompt = document.createElement('span');
       prompt.className = 'lfl-prompt';
       prompt.textContent = 'lfl>';
+      // Live syntax highlighting (2026-07-16, LFL-TERMINAL-SYNTAX-HIGHLIGHT-
+      // DESIGN.md §3): mirror-overlay technique - a native <input> cannot
+      // render two colors within its own value text, so this.synMirrorEl is
+      // a sibling div, painted UNDER the input (see terminal.css's z-index),
+      // that renders the SAME text as colored spans (built by
+      // _renderSynSpansInto()/synSpans() - registry.js) while the input's
+      // own text is made transparent (color:transparent + caret-color, see
+      // CSS_TEXT). .lfl-inputwrap is the shared positioning context for
+      // both. aria-hidden because the input itself already carries the
+      // real, accessible value - the mirror is purely decorative.
+      const inputwrap = document.createElement('div');
+      inputwrap.className = 'lfl-inputwrap';
+      this.synMirrorEl = document.createElement('div');
+      this.synMirrorEl.className = 'lfl-synmirror';
+      this.synMirrorEl.setAttribute('aria-hidden', 'true');
       this.inputEl = document.createElement('input');
       this.inputEl.className = 'lfl-input';
       this.inputEl.type = 'text';
       this.inputEl.autocomplete = 'off';
       this.inputEl.spellcheck = false;
       this.inputEl.placeholder = 'type a command - try "help"';
+      inputwrap.appendChild(this.synMirrorEl);
+      inputwrap.appendChild(this.inputEl);
       inputrow.appendChild(prompt);
-      inputrow.appendChild(this.inputEl);
+      inputrow.appendChild(inputwrap);
 
       this.panel.appendChild(this.resizerEl);
       this.panel.appendChild(titlebar);
@@ -619,6 +641,22 @@
     _wireEvents() {
       document.addEventListener('keydown', this._onGlobalKeydown.bind(this), true);
       this.inputEl.addEventListener('keydown', this._onInputKeydown.bind(this));
+      // Live syntax highlighting (design doc §3): resync the mirror on every
+      // real edit ('input' covers typed/pasted/cut/deleted text; IME
+      // composition doesn't fire 'input' until it commits, so
+      // 'compositionupdate' is also wired so a live composition preview
+      // stays in sync) and keep the mirror's horizontal scroll glued to the
+      // input's own internal scroll on a long line ('scroll' fires on the
+      // input element itself when it auto-scrolls the caret into view).
+      // Programmatic `this.inputEl.value = ...` assignments elsewhere
+      // (history nav, Enter-clear, script/teach line capture) do not fire
+      // 'input' - each of those call sites resyncs explicitly right after,
+      // see _syncSynMirror()'s own comment.
+      this.inputEl.addEventListener('input', () => this._syncSynMirror());
+      this.inputEl.addEventListener('compositionupdate', () => this._syncSynMirror());
+      this.inputEl.addEventListener('scroll', () => {
+        if (this.synMirrorEl) this.synMirrorEl.scrollLeft = this.inputEl.scrollLeft;
+      });
       // Popover redesign (2026-07-15): tracks the last TRUSTED pointer
       // position anywhere on the page, so a mouse-triggered open can anchor
       // the panel there (see open()/_placeAt()). isTrusted-gated (design §5/
@@ -787,6 +825,7 @@
           e.preventDefault();
           const line = this.inputEl.value;
           this.inputEl.value = '';
+          this._syncSynMirror(); // programmatic clear - 'input' doesn't fire, resync by hand
           // Ctrl+Enter or a blank line both finalize (sign-off #7) - a blank
           // line is the more discoverable gesture, Ctrl+Enter the faster one
           // for someone who never wants to type an empty line by accident.
@@ -813,6 +852,7 @@
           e.preventDefault();
           const line = this.inputEl.value.trim();
           this.inputEl.value = '';
+          this._syncSynMirror(); // programmatic clear - 'input' doesn't fire, resync by hand
           this._captureTeachName(line);
           return;
         }
@@ -841,6 +881,7 @@
         } else {
           const raw = this.inputEl.value;
           this.inputEl.value = '';
+          this._syncSynMirror(); // programmatic clear - 'input' doesn't fire, resync by hand
           this._submitCommand(raw);
         }
         return;
@@ -1224,6 +1265,69 @@
 
     // ---- output helpers ----
 
+    // Live syntax highlighting (2026-07-16, LFL-TERMINAL-SYNTAX-HIGHLIGHT-
+    // DESIGN.md §2/§4): the live known-command-word list synSpans() is
+    // asked to light up - the registered built-in surface plus whatever
+    // this tab's alias/macro store currently defines. This is exactly the
+    // set a LITERALLY TYPED segment head can turn into (_dispatchSegment()
+    // resolves `go`/built-ins directly and expandAlias()/expandMacro() by
+    // the typed name itself); a script is deliberately NOT included - it is
+    // only ever invoked via `run <name>`, never dispatched by its own bare
+    // name (see registry.js's SCRIPT_SELF_NAMES comment), so a bare script
+    // name must stay unlit, same as any other unknown word. Rebuilt on
+    // every call rather than cached (design doc §4's "keep it simple"
+    // option) - cheap (a handful of short arrays) and means a just-defined
+    // alias/macro lights up immediately with no separate invalidation path
+    // to keep in sync.
+    _knownSynNames() {
+      const base = (LFL.commandRegistry && typeof LFL.commandRegistry.names === 'function')
+        ? LFL.commandRegistry.names() : [];
+      const aliasNames = Object.keys(this._aliasStore.listAliases());
+      const macroNames = Object.keys(this._aliasStore.listMacros());
+      return base.concat(aliasNames, macroNames);
+    }
+
+    // Renders LFL.registry.synSpans(line, knownNames) into `container`
+    // (either this.synMirrorEl - the live input mirror - or a fresh
+    // scrollback line div for the highlighted command echo), replacing
+    // whatever it currently holds. createElement/textContent ONLY - never
+    // innerHTML - same H3 posture (design doc §8's original threat-model
+    // note, restated for this feature in the syntax-highlight design doc
+    // §5) as every other line-rendering path in this file: a span's `text`
+    // is always inert text, never markup. Returns the spans array (unused
+    // by callers today, kept for symmetry with the pure fn it wraps and to
+    // make this trivially testable if a caller ever needs it).
+    _renderSynSpansInto(container, line, knownNames) {
+      container.textContent = '';
+      const spans = LFL.registry.synSpans(line, knownNames);
+      for (const sp of spans) {
+        if (!sp.text) continue;
+        // Every piece, classed or not, becomes its own <span> (className
+        // left unset for the null/default-inherit case) - deliberately
+        // never document.createTextNode(), so every DOM write in this
+        // function goes through the same createElement()+.textContent
+        // shape as the rest of this file's H3 (design doc §8) markup-free
+        // text posture, never HTML-string parsing.
+        const el = document.createElement('span');
+        if (sp.cls) el.className = sp.cls;
+        el.textContent = sp.text;
+        container.appendChild(el);
+      }
+      return spans;
+    }
+
+    // Resyncs the live input mirror to the input's CURRENT value - called
+    // on every 'input'/'compositionupdate' event (see _wireEvents()) and
+    // right after every programmatic `this.inputEl.value = ...` assignment
+    // elsewhere in this file (those do not fire 'input'). No-op before
+    // _buildDom() has run (synMirrorEl not yet created) or if the mirror
+    // was never built (defensive - it always is, by _buildDom()).
+    _syncSynMirror() {
+      if (!this.synMirrorEl) return;
+      this._renderSynSpansInto(this.synMirrorEl, this.inputEl.value || '', this._knownSynNames());
+      this.synMirrorEl.scrollLeft = this.inputEl.scrollLeft;
+    }
+
     // DOM-only append - used both by _appendLine() (new output, which also
     // persists to the SW-backed scrollback) and by _restoreTerminalState()
     // (rendering PREVIOUSLY-persisted lines, which must not be re-persisted
@@ -1232,10 +1336,22 @@
     // .textContent, never innerHTML/eval - a restored scrollback line (or
     // any other TS_* response field) is rendered as inert text, never as
     // markup or code.
+    //
+    // Live syntax highlighting (design doc §3): a 'cmd'-classed line (the
+    // echoed command, fresh or restored from scrollback) is rendered as
+    // per-token spans via the SAME synSpans()-backed renderer the live
+    // input mirror uses, instead of a flat .textContent assignment - see
+    // terminal.css/CSS_TEXT's .lfl-line.lfl-cmd (no longer sets `color`,
+    // only the `::before` prompt prefix) and .lfl-syn-*. Every other cls
+    // (info/error/ok/motd) is unaffected.
     _appendLineDom(text, cls) {
       const div = document.createElement('div');
       div.className = `lfl-line lfl-${cls}`;
-      div.textContent = text;
+      if (cls === 'cmd') {
+        this._renderSynSpansInto(div, text, this._knownSynNames());
+      } else {
+        div.textContent = text;
+      }
       this.outputEl.appendChild(div);
       while (this.outputEl.children.length > MAX_OUTPUT_LINES) {
         this.outputEl.removeChild(this.outputEl.firstChild);
@@ -1314,6 +1430,7 @@
       idx = Math.max(0, Math.min(this.state.history.length, idx));
       this.state.historyIdx = idx;
       this.inputEl.value = idx < this.state.history.length ? this.state.history[idx] : '';
+      this._syncSynMirror(); // programmatic value change - 'input' doesn't fire, resync by hand
     }
 
     // ---- command dispatch ----
@@ -2484,6 +2601,7 @@
         this.state.mode = 'awaiting-teach-name';
         this.inputEl.readOnly = false;
         this.inputEl.value = '';
+        this._syncSynMirror(); // programmatic clear - 'input' doesn't fire, resync by hand
         this.inputEl.focus();
         this.printInfo('name for this script? (Esc to discard)');
         this._settle(true, 'awaiting a name for the drafted script');

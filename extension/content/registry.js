@@ -1132,6 +1132,109 @@
     return { x: (w - pw) / 2, y: h * 0.12 };
   }
 
+  // ---- live syntax highlighting (2026-07-16,
+  // LFL-TERMINAL-SYNTAX-HIGHLIGHT-DESIGN.md) ----
+  //
+  // synSpans(line, knownNames) -> array of {text, cls} covering the ENTIRE
+  // input line - concatenating every piece's `text` reproduces `line`
+  // exactly (test-enforced) - so terminal.js's mirror-overlay and
+  // scrollback-echo renderers can build the highlighted DOM purely from this
+  // array, with no further string surgery of their own. Pure and DOM-free:
+  // no chrome.*, no storage, no registry access - `knownNames` (typically
+  // LFL.commandRegistry.names() plus the live alias/macro store keys - see
+  // terminal.js's _knownSynNames()) is supplied by the CALLER so this
+  // function never reaches outside its own arguments (design doc §4).
+  //
+  // DIVERGENCE FROM THE DESIGN DOC (§4 says code wins when the two
+  // disagree): the design doc's color table (§2) describes quoted spans as
+  // `"..."` OR `'...'` (double OR single quotes). The terminal's actual
+  // quote-aware parsers - splitChain() and tokenizeArgs() above, the two
+  // functions that determine what a typed line ACTUALLY does at dispatch
+  // time - only ever treat the double quote (") as a delimiter; a single
+  // quote (') is just an ordinary literal character with no special meaning
+  // anywhere in this file. Highlighting single-quoted text as a string
+  // would show the human a grouping the dispatcher does not honor (e.g.
+  // `search 'a && b'` really does split into two chained commands at the
+  // &&, unlike inside a real double-quoted span) - actively misleading for
+  // a feature whose entire job is honest lane feedback (design doc §1).
+  // synSpans() therefore mirrors splitChain()/tokenizeArgs() exactly:
+  // double quotes only, no escapes, an unmatched opening quote runs to
+  // end-of-line - the same "open quote to close-or-EOL" shape splitChain's
+  // own unterminated-quote state already produces, not a separate rule
+  // invented here.
+  //
+  // Single pass over the line classifies every character index as 'quote'
+  // (inside a "..." span, delimiters included), 'op' (part of a real,
+  // outside-quotes "&&" separator), or 'plain' - by literally re-running
+  // splitChain's own char-by-char state machine, so this can never silently
+  // drift from what splitChain actually splits on. At each segment
+  // boundary (an 'op' pair, or end of line) the segment's leading token is
+  // found the same whitespace-blind way _dispatchSegment() resolves a head
+  // (`resolved.trim().split(/\s+/)[0]`, matched here via `/^(\s*)(\S+)/`)
+  // and, if it is an EXACT, case-sensitive match in knownNames, its
+  // 'plain'-classified characters are upgraded to 'cmd' - a token that
+  // starts inside quotes (e.g. the literal text `"go"`) can never match a
+  // bare known name and so never upgrades, consistent with "exact-match...
+  // token boundary = whitespace, quotes not stripped" (design doc §2). A
+  // final pass merges consecutive same-classified characters into runs and
+  // maps each run to its CSS class - null means "default, inherit".
+  const SYN_CLASS = { cmd: 'lfl-syn-cmd', quote: 'lfl-syn-str', op: 'lfl-syn-op' };
+  const SYN_HEAD_RE = /^(\s*)(\S+)/;
+
+  function synSpans(line, knownNames) {
+    const s = typeof line === 'string' ? line : '';
+    const n = s.length;
+    if (n === 0) return [];
+    const known = new Set(Array.isArray(knownNames) ? knownNames : []);
+    const kind = new Array(n); // 'quote' | 'op' | 'plain'
+
+    function markHeadIfKnown(segStart, segEnd) {
+      const seg = s.slice(segStart, segEnd);
+      const m = SYN_HEAD_RE.exec(seg);
+      if (!m || !m[2] || !known.has(m[2])) return;
+      const headStart = segStart + m[1].length;
+      const headEnd = headStart + m[2].length;
+      for (let k = headStart; k < headEnd; k++) {
+        if (kind[k] === 'plain') kind[k] = 'cmd';
+      }
+    }
+
+    let inQuotes = false;
+    let segStart = 0;
+    let i = 0;
+    while (i < n) {
+      const ch = s[i];
+      if (ch === '"') {
+        kind[i] = 'quote';
+        inQuotes = !inQuotes;
+        i += 1;
+        continue;
+      }
+      if (!inQuotes && ch === '&' && s[i + 1] === '&') {
+        kind[i] = 'op';
+        kind[i + 1] = 'op';
+        markHeadIfKnown(segStart, i);
+        segStart = i + 2;
+        i += 2;
+        continue;
+      }
+      kind[i] = inQuotes ? 'quote' : 'plain';
+      i += 1;
+    }
+    markHeadIfKnown(segStart, n);
+
+    const spans = [];
+    let runStart = 0;
+    let runKind = kind[0];
+    for (let idx = 1; idx <= n; idx++) {
+      if (idx === n || kind[idx] !== runKind) {
+        spans.push({ text: s.slice(runStart, idx), cls: SYN_CLASS[runKind] || null });
+        if (idx < n) { runStart = idx; runKind = kind[idx]; }
+      }
+    }
+    return spans;
+  }
+
   return {
     createRegistry, createAliasStore, splitChain, expandAlias, expandMacro,
     damerauLevenshtein, didYouMean, autoOpenMatch, toggleAutoOpen,
@@ -1143,5 +1246,7 @@
     serializeScripts, parseScriptFile,
     // popover redesign
     placePanel, defaultAnchor, PANEL_PLACEMENT_MARGIN, PANEL_PLACEMENT_OFFSET,
+    // live syntax highlighting
+    synSpans,
   };
 });

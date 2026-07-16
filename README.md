@@ -142,6 +142,12 @@ clear                           clear the output pane
 `cmd1 && cmd2 && ...` chains up to 5 commands, quote-aware - any error,
 block, rejection, or Esc clears the rest of the chain.
 
+As you type, a known command word lights up in the input line (and stays lit
+in the echoed history) - that's lane feedback, not a security signal: lit
+means this word dispatches deterministically, unlit means it becomes one
+model proposal you still have to approve. The deterministic dispatch itself
+never looks at the highlighter either way.
+
 A **script** is a macro grown up: `script new checkout` opens a line-by-line
 capture (blank line or Ctrl+Enter to save, Esc to cancel, up to 20 steps,
 `#` comments allowed), then `run checkout "gift wrap"` substitutes `$1..$9`/

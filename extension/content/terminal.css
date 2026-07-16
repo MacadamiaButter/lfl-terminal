@@ -327,10 +327,17 @@
   margin: 0 0 4px 0;
 }
 
-.lfl-line.lfl-cmd {
-  color: var(--lfl-cmd, #8fd0ff);
-}
-
+/* Live syntax highlighting (2026-07-16): the echoed command line used to
+   have a single flat text color set on the whole .lfl-line.lfl-cmd div -
+   that rule is REMOVED (see below) and REPLACED by per-token spans
+   (.lfl-syn-cmd/.lfl-syn-str/.lfl-syn-op, below) built by the SAME
+   synSpans()-backed renderer the live input
+   mirror uses, so history reads highlighted too (design doc §3). The
+   "lfl> " prompt prefix stays a plain ::before - it is never part of the
+   typed text synSpans() operates on. Unhighlighted characters (args, an
+   unknown head token) get no class and simply inherit .lfl-line's default
+   color, same as any other output line. Keep in sync with CSS_TEXT in
+   terminal.js. */
 .lfl-line.lfl-cmd::before {
   content: 'lfl> ';
   color: var(--lfl-accent, #e0a339);
@@ -460,13 +467,65 @@
   margin-right: 6px;
 }
 
-.lfl-input {
+/* Live syntax highlighting (2026-07-16,
+   LFL-TERMINAL-SYNTAX-HIGHLIGHT-DESIGN.md) - mirror-overlay technique: a
+   native <input> cannot render two colors in its own value text, so the
+   colored rendering actually lives in a sibling div (.lfl-synmirror,
+   below) painted UNDER the input, and the input's own text is made
+   transparent. .lfl-inputwrap is the positioning context both live in -
+   it, not .lfl-input, is now the flex item that takes the row's remaining
+   width. Keep in sync with CSS_TEXT in terminal.js. */
+.lfl-inputwrap {
+  position: relative;
   flex: 1;
+}
+
+/* pointer-events:none - purely decorative, every real keystroke/selection/
+   focus interaction still targets the (transparent-text) input on top;
+   overflow:hidden + white-space:pre + terminal.js's scroll-sync
+   (mirror.scrollLeft = input.scrollLeft on the input's own 'scroll' event)
+   keep it pixel-aligned with the input's internal scroll position on a
+   long line. aria-hidden is set in terminal.js (the input itself already
+   carries the real, accessible value). Keep in sync with CSS_TEXT in
+   terminal.js. */
+.lfl-synmirror {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+  white-space: pre;
+  pointer-events: none;
+  font: inherit;
+}
+
+.lfl-input {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
   background: transparent;
   border: none;
   outline: none;
-  color: var(--lfl-fg, #dbe4f0);
+  /* color:transparent + caret-color: the input's own value text is never
+     painted - .lfl-synmirror underneath renders the colored spans instead,
+     and the caret is drawn independently of text color so it stays
+     visible. ::placeholder (below) has its own explicit color and is
+     unaffected - it only shows at all when the mirror is empty. Keep in
+     sync with CSS_TEXT in terminal.js. */
+  color: transparent;
+  caret-color: var(--lfl-fg, #dbe4f0);
   font: inherit;
+}
+
+/* Selection highlight: semi-transparent so the mirror's glyphs (painted
+   behind the now-transparent input text) show through the tint instead of
+   being hidden behind an opaque selection block. A single rgba value
+   across every theme (design doc §3, known-nit: may read slightly off on
+   the paper theme) rather than a per-theme color-mix, kept simple for v1.
+   Keep in sync with CSS_TEXT in terminal.js. */
+.lfl-input::selection {
+  background: rgba(224, 163, 57, 0.3);
+  color: transparent;
 }
 
 .lfl-input::placeholder {
@@ -475,4 +534,20 @@
 
 .lfl-input[readonly] {
   color: var(--lfl-dim-input, #4b5768);
+}
+
+/* Syntax classes (design doc §2) - shared by the live input mirror above
+   and the highlighted scrollback echo line (terminal.js's
+   _renderSynSpansInto(), used by both). null/no class = default, inherit
+   the surrounding text color. Keep in sync with CSS_TEXT in terminal.js. */
+.lfl-syn-cmd {
+  color: var(--lfl-cmd, #8fd0ff);
+}
+
+.lfl-syn-str {
+  color: var(--lfl-info, #9fb0c3);
+}
+
+.lfl-syn-op {
+  color: var(--lfl-dim, #5d7290);
 }
