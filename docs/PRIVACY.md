@@ -26,6 +26,16 @@ channel by which we could.
   size, per-site auto-open choices, and recent command history are stored using
   the browser's local extension storage (`chrome.storage.local`) on your own
   device. This data never leaves your device and is never transmitted anywhere.
+- **Command-usage memory (opt-in, off by default).** If you turn it on
+  (`memory on`), the terminal notes which commands (verbs only, e.g. `search`,
+  `go`, `read` - never the arguments or search terms you typed) you use on
+  which sites (origin only - scheme and host, never the path or query) so it
+  can suggest turning a repeated pattern into a script. It never records page
+  content, form values, or what you typed into a page or search box, and this
+  memory is never sent anywhere - not to us, not to any model - in this phase
+  of the feature. Stored locally (`chrome.storage.local`); `memory show`
+  displays exactly what is recorded, `memory forget <site>` or `memory clear`
+  erases it, and `memory off` stops all recording.
 - **No network egress to us.** The extension makes no network requests to any
   server operated by the developer, and contains no analytics, advertising, or
   crash-reporting code.

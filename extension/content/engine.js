@@ -61,6 +61,20 @@
   reg.register({ name: 'config', argSpec: 'config | config anchor cursor|dock | config middleclick on|off|alt|plain', help: 'view or change panel placement settings: cursor-anchored (default) vs docked-bottom, and the opt-in middle-click trigger' });
   reg.register({ name: 'pin', argSpec: 'pin', help: 'freeze the floating panel at its current spot (drag the titlebar to move it) instead of re-anchoring to the cursor on every open' });
   reg.register({ name: 'unpin', argSpec: 'unpin', help: 'undo `pin` - the panel goes back to re-anchoring at the cursor (or the keyboard fallback spot) on every open' });
+  // memory lane M1/M2 (2026-07-16, LFL-TERMINAL-MEMORY-LANE-DESIGN.md) -
+  // dispatched by terminal.js (chrome.storage.local access this file's
+  // synchronous contract doesn't have, same posture as autoopen/dev above).
+  // 100% deterministic - never calls the local model. `remember`/`forget`
+  // are documented as aliases here (registry.js's `aliases` field) even
+  // though their dispatch is slightly narrower than `memory on`/`memory
+  // forget <origin>` verbatim - see terminal.js's own comment on `forget`'s
+  // origin-shaped-argument guard.
+  reg.register({
+    name: 'memory',
+    aliases: ['remember', 'forget'],
+    argSpec: 'memory | memory show | memory on|off | memory quiet|loud | memory forget <origin> | memory clear',
+    help: 'opt-in, local-only record of which commands you use on which sites (verbs + origins + counts only, never arguments or page content) to suggest scripts; off by default - "remember" turns it on, "forget <origin>" (or "memory forget <origin>") erases one site',
+  });
   // scripts v1 (2026-07-14, LFL-TERMINAL-SCRIPTS-DESIGN.md) - dispatched by
   // terminal.js (script/run need chrome.* async access; pause is dispatched
   // as an ordinary chain segment via _dispatchSegment - see that file's

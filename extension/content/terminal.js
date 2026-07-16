@@ -244,6 +244,21 @@
       // within the same session without waiting on another async read.
       this._brainstormEnabled = false;
       this._loadBrainstormFlag();
+      // memory lane M1/M2 (2026-07-16, LFL-TERMINAL-MEMORY-LANE-DESIGN.md
+      // §3/§9 sign-off B): opt-in, OFF by default - mirrors
+      // _brainstormEnabled's own posture exactly (storage.local
+      // `lflMemoryEnabled`, fail-safe to false until the async load
+      // resolves). This flag is the master switch _recordMemoryVerb() below
+      // checks BEFORE touching storage at all - when off, recording is a
+      // true no-op (design doc §3: "recordVerb no-ops"), not just a UI
+      // toggle. `_lastNudgeKey` de-dupes the repeat-detector's nudge
+      // (§4) so an established pattern prints its one-line hint once, not on
+      // every subsequent matching command - in-memory only, so it naturally
+      // resets on the next navigation/content-script injection, which is
+      // harmless (worst case: the same honest hint reappears once more).
+      this._memoryEnabled = false;
+      this._loadMemoryFlag();
+      this._lastNudgeKey = null;
       // funpack v1: persisted theme choice (storage.local `lflTheme`) --
       // loaded async, applied via _applyTheme() as soon as it resolves;
       // stays on the 'default' theme's fallback CSS values until then, the
@@ -371,6 +386,17 @@
         chrome.storage.local.get(['lflBrainstormEnabled'], (res) => {
           if (chrome.runtime.lastError) return;
           this._brainstormEnabled = !!(res && res.lflBrainstormEnabled);
+        });
+      } catch (_e) { /* storage unavailable - stays off, the safe default */ }
+    }
+
+    // memory lane M1/M2: mirrors _loadBrainstormFlag() exactly - see
+    // this._memoryEnabled's own comment in the constructor.
+    _loadMemoryFlag() {
+      try {
+        chrome.storage.local.get([LFL.registry.MEMORY_ENABLED_KEY], (res) => {
+          if (chrome.runtime.lastError) return;
+          this._memoryEnabled = !!(res && res[LFL.registry.MEMORY_ENABLED_KEY]);
         });
       } catch (_e) { /* storage unavailable - stays off, the safe default */ }
     }
@@ -1580,6 +1606,24 @@
       if (/^config(\s|$)/i.test(raw)) { this._handleConfigCommand(raw); return; }
       if (/^pin$/i.test(raw)) { this._handlePinCommand(true); return; }
       if (/^unpin$/i.test(raw)) { this._handlePinCommand(false); return; }
+      // memory lane M1/M2 (LFL-TERMINAL-MEMORY-LANE-DESIGN.md §3) - same
+      // "standalone control command, no chain participation" posture as the
+      // rest of this cluster; 100% deterministic, never touches the model.
+      if (/^memory(\s|$)/i.test(raw)) { this._handleMemoryCommand(raw); return; }
+      // `remember` (bare word only) aliases to `memory on` - exact match so
+      // it never intercepts a natural multi-word phrase like "remember to
+      // buy milk" that was headed for the model.
+      if (/^remember$/i.test(raw)) { this._setMemoryEnabled(true); return; }
+      // `forget <origin>` aliases to `memory forget <origin>` - but ONLY
+      // when the argument actually looks origin-shaped (contains a dot or a
+      // "://"); otherwise this falls through unchanged to the ordinary
+      // chain/model path, so a natural phrase like "forget it" or "forget
+      // what I just said" is never hijacked by this alias. See
+      // _handleForgetAlias()'s own comment.
+      if (/^forget\s+\S+$/i.test(raw) && /[.]|:\/\//.test(raw.replace(/^forget\s+/i, ''))) {
+        this._handleForgetAlias(raw);
+        return;
+      }
 
       this._runChain(raw);
     }
@@ -1765,6 +1809,15 @@
         // touched the model" point `stats`'s headline percentage is built
         // from (formatStatsSummary() in funpack.js).
         this._bumpStats({ deterministicHits: 1 });
+        // memory lane M1/M2 (design doc §2/§8 M1): the ONE of the two
+        // recording choke points for a "real deterministic dispatch" - fires
+        // regardless of what det.output says (a "no such item" reply still
+        // means the verb genuinely ran), never for the go/pause/run/script/
+        // teach/games/funpack branches above (those return before reaching
+        // here, out of scope by construction - see terminal.js's build
+        // report for the deliberate narrowing this is). No-ops instantly
+        // when memory is off - see _recordMemoryVerb()'s own comment.
+        this._recordMemoryVerb(firstTok);
         if (det.clear) this.clearOutput();
         this.printInfo(det.output);
         this._auditPush({ action: 'deterministic' }, 'auto', det.output ? det.output.slice(0, 160) : '');
@@ -1819,6 +1872,21 @@
           return;
         }
       }
+
+      // memory lane M1/M2: the SECOND (and last) recording choke point - an
+      // "ask" dispatch (explicit `ask <...>` or any free-form text that fell
+      // through did-you-mean unmatched) is recorded as the fixed verb
+      // literally "ask", never the typed text itself - there is no
+      // arguments-vs-verb split to make for a natural-language request, so
+      // "ask" is the whole recorded fact ("the model lane was used here"),
+      // matching this store's one hard rule (verbs only, never the words
+      // that followed). This call happens entirely on the CONTENT side,
+      // before _runLlm() ever builds a payload - it can never influence what
+      // reaches the model in this phase (see the isolation test in
+      // tests/memory_lane.test.js, which proves the execution-lane payload
+      // builder in background/service-worker.js is untouched and therefore
+      // byte-identical with memory on or off).
+      this._recordMemoryVerb('ask');
 
       const command = resolved.replace(/^ask\s+/i, '');
       await this._runLlm(command);
@@ -3414,6 +3482,179 @@
       if (!LFL.registry.autoOpenMatch(origin, list)) return;
       try { sessionStorage.setItem('lflAutoOpened', '1'); } catch (_e) { /* best-effort latch */ }
       this.open();
+    }
+
+    // ---- memory lane M1/M2 (2026-07-16, LFL-TERMINAL-MEMORY-LANE-DESIGN.md)
+    // ----
+    //
+    // A terminal-scoped, opt-in, 100% deterministic record of "which verb ran
+    // on which origin, how many times" plus a per-origin repeat-detector that
+    // only ever PRINTS a hint - no model call anywhere in this section (that
+    // is explicitly M3, out of scope here). Storage round trips follow the
+    // exact same fire-and-forget, best-effort-swallow-errors division of
+    // labor as _bumpStats()/_handleAutoOpen() above: registry.js owns every
+    // byte of the actual memory logic (recordVerb/forgetOrigin/clearMemory/
+    // setMemoryQuiet/formatMemoryDump/detectRepeat/formatNudge, all pure);
+    // this class only does the chrome.storage.local get/set glue and the
+    // printing/audit-log bookkeeping around them, same posture as the
+    // alias/macro/theme/autoopen handlers elsewhere in this file.
+
+    // THE recording choke point's content-script half (see registry.js's
+    // recordVerb() for the other, pure half). Called from exactly two spots
+    // in _dispatchSegment() - a real deterministic-engine dispatch, and an
+    // "ask"/model dispatch - never for go/pause/run/script/teach/games/
+    // funpack (those branches return earlier, out of scope by construction).
+    // Master-switch gated FIRST, before touching storage at all, so "memory
+    // off" is a true no-op, not just a UI toggle - and reuses
+    // _currentAutoOpenOrigin() (autoopen's own http(s)-only origin guard) so
+    // a privileged/opaque page (chrome://, data:, a sandboxed frame) can
+    // never record anything either.
+    _recordMemoryVerb(verb) {
+      if (!this._memoryEnabled) return;
+      const origin = this._currentAutoOpenOrigin();
+      if (!origin) return;
+      try {
+        chrome.storage.local.get([LFL.registry.MEMORY_KEY], (res) => {
+          try {
+            if (chrome.runtime.lastError) return;
+            const next = LFL.registry.recordVerb(res && res[LFL.registry.MEMORY_KEY], origin, verb);
+            chrome.storage.local.set({ [LFL.registry.MEMORY_KEY]: next }, () => {
+              if (chrome.runtime.lastError) return;
+              this._maybeNudge(next, origin);
+            });
+          } catch (_e) { /* best-effort, fire-and-forget - a dropped memory update is harmless */ }
+        });
+      } catch (_e) { /* storage unavailable this tick -- next command tries again */ }
+    }
+
+    // Repeat-detector print (design doc §4/§9 sign-off D: on by default when
+    // memory is on, silence-able via `memory quiet`). Never awaited by
+    // _recordMemoryVerb()'s caller - this always runs strictly AFTER the
+    // triggering command has already been printed/settled (it fires from
+    // inside the storage.set() callback), so a nudge can never race or
+    // interleave with the command's own output. De-duped in-memory
+    // (`_lastNudgeKey`) so the SAME detected pattern doesn't reprint on every
+    // subsequent matching command - only when the detected verbs/count
+    // signature actually changes.
+    _maybeNudge(mem, origin) {
+      if (!mem || (mem.prefs && mem.prefs.nudgeQuiet)) return;
+      const ring = (mem.recent && mem.recent[origin]) || [];
+      const res = LFL.registry.detectRepeat(ring, LFL.registry.MEMORY_REPEAT_THRESHOLD);
+      if (!res.fire) return;
+      const key = `${origin}|${res.verbs.join(',')}|${res.count}`;
+      if (this._lastNudgeKey === key) return;
+      this._lastNudgeKey = key;
+      this.printInfo(LFL.registry.formatNudge(res.verbs, res.count));
+    }
+
+    _memoryUnavailable() {
+      const msg = 'memory unavailable (storage error)';
+      this.printError(msg);
+      this._auditPush({ action: 'memory' }, 'n/a', msg);
+      this._settle(false, msg);
+    }
+
+    async _handleMemoryCommand(raw) {
+      const m = raw.match(/^memory(?:\s+(.*))?$/i);
+      const rest = (m && m[1] || '').trim();
+
+      if (!rest || /^show$/i.test(rest)) { this._printMemoryShow(); return; }
+      if (/^on$/i.test(rest)) { this._setMemoryEnabled(true); return; }
+      if (/^off$/i.test(rest)) { this._setMemoryEnabled(false); return; }
+      if (/^quiet$/i.test(rest)) { this._setMemoryQuiet(true); return; }
+      if (/^loud$/i.test(rest)) { this._setMemoryQuiet(false); return; }
+      if (/^clear$/i.test(rest)) { this._handleMemoryClear(); return; }
+      const fm = rest.match(/^forget\s+(\S+)$/i);
+      if (fm) { this._handleMemoryForget(fm[1]); return; }
+
+      const msg = 'usage: memory | memory show | memory on|off | memory quiet|loud | memory forget <origin> | memory clear';
+      this.printError(msg);
+      this._auditPush({ action: 'memory' }, 'blocked', msg);
+      this._settle(false, msg);
+    }
+
+    _printMemoryShow() {
+      try {
+        chrome.storage.local.get([LFL.registry.MEMORY_KEY], (res) => {
+          if (chrome.runtime.lastError) { this._memoryUnavailable(); return; }
+          const mem = LFL.registry.normalizeMemory(res && res[LFL.registry.MEMORY_KEY]);
+          const msg = LFL.registry.formatMemoryDump(mem, { enabled: this._memoryEnabled });
+          this.printInfo(msg);
+          this._auditPush({ action: 'memory' }, 'auto', msg.slice(0, 160));
+          this._settle(true, msg);
+        });
+      } catch (_e) { this._memoryUnavailable(); }
+    }
+
+    _setMemoryEnabled(on) {
+      this._memoryEnabled = !!on;
+      try { chrome.storage.local.set({ [LFL.registry.MEMORY_ENABLED_KEY]: this._memoryEnabled }); } catch (_e) { /* best-effort */ }
+      const msg = this._memoryEnabled
+        ? 'memory ON - notes which commands you use on which sites (verbs + origins + counts only, never arguments or page content) to suggest scripts; "memory show" to see it, "memory off" to stop'
+        : 'memory OFF - nothing new will be recorded';
+      this.printOk(msg);
+      this._auditPush({ action: 'memory' }, 'auto', msg);
+      this._settle(true, msg);
+    }
+
+    _setMemoryQuiet(quiet) {
+      try {
+        chrome.storage.local.get([LFL.registry.MEMORY_KEY], (res) => {
+          if (chrome.runtime.lastError) { this._memoryUnavailable(); return; }
+          const mem = LFL.registry.setMemoryQuiet(res && res[LFL.registry.MEMORY_KEY], quiet);
+          chrome.storage.local.set({ [LFL.registry.MEMORY_KEY]: mem }, () => {
+            if (chrome.runtime.lastError) { this._memoryUnavailable(); return; }
+            const msg = quiet ? 'memory nudges quiet (no more "type teach save that" hints)' : 'memory nudges on';
+            this.printOk(msg);
+            this._auditPush({ action: 'memory' }, 'auto', msg);
+            this._settle(true, msg);
+          });
+        });
+      } catch (_e) { this._memoryUnavailable(); }
+    }
+
+    _handleMemoryClear() {
+      const mem = LFL.registry.clearMemory();
+      try {
+        chrome.storage.local.set({ [LFL.registry.MEMORY_KEY]: mem }, () => {
+          if (chrome.runtime.lastError) { this._memoryUnavailable(); return; }
+          const msg = 'memory cleared - all recorded command usage and preferences removed';
+          this.printOk(msg);
+          this._auditPush({ action: 'memory' }, 'auto', msg);
+          this._settle(true, msg);
+        });
+      } catch (_e) { this._memoryUnavailable(); }
+    }
+
+    _handleMemoryForget(originArg) {
+      try {
+        chrome.storage.local.get([LFL.registry.MEMORY_KEY], (res) => {
+          if (chrome.runtime.lastError) { this._memoryUnavailable(); return; }
+          const result = LFL.registry.forgetOrigin(res && res[LFL.registry.MEMORY_KEY], originArg);
+          if (!result.ok) {
+            const msg = `memory forget: ${result.reason}`;
+            this.printError(msg);
+            this._auditPush({ action: 'memory' }, 'blocked', msg);
+            this._settle(false, msg);
+            return;
+          }
+          chrome.storage.local.set({ [LFL.registry.MEMORY_KEY]: result.mem }, () => {
+            if (chrome.runtime.lastError) { this._memoryUnavailable(); return; }
+            const msg = `forgot: ${originArg}`;
+            this.printOk(msg);
+            this._auditPush({ action: 'memory' }, 'auto', msg);
+            this._settle(true, msg);
+          });
+        });
+      } catch (_e) { this._memoryUnavailable(); }
+    }
+
+    // `forget <origin>` top-level alias (see _submitCommand()'s own comment
+    // on the origin-shape guard that decides whether this is even reached).
+    _handleForgetAlias(raw) {
+      const m = raw.match(/^forget\s+(\S+)$/i);
+      if (!m) return; // _submitCommand's own regex already guarantees a match; defensive only
+      this._handleMemoryForget(m[1]);
     }
 
     // ---- M3 `go` - the navigation verb (design §2/§3) ----

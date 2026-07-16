@@ -190,6 +190,15 @@
     // in place) - same shadowing footgun as every other standalone control
     // command above.
     'config', 'pin', 'unpin',
+    // memory lane M1/M2 (2026-07-16, LFL-TERMINAL-MEMORY-LANE-DESIGN.md):
+    // `memory` (show/on/off/quiet/loud/forget/clear) and its two aliases
+    // `remember` (-> `memory on`) / `forget <origin>` (-> `memory forget
+    // <origin>`) - same shadowing footgun as every other standalone control
+    // command above (`terminal.js`'s `_submitCommand` intercepts all three
+    // before chain-splitting, exactly like `dev`/`origins`/`autoopen`
+    // already do, so an alias/macro defined under one of these three names
+    // would silently be unreachable by its own name).
+    'memory', 'remember', 'forget',
   ]);
 
   // M4b (design doc §3/§5): games are never allowed to run as part of a
@@ -1235,6 +1244,305 @@
     return spans;
   }
 
+  // ---- memory lane M1/M2 (2026-07-16, LFL-TERMINAL-MEMORY-LANE-DESIGN.md
+  // §2/§3/§4/§8) ----
+  //
+  // 100% deterministic: a terminal-scoped, opt-in, chrome.storage.local
+  // `lflMemory` store of "which VERB ran on which ORIGIN how many times" plus
+  // a short per-origin "recent verbs" ring for repeat-detection, and its
+  // controls. NO model call anywhere in this section - the brainstorm/`teach`
+  // wiring that will eventually READ this store (buildMemoryContext(),
+  // design doc §4) is explicitly M3, out of scope here. See terminal.js's
+  // `_recordMemoryVerb()`/`_maybeNudge()` for the one write/read choke point
+  // this is built around.
+  //
+  // Schema: { v:1, origins: { <origin>: { <verb>: {n, lastUsed} } },
+  //           prefs: {...}, recent: { <origin>: [verb, verb, ...] } }.
+  // `origins`/`prefs` are exactly the design doc §3 shape. `recent` is an
+  // additive sibling field (same storage key, not a schema break) that
+  // realizes the design doc §2 HOLDS bullet "a tiny rolling 'recent verbs
+  // this session' ring for repeat-detection" - it has to live INSIDE this
+  // persisted object (not a separate ephemeral in-memory ring on the
+  // Terminal instance) because `go`/an auto-submitting `search` navigate,
+  // which destroys and freshly reconstructs the content script's entire
+  // `state` on every injection (see terminal.js's own header comment) - a
+  // ring held only in that per-injection state could never survive the very
+  // navigations a "go, search, read" workflow is made of. Persisting it
+  // instead in chrome.storage.local (content-script-writable, no
+  // background/service-worker.js change needed) is what makes cross-
+  // navigation repeat-detection possible at all. Capped small (verbs only,
+  // never arguments - same content rule as `origins`) and evicted alongside
+  // an origin's verb-count map, so it never grows the recorded surface in
+  // any way the design doc's threat model didn't already cover.
+  const MEMORY_KEY = 'lflMemory';
+  const MEMORY_ENABLED_KEY = 'lflMemoryEnabled';
+  const MEMORY_SCHEMA_VERSION = 1;
+  const MEMORY_MAX_ORIGINS = 200;
+  const MEMORY_MAX_VERBS_PER_ORIGIN = 64;
+  const MEMORY_MAX_RECENT_PER_ORIGIN = 12;
+  const MEMORY_REPEAT_THRESHOLD = 3;
+  const MEMORY_NUDGE_MAX_UNIT = 6; // longest single repeating verb-sequence unit considered
+  // Known-verb-SHAPED (not registry-membership-checked - registry.js stays
+  // decoupled from LFL.commandRegistry so this pure module has no dependency
+  // on load order): a short bare word, letters/digits/-/_ only, starting
+  // with a letter, capped at 24 chars. This is the actual enforcement
+  // mechanism behind "arguments are never stored" (design doc §2/§9 sign-off
+  // A) - `search "divorce lawyer"`, `fill email with "x@y.com"`, or any
+  // other argument-shaped text fails this shape and is silently dropped by
+  // recordVerb() below, never persisted.
+  const MEMORY_VERB_RE = /^[a-z][a-z0-9_-]{0,23}$/i;
+
+  function createEmptyMemory() {
+    return { v: MEMORY_SCHEMA_VERSION, origins: {}, prefs: {}, recent: {} };
+  }
+
+  // Schema-version guard (design doc §3) - also the ONE re-validator every
+  // memory-mutating function below runs its input through first, so a
+  // corrupted/hand-edited/pre-v1 stored value can never propagate garbage
+  // into a write; an unrecognized shape (missing/wrong `v`, non-object
+  // `origins`/`prefs`/`recent`, a verb entry that isn't
+  // known-verb-shaped/{n,lastUsed}-shaped) is dropped rather than repaired -
+  // "reset to empty" is always the safe direction for a transparency store
+  // whose only job is a best-effort script-suggestion hint, never a
+  // security-relevant record.
+  function normalizeMemory(raw) {
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw) || raw.v !== MEMORY_SCHEMA_VERSION) {
+      return createEmptyMemory();
+    }
+    const origins = {};
+    const rawOrigins = (raw.origins && typeof raw.origins === 'object' && !Array.isArray(raw.origins)) ? raw.origins : {};
+    for (const originKey of Object.keys(rawOrigins)) {
+      const rawVerbs = rawOrigins[originKey];
+      if (!rawVerbs || typeof rawVerbs !== 'object' || Array.isArray(rawVerbs)) continue;
+      const verbs = {};
+      for (const verbKey of Object.keys(rawVerbs)) {
+        if (!MEMORY_VERB_RE.test(verbKey)) continue;
+        const entry = rawVerbs[verbKey];
+        const n = (entry && typeof entry.n === 'number' && entry.n >= 0) ? Math.floor(entry.n) : 0;
+        const lastUsed = (entry && typeof entry.lastUsed === 'number' && entry.lastUsed >= 0) ? entry.lastUsed : 0;
+        verbs[verbKey] = { n, lastUsed };
+      }
+      origins[originKey] = verbs;
+    }
+    const rawPrefs = (raw.prefs && typeof raw.prefs === 'object' && !Array.isArray(raw.prefs)) ? raw.prefs : {};
+    // Enumerated-prefs allowlist (design doc §2: "explicit, enumerated keys
+    // only") - `nudgeQuiet` is the one preference this phase defines; any
+    // other key is dropped rather than passed through, so a future pref
+    // always has to be added here deliberately, never silently inherited
+    // from whatever happened to be in storage.
+    const prefs = {};
+    if (typeof rawPrefs.nudgeQuiet === 'boolean') prefs.nudgeQuiet = rawPrefs.nudgeQuiet;
+    const recent = {};
+    const rawRecent = (raw.recent && typeof raw.recent === 'object' && !Array.isArray(raw.recent)) ? raw.recent : {};
+    for (const originKey of Object.keys(rawRecent)) {
+      const arr = rawRecent[originKey];
+      if (!Array.isArray(arr)) continue;
+      const cleaned = arr.filter((v) => typeof v === 'string' && MEMORY_VERB_RE.test(v)).slice(-MEMORY_MAX_RECENT_PER_ORIGIN);
+      if (cleaned.length > 0) recent[originKey] = cleaned;
+    }
+    return { v: MEMORY_SCHEMA_VERSION, origins, prefs, recent };
+  }
+
+  // Strips any origin-LIKE input down to scheme+host, http(s) only - the
+  // structural half of "arguments/URL-paths are never stored" (design doc
+  // §2/§9 sign-off A). Fed a full URL (path/query included) it keeps only
+  // the origin; fed a bare host (no scheme, e.g. from a hand-typed `memory
+  // forget example.com`) it tries again with an assumed `https://`; fed
+  // anything that still doesn't parse to a real http(s) host (an empty
+  // string, `javascript:...`, a lone word with no dot that happens to parse
+  // as a one-label host but was never meant as one, etc.) it returns null -
+  // the caller's job is then to no-op rather than store/act on a guess.
+  function normalizeOriginKey(input) {
+    const s = typeof input === 'string' ? input.trim() : '';
+    if (!s) return null;
+    const tryParse = (str) => {
+      try {
+        const u = new URL(str);
+        return u.host ? u : null;
+      } catch (_e) {
+        return null;
+      }
+    };
+    let u = tryParse(s);
+    if (!u) u = tryParse('https://' + s);
+    if (!u || !/^https?:$/i.test(u.protocol)) return null;
+    return `${u.protocol}//${u.host}`;
+  }
+
+  // Known-verb-shaped validator (see MEMORY_VERB_RE's own comment) - the
+  // other half of the arity/whitelist wall. Case-normalized to lowercase so
+  // `Search`/`search` count as the same recorded verb.
+  function normalizeVerbKey(input) {
+    const s = typeof input === 'string' ? input.trim() : '';
+    if (!s || !MEMORY_VERB_RE.test(s)) return null;
+    return s.toLowerCase();
+  }
+
+  // THE recording choke point (design doc §2/§3, this build's invariant-1c
+  // wall): the ONLY function anywhere in this codebase that writes a verb
+  // count into memory. Arity is exactly (memoryObject, origin-string,
+  // verb-string) - there is no fourth parameter for an argument to ride in
+  // on, and both string inputs are independently re-validated/normalized
+  // HERE (never trusted from the caller), so it is structurally impossible
+  // for a call site - however it got the string - to persist anything but a
+  // short, known-verb-shaped token against a bare scheme+host origin. An
+  // invalid origin or verb is a silent no-op (returns the input, schema-
+  // normalized but otherwise unchanged) - never a thrown error, since this
+  // sits on the hot dispatch path and a malformed call must never be able to
+  // break command execution.
+  //
+  // Pure: never touches chrome.storage.local itself (terminal.js's
+  // `_recordMemoryVerb()` owns the get/set round trip) - takes a plain
+  // memory object in, returns a new one out, so this is directly unit-
+  // testable with zero DOM/extension APIs, same posture as every other pure
+  // helper in this file.
+  function recordVerb(mem, origin, verb) {
+    const base = normalizeMemory(mem);
+    const originKey = normalizeOriginKey(origin);
+    const verbKey = normalizeVerbKey(verb);
+    if (!originKey || !verbKey) return base;
+    const now = Date.now();
+
+    const origins = Object.assign({}, base.origins);
+    const verbs = Object.assign({}, origins[originKey]);
+    const prevN = (verbs[verbKey] && typeof verbs[verbKey].n === 'number') ? verbs[verbKey].n : 0;
+    verbs[verbKey] = { n: prevN + 1, lastUsed: now };
+    // Cap verbs/origin - LRU evict the stalest (lowest lastUsed) first.
+    let verbNames = Object.keys(verbs);
+    if (verbNames.length > MEMORY_MAX_VERBS_PER_ORIGIN) {
+      verbNames = verbNames.slice().sort((a, b) => verbs[a].lastUsed - verbs[b].lastUsed);
+      const excess = verbNames.length - MEMORY_MAX_VERBS_PER_ORIGIN;
+      for (let i = 0; i < excess; i++) delete verbs[verbNames[i]];
+    }
+    origins[originKey] = verbs;
+
+    const recent = Object.assign({}, base.recent);
+    const ring = (recent[originKey] || []).concat([verbKey]);
+    recent[originKey] = ring.slice(-MEMORY_MAX_RECENT_PER_ORIGIN);
+
+    // Cap origins - LRU evict by each origin's own most-recently-used verb,
+    // dropping the matching `recent` ring entry too so the two maps never
+    // drift out of sync (an evicted origin's ring would otherwise be dead
+    // weight nothing ever reads again).
+    let originNames = Object.keys(origins);
+    if (originNames.length > MEMORY_MAX_ORIGINS) {
+      const latestOf = (o) => Object.keys(origins[o]).reduce((acc, v) => Math.max(acc, origins[o][v].lastUsed || 0), 0);
+      originNames = originNames.slice().sort((a, b) => latestOf(a) - latestOf(b));
+      const excess = originNames.length - MEMORY_MAX_ORIGINS;
+      for (let i = 0; i < excess; i++) {
+        delete origins[originNames[i]];
+        delete recent[originNames[i]];
+      }
+    }
+
+    return { v: MEMORY_SCHEMA_VERSION, origins, prefs: Object.assign({}, base.prefs), recent };
+  }
+
+  // `memory forget <origin>` - the only other memory writer, and (like
+  // recordVerb) pure: returns {ok, mem} or {ok:false, reason}, never touches
+  // storage itself.
+  function forgetOrigin(mem, origin) {
+    const base = normalizeMemory(mem);
+    const originKey = normalizeOriginKey(origin);
+    if (!originKey) return { ok: false, mem: base, reason: `not a recognizable origin: "${origin}"` };
+    if (!Object.prototype.hasOwnProperty.call(base.origins, originKey)) {
+      return { ok: false, mem: base, reason: `no record for origin: ${originKey}` };
+    }
+    const origins = Object.assign({}, base.origins);
+    delete origins[originKey];
+    const recent = Object.assign({}, base.recent);
+    delete recent[originKey];
+    return { ok: true, mem: { v: MEMORY_SCHEMA_VERSION, origins, prefs: Object.assign({}, base.prefs), recent } };
+  }
+
+  // `memory clear` - wipes everything (origins + prefs + the recent ring),
+  // a full reset back to the empty store. Preferences (like the quiet
+  // toggle) are deliberately included - "clear" means a clean slate, not a
+  // partial one; re-enabling memory and re-choosing quiet/loud afterward is
+  // one command each.
+  function clearMemory() {
+    return createEmptyMemory();
+  }
+
+  // `memory quiet` / `memory loud` - the one enumerated preference this
+  // phase defines (design doc §9 sign-off D: nudges on by default,
+  // silence-able). Pure, same shape as every other memory writer above.
+  function setMemoryQuiet(mem, quiet) {
+    const base = normalizeMemory(mem);
+    const prefs = Object.assign({}, base.prefs, { nudgeQuiet: !!quiet });
+    return { v: MEMORY_SCHEMA_VERSION, origins: base.origins, prefs, recent: base.recent };
+  }
+
+  // `memory` / `memory show` - the transparency dump (design doc §3: "the
+  // user can always see exactly what it knows"). Pure formatter: sorted by
+  // each origin's most-recently-used verb (newest first), each origin's own
+  // verbs sorted by count (most-used first) - a deterministic, stable
+  // rendering for a given memory object, directly unit-testable without any
+  // DOM/storage access. `opts.enabled` is the live master-switch state
+  // (kept outside `mem` itself - terminal.js tracks it via the separate
+  // `lflMemoryEnabled` key, mirroring `lflBrainstormEnabled`'s own posture)
+  // so the dump can honestly report on/off even when there is nothing
+  // recorded yet.
+  function formatMemoryDump(mem, opts) {
+    const o = opts || {};
+    const base = normalizeMemory(mem);
+    const quiet = !!base.prefs.nudgeQuiet;
+    const lines = [`memory: ${o.enabled ? 'ON' : 'OFF'} (nudges ${quiet ? 'quiet' : 'on'})`];
+    const originNames = Object.keys(base.origins);
+    if (originNames.length === 0) {
+      lines.push(o.enabled ? '(nothing recorded yet - run some commands)' : '(nothing recorded - memory is off; "memory on" to start)');
+      return lines.join('\n');
+    }
+    const latestOf = (name) => Object.keys(base.origins[name]).reduce((acc, v) => Math.max(acc, base.origins[name][v].lastUsed || 0), 0);
+    const sortedOrigins = originNames.slice().sort((a, b) => latestOf(b) - latestOf(a));
+    for (const originName of sortedOrigins) {
+      const verbs = base.origins[originName];
+      const verbNames = Object.keys(verbs).sort((a, b) => verbs[b].n - verbs[a].n);
+      const verbTxt = verbNames.map((v) => `${v}(${verbs[v].n})`).join(', ') || '(none)';
+      lines.push(`${originName}: ${verbTxt}`);
+    }
+    return lines.join('\n');
+  }
+
+  // Repeat-detector (design doc §4, deterministic-only in M1/M2 - the
+  // nudge here is a PRINT, never a model call; `teach save that` is only
+  // ever invoked by the human typing it, M3's job to wire up). Pure: takes
+  // the origin's `recent` verb ring (chronological, oldest first - exactly
+  // `mem.recent[originKey]`, see recordVerb() above) and a threshold N,
+  // and answers "does some contiguous unit repeat N times back-to-back at
+  // the END of the ring?" - checking the LONGEST plausible unit first (a 3-
+  // verb workflow repeated 3x is a more useful nudge than the coincidental
+  // 1-verb repeat buried inside it), capped at MEMORY_NUDGE_MAX_UNIT so this
+  // stays cheap even against a full-length ring.
+  function detectRepeat(recentVerbs, threshold) {
+    const ring = Array.isArray(recentVerbs) ? recentVerbs.filter((v) => typeof v === 'string' && v) : [];
+    const N = (Number.isFinite(threshold) && threshold > 1) ? Math.floor(threshold) : MEMORY_REPEAT_THRESHOLD;
+    const maxL = Math.min(MEMORY_NUDGE_MAX_UNIT, Math.floor(ring.length / N));
+    for (let L = maxL; L >= 1; L--) {
+      const tailLen = L * N;
+      const tail = ring.slice(ring.length - tailLen);
+      const unit = tail.slice(0, L);
+      let ok = true;
+      for (let i = 1; i < N && ok; i++) {
+        const chunk = tail.slice(i * L, (i + 1) * L);
+        if (chunk.length !== L) { ok = false; break; }
+        for (let j = 0; j < L; j++) {
+          if (chunk[j] !== unit[j]) { ok = false; break; }
+        }
+      }
+      if (ok) return { fire: true, verbs: unit.slice(), count: N };
+    }
+    return { fire: false, verbs: [], count: 0 };
+  }
+
+  // The nudge line itself (design doc §4's exact worked example). A pure
+  // formatter, never emits anything model-facing - `teach save that` is
+  // named here only as a hint string a human reads, not invoked.
+  function formatNudge(verbs, count) {
+    const list = Array.isArray(verbs) ? verbs : [];
+    return `you've run "${list.join(', ')}" here ${count} times - type "teach save that" to make it a script`;
+  }
+
   return {
     createRegistry, createAliasStore, splitChain, expandAlias, expandMacro,
     damerauLevenshtein, didYouMean, autoOpenMatch, toggleAutoOpen,
@@ -1248,5 +1556,11 @@
     placePanel, defaultAnchor, PANEL_PLACEMENT_MARGIN, PANEL_PLACEMENT_OFFSET,
     // live syntax highlighting
     synSpans,
+    // memory lane M1/M2
+    MEMORY_KEY, MEMORY_ENABLED_KEY, MEMORY_SCHEMA_VERSION, MEMORY_MAX_ORIGINS,
+    MEMORY_MAX_VERBS_PER_ORIGIN, MEMORY_MAX_RECENT_PER_ORIGIN, MEMORY_REPEAT_THRESHOLD,
+    createEmptyMemory, normalizeMemory, normalizeOriginKey, normalizeVerbKey,
+    recordVerb, forgetOrigin, clearMemory, setMemoryQuiet, formatMemoryDump,
+    detectRepeat, formatNudge,
   };
 });

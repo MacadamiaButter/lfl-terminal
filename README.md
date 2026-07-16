@@ -133,6 +133,10 @@ script new|ls|show|rm <name>    define/list/show/remove a named, multi-step scri
 run <name> [args...]            preview then run a script, substituting $1..$9/$@
 teach <goal> [as <name>]        draft a script from a goal (opt-in, off by default - see below)
 teach on | teach off            enable/disable the brainstorm lane
+memory | memory show            show what command-usage memory has recorded (opt-in, off by default)
+memory on | memory off          enable/disable command-usage memory ("remember" also turns it on)
+memory forget <site> | clear    erase one site's record, or wipe everything ("forget <site>" also works)
+memory quiet | memory loud      silence or restore the "you do this a lot" nudge
 origins                         origins visited by this tab this session
 autoopen                        toggle auto-opening the terminal on this site (opt-in per origin, off by default)
 dev on | dev off                toggle a test-only DOM hook (off by default)
@@ -199,6 +203,13 @@ eiffel tower` tends to read to a small model as "use the search box on
 whatever page I'm on," and the draft will skip the navigation entirely.
 The draft is always shown before you save, so a missing `go` step is
 visible in the approval card - this tip just saves you a re-teach.
+
+- The terminal can remember which commands you use where - `memory on` turns
+  on a small, local, opt-in record of verbs and sites (e.g. `search` ran on
+  `en.wikipedia.org` three times), so it can suggest turning a repeated
+  pattern into a script. It never records arguments (what you searched for,
+  typed, or filled in) or page content, and it's off by default - `memory
+  show` proves exactly what's stored, `memory off` stops it.
 
 A bare number by itself (after `ls`) does the sensible default thing for
 that item: opens a link, clicks a button, or tells you how to fill a field.
