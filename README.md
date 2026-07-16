@@ -8,9 +8,9 @@ before it touches the page.
 Nothing about the page you're on, or what you type, ever leaves your
 machine.
 
-![Deterministic commands (help, ls links, read, here) driving a live Wikipedia article](docs/demo.gif)
+![The floating terminal panel spawning at the cursor on a live Wikipedia article, running help, ls links, and read, then getting dragged by its title bar and pinned in place](docs/demo.gif)
 
-*Deterministic commands driving a page. Model-proposed actions additionally require explicit approval.*
+*Deterministic commands driving a page, in the cursor-anchored floating panel - drag its title bar to move it, pin it to keep it put across opens. Model-proposed actions additionally require explicit approval.*
 
 ## It also plays snake
 
@@ -25,9 +25,9 @@ is covered by the exact same gates (fixed action vocabulary, egress lock,
 rate limits) as everything else in this README - a game loop is not a
 carve-out.
 
-![Snake played inside the overlay in the phosphor theme, eating two food tiles before game over](docs/snake.gif)
+![Snake played inside the floating panel in the phosphor theme, eating a food tile before quitting with q and printing the game's score line](docs/snake.gif)
 
-![The sl steam-locomotive easter egg crossing the terminal after a mistyped ls, ending with "you meant ls. the train forgives."](docs/sl.gif)
+![The sl steam-locomotive easter egg crossing the floating panel after a mistyped ls, ending with "you meant ls. the train forgives."](docs/sl.gif)
 
 ## Why
 

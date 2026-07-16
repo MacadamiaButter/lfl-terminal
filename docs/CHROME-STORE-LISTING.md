@@ -22,7 +22,8 @@ English
 ## Detailed description (paste into "Description")
 
 lfl-terminal is a keyboard-first terminal that lives in your browser. Press the
-backtick key on any page and a terminal overlay slides up. Type deterministic
+backtick key on any page and a floating terminal panel opens at your cursor
+(drag its title bar to move it, pin it to keep it put). Type deterministic
 commands to read, search, navigate, and act on the page - and for anything that
 needs interpretation, a LOCAL AI model (one you run yourself) proposes a single
 action that you approve or reject before it ever touches the page.
@@ -101,6 +102,10 @@ https://localfirstlab.org/lfl-terminal-privacy.html   (dedicated EXTENSION polic
 
 ## Assets checklist
 - Store icon 128x128: docs/store/icon-128-preview.png (from extension/icons/icon128.png)
-- Screenshot 1 (1280x800): docs/store/screenshot-1-1280x800.png  [starter - retake fresher ones showing highlight/matches/collapse]
-- Recommended: 2-4 more screenshots showing highlight + matches, the resizable panel, and a proposal/approve card. Capture at 1280x800.
+- Screenshot 1 (1280x800): docs/store/screenshot-1-1280x800.png - a real approval
+  card (`ask search for intel arc` on Wikipedia), Approve/Reject visible.
+- Screenshot 2 (1280x800): docs/store/screenshot-2-1280x800.png - `ls`'s
+  numbered page map of links/buttons/fields, in the floating panel.
+- Screenshot 3 (1280x800): docs/store/screenshot-3-1280x800.png - the fun
+  pack (phosphor theme, `snake` mid-game).
 - Optional: small promo tile 440x280.
