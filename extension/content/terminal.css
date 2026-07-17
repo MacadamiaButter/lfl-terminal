@@ -166,7 +166,7 @@
   /* color grammar v2 (2026-07-17): FIX - --lfl-cmd used to be byte-identical
      to --lfl-fg (#33ff33), making the live highlighter invisible on this
      theme (design doc §1 item 3 / §4). Monochrome brightness ladder: dim
-     #177217 < info #2ecc2e < fg #33ff33 < cmd #b3ffb3 < BRIGHT #66ff66 -
+     #177217 < info #2ecc2e < fg #33ff33 < sub #66ff66 < cmd #b3ffb3 -
      authentic CRT behavior expressed via brightness, never a new hue (P2).
      Keep in sync with CSS_TEXT in terminal.js. */
   --lfl-cmd: #b3ffb3;

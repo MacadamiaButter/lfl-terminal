@@ -1442,6 +1442,18 @@
         el.textContent = sp.text;
         div.appendChild(el);
       }
+      if (!div.firstChild) {
+        // Deliberate blank separator lines (e.g. HELP_RICH's group gaps)
+        // arrive as one empty span; without content the div has zero height
+        // and the gap collapses to the 4px margin (verify LOW-1 2026-07-17).
+        // A no-class single-space span gives the line its full text height
+        // (.lfl-output is white-space:pre-wrap, so the space is preserved).
+        // A span (not a bare text node) because the sandboxed test documents
+        // only fake createElement/textContent.
+        const filler = document.createElement('span');
+        filler.textContent = ' ';
+        div.appendChild(filler);
+      }
       this.outputEl.appendChild(div);
       while (this.outputEl.children.length > MAX_OUTPUT_LINES) {
         this.outputEl.removeChild(this.outputEl.firstChild);
