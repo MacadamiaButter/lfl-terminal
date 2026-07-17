@@ -283,21 +283,17 @@ use.
 
 ## Development
 
-Ten Node unit-test suites (380 assertions total), no framework, no
-`npm install`:
+Twenty-five Node unit-test suites, no framework, no `npm install`.
+Run any one directly, or all of them:
 
 ```
-node tests/executor_credential.test.js
-node tests/m2_security.test.js
-node tests/funpack.test.js
-node tests/sw_ratelimit_persistence.test.js
-node tests/m3_nav_lane_isolation.test.js
-node tests/m3_go_resolution.test.js
-node tests/m3_chain_and_alias_macro.test.js
-node tests/m3_hardening.test.js
-node tests/m4_friction.test.js
-node tests/m4b_games.test.js
+for t in tests/*.test.js; do node "$t" || break; done
 ```
+
+Highlights: `m2_security.test.js` (guards), the lane-isolation proofs
+(`m3_nav_lane_isolation.test.js`, `brainstorm_lane_isolation.test.js`),
+`executor_credential.test.js`, `memory_lane.test.js`, and
+`member_experience.test.js`.
 
 Static grep gates:
 
