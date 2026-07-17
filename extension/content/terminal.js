@@ -70,6 +70,18 @@
   // (budget/dev/origins/continue/alias/macro/...) - their posture is
   // unchanged by this fix, per the verify scope.
   const FUNPACK_NAMES = new Set(['fortune', 'stats', 'theme', 'cowsay']);
+  // E1 (member-experience design doc §3): IDENTICAL wording to
+  // service-worker.js's own BRIDGE_UNREACHABLE_USER constant. The two files
+  // cannot share a module (content script vs. background worker, no build
+  // step in this project - see css_sync.test.js's own note on that same
+  // no-build-step constraint), so this is a deliberate literal duplicate,
+  // kept in sync by hand like CSS_TEXT below. Used whenever
+  // chrome.runtime.sendMessage() itself throws for one of the three
+  // model-lane calls below (extension context invalidated, SW unreachable) -
+  // from a member's point of view that is indistinguishable from "the
+  // bridge process isn't running", so it gets the exact same message and
+  // the exact same next step. See _printModelError() below.
+  const BRIDGE_UNREACHABLE_USER = "can't reach your local bridge at 127.0.0.1:1238 - is it running? deterministic commands still work (see the cheat sheet / member setup guide)";
   // Storage-key form of each playable game's name, used only for the
   // chrome.storage.local `lflGameScores` object's keys (design §4) - "2048"
   // is not a valid property to reach via dot-notation and reads oddly as a
@@ -480,7 +492,12 @@
         resp = null;
       }
       if (!resp || !resp.ok) {
-        const reason = (resp && resp.error) || 'rate-limit check unavailable (service worker unreachable) - blocked for safety';
+        // E1 (design doc §3): keeps its pre-existing message but gains the
+        // "reload extension FIRST, page SECOND" hint - the one order that
+        // actually clears this state (docs/CHEATSHEET.md's own "When
+        // something is off" section already documents this exact fix; this
+        // just puts the hint in the line itself instead of only the docs).
+        const reason = (resp && resp.error) || 'rate-limit check unavailable (service worker unreachable) - blocked for safety (reload the extension FIRST, then F5 the page)';
         return { ok: false, allowed: false, paused: true, reason, resumed: false, recorded: false, budget: this._rlBudgetCache };
       }
       if (resp.budget) {
@@ -997,6 +1014,12 @@
       // M3: persist open state per tab so a later re-injection (navigation)
       // auto-reopens - see _restoreTerminalState(). Fire-and-forget.
       this._tsSend('TS_OPEN_SET', { open: true });
+      // E2 member-experience (design doc §4): the first-open welcome block -
+      // shown at most ONCE, ever, per browser profile (chrome.storage.local
+      // `lflWelcomeSeen`), on whichever open (backtick/Ctrl+K/toolbar) turns
+      // out to be the first. Fire-and-forget, before the MOTD line below -
+      // see _maybeShowWelcome()'s own comment.
+      this._maybeShowWelcome();
       // funpack v1: at most one dim fortune line per calendar day, shown
       // whenever the overlay is opened. Fire-and-forget, never delays the
       // focus()/updateTestHook() calls above.
@@ -1414,6 +1437,32 @@
     printOk(text) { if (text) this._appendLine(text, 'ok'); }
     printError(text) { if (text) this._appendLine(text, 'error'); }
 
+    // E1 (design doc §3 P2): prints a model-lane error response
+    // ({error, errorDetail}) - the friendly `error` line always, plus (dev
+    // hooks only - `dev on`) one dim line carrying the raw `errorDetail`
+    // classifyModelError() (service-worker.js) preserved. Centralizes what
+    // used to be three separately-duplicated `printError(errMsg)` call
+    // sites (the page-lane/nav-lane/brainstorm-lane catch paths below) so
+    // the dev-detail behavior is added in exactly one place for all three.
+    // Returns the printed user-facing message so callers can still pass it
+    // to _auditPush()/_settle() exactly as before.
+    _printModelError(resp) {
+      const errMsg = (resp && resp.error) || BRIDGE_UNREACHABLE_USER;
+      this.printError(errMsg);
+      if (this._devHooksEnabled && resp && typeof resp.errorDetail === 'string' && resp.errorDetail) {
+        // Reuses the already-dim-styled 'motd' CSS class (terminal.css /
+        // .lfl-line.lfl-motd) for this generic dim diagnostic line, rather
+        // than introducing a new CSS selector and the css_sync.test.js
+        // dual-file (terminal.css + this file's CSS_TEXT) sync burden that
+        // would create for one dev-only line. Not persisted to scrollback
+        // (fire-and-forget _appendLineDom, same posture as the MOTD line -
+        // see _maybeShowMotd()) - a dev-mode diagnostic is not something a
+        // restored-after-navigation scrollback should ever replay.
+        this._appendLineDom(`  detail: ${resp.errorDetail}`, 'motd');
+      }
+      return errMsg;
+    }
+
     // Color grammar v2 (2026-07-17, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md
     // §5): renders ONE rich line - {spans:[{text, cls}]}, produced by
     // registry.js's helpRich()/manRich() or engine.js's ls/matches rich
@@ -1715,6 +1764,15 @@
         this._handleForgetAlias(raw);
         return;
       }
+      // member-experience E2/E3/E5 (LFL-TERMINAL-MEMBER-EXPERIENCE-DESIGN.md)
+      // - same "standalone control command, no chain participation" posture
+      // as the rest of this cluster. `welcome`/`tour` are 100%
+      // deterministic; `status` only ever reaches the SW's loopback-only
+      // STATUS_CHECK GET, never either model lane's POST - none of the
+      // three has a code path to _runChain()/_dispatchSegment() at all.
+      if (/^welcome$/i.test(raw)) { this._handleWelcomeCommand(); return; }
+      if (/^tour(?:\s+\S+)?$/i.test(raw)) { this._handleTourCommand(raw); return; }
+      if (/^status$/i.test(raw)) { this._handleStatusCommand(); return; }
 
       this._runChain(raw);
     }
@@ -2712,11 +2770,14 @@
           ? await chrome.runtime.sendMessage({ type: 'BRAINSTORM_LLM_REQUEST', goal: effectiveGoal, memoryContext })
           : await chrome.runtime.sendMessage({ type: 'BRAINSTORM_LLM_REQUEST', goal: effectiveGoal });
       } catch (e) {
-        resp = { ok: false, error: 'local model offline - deterministic commands still work (' + (e && e.message ? e.message : 'messaging error') + ')' };
+        // E1 (design doc §3): a thrown chrome.runtime.sendMessage() means
+        // the SW itself is unreachable (extension context invalidated, SW
+        // evicted mid-message) - indistinguishable, from here, from "the
+        // bridge process isn't running", so it gets the same friendly line.
+        resp = { ok: false, error: BRIDGE_UNREACHABLE_USER, errorDetail: 'messaging error: ' + (e && e.message ? e.message : 'unknown') };
       }
       if (!resp || !resp.ok) {
-        const errMsg = (resp && resp.error) || 'local model offline - deterministic commands still work';
-        this.printError(errMsg);
+        const errMsg = this._printModelError(resp);
         this._auditPush({ action: 'teach' }, 'n/a', errMsg);
         this._settle(false, errMsg);
         return;
@@ -3531,6 +3592,128 @@
       } catch (_e) { /* storage unavailable -- no MOTD today, harmless */ }
     }
 
+    // E2 member-experience (design doc §4): shown at most once, ever, per
+    // browser profile - chrome.storage.local `lflWelcomeSeen`, same
+    // read-then-set-once-shown shape as _maybeShowMotd() just above, minus
+    // the calendar-day reset (this flag never resets on its own; only a
+    // fresh profile/reinstall clears storage.local). Any storage error is
+    // swallowed the same way MOTD's is - "no welcome shown this open" is
+    // always the safe fallback direction (worst case: it shows on a later
+    // open instead, never twice, never never).
+    _maybeShowWelcome() {
+      try {
+        chrome.storage.local.get(['lflWelcomeSeen'], (res) => {
+          try {
+            if (chrome.runtime.lastError) return;
+            if (res && res.lflWelcomeSeen) return;
+            this._printWelcome();
+            chrome.storage.local.set({ lflWelcomeSeen: true });
+          } catch (_e) { /* swallow -- see _maybeShowMotd()'s own comment */ }
+        });
+      } catch (_e) { /* storage unavailable -- no welcome shown this open, harmless */ }
+    }
+
+    // Shared render path for the auto-shown-once case above AND the manual
+    // `welcome` command (_handleWelcomeCommand() below) - rich display (the
+    // block is engine-authored text, registry.js's welcomeRich(), same P4
+    // invariant every other outputRich producer holds itself to), plain-text
+    // persisted to scrollback (registry.js's welcomeText()) - the same
+    // rich-display/plain-persist split _printDetResult() already uses for
+    // help/man/ls/matches.
+    _printWelcome() {
+      this._printRichLines(LFL.registry.welcomeRich());
+      this._tsSend('TS_SCROLLBACK_APPEND', { text: LFL.registry.welcomeText(), cls: 'info' });
+    }
+
+    // `welcome` command (design doc §4: "the `welcome` command re-prints it
+    // on demand") - standalone control command, no chain participation,
+    // same posture as `origins`/`dev` etc. (see _submitCommand()'s own
+    // comment on that dispatch cluster).
+    _handleWelcomeCommand() {
+      this._printWelcome();
+      const msg = 'welcome block reprinted';
+      this._auditPush({ action: 'welcome' }, 'auto', msg);
+      this._settle(true, msg);
+    }
+
+    // ---- E3 member-experience: `tour` (design doc §5) ----
+    //
+    // Standalone control command, no chain participation (see
+    // _submitCommand()'s own comment on that dispatch cluster) - `tour`/
+    // `tour <n>` never reach _runChain()/_dispatchSegment() at all, so there
+    // is no code path from this command to either LLM lane. Progress
+    // (`tourStep` - the index of the last step SHOWN) lives in the SW's
+    // per-tab terminal-state store (chrome.storage.session, resets per tab
+    // session - design §5) via the TS_TOUR_GET/TS_TOUR_SET messages
+    // (service-worker.js). Content and sequencing themselves are pure
+    // helpers in registry.js (tourStepRich/tourStepText/tourNextStep/
+    // tourJumpStep) - this method is only wiring: read progress, decide
+    // which step, render it, persist the new progress.
+    async _handleTourCommand(raw) {
+      const m = raw.match(/^tour(?:\s+(\S+))?$/i);
+      const arg = m && m[1];
+      let stepNum;
+      if (arg) {
+        const jump = LFL.registry.tourJumpStep(arg);
+        if (!jump.ok) {
+          this.printError(jump.reason);
+          this._auditPush({ action: 'tour' }, 'blocked', jump.reason);
+          this._settle(false, jump.reason);
+          return;
+        }
+        stepNum = jump.step;
+      } else {
+        const peek = await this._tsSend('TS_TOUR_GET');
+        const lastShown = (peek.ok && typeof peek.tourStep === 'number') ? peek.tourStep : 0;
+        stepNum = LFL.registry.tourNextStep(lastShown);
+      }
+      this._printRichLines(LFL.registry.tourStepRich(stepNum));
+      this._tsSend('TS_SCROLLBACK_APPEND', { text: LFL.registry.tourStepText(stepNum), cls: 'info' });
+      await this._tsSend('TS_TOUR_SET', { step: stepNum });
+      const msg = `tour step ${stepNum}/${LFL.registry.tourStepCount()}`;
+      this._auditPush({ action: 'tour' }, 'auto', msg);
+      this._settle(true, msg);
+    }
+
+    // ---- E5 member-experience: `status` (design doc §6) ----
+    //
+    // Standalone control command, same posture as the rest of this cluster.
+    // Messages the SW's STATUS_CHECK handler (service-worker.js's
+    // handleStatusCheck()) - a loopback-only GET /health, then a
+    // best-effort loopback-only GET /v1/models - and reports plain facts.
+    // The friendly bridge-unreachable hint is built HERE (not by the SW),
+    // reusing the exact same BRIDGE_UNREACHABLE_USER wording the model-lane
+    // catch paths above use, so a member sees one consistent phrase for
+    // "the bridge is not reachable" everywhere in the product, whichever
+    // command happened to notice it.
+    async _handleStatusCommand() {
+      let resp;
+      try {
+        resp = await chrome.runtime.sendMessage({ type: 'STATUS_CHECK' });
+      } catch (_e) {
+        resp = null;
+      }
+      const bridgeReachable = !!(resp && resp.ok && resp.bridgeReachable);
+      const lines = [];
+      if (bridgeReachable) {
+        lines.push({ spans: [{ text: 'bridge: ', cls: null }, { text: 'reachable', cls: 'lfl-syn-cmd' }, { text: ' (127.0.0.1:1238)', cls: 'lfl-syn-info' }] });
+        const alias = (resp && typeof resp.modelAlias === 'string' && resp.modelAlias) ? resp.modelAlias : null;
+        const modelTxt = alias || '(name unavailable through gateway)';
+        lines.push({ spans: [{ text: 'model: ', cls: null }, { text: modelTxt, cls: 'lfl-syn-info' }] });
+      } else {
+        lines.push({ spans: [{ text: 'bridge: ', cls: null }, { text: 'unreachable', cls: 'lfl-syn-cmd' }] });
+        lines.push({ spans: [{ text: BRIDGE_UNREACHABLE_USER, cls: 'lfl-syn-info' }] });
+      }
+      this._printRichLines(lines);
+      const plain = bridgeReachable
+        ? `bridge: reachable (127.0.0.1:1238)\nmodel: ${(resp && resp.modelAlias) || '(name unavailable through gateway)'}`
+        : `bridge: unreachable\n${BRIDGE_UNREACHABLE_USER}`;
+      this._tsSend('TS_SCROLLBACK_APPEND', { text: plain, cls: 'info' });
+      const msg = bridgeReachable ? 'status: bridge reachable' : 'status: bridge unreachable';
+      this._auditPush({ action: 'status' }, 'auto', msg);
+      this._settle(true, msg);
+    }
+
     _handleDevCommand(raw) {
       const on = /\bon$/i.test(raw.trim());
       this._devHooksEnabled = on;
@@ -3914,11 +4097,12 @@
         // tests/m3_nav_lane_isolation.test.js for the proof.
         resp = await chrome.runtime.sendMessage({ type: 'NAV_LLM_REQUEST', command: resolvedSegment });
       } catch (e) {
-        resp = { ok: false, error: 'local model offline - deterministic commands still work (' + (e && e.message ? e.message : 'messaging error') + ')' };
+        // E1: see the teach-lane catch block above for why this reuses the
+        // bridge-unreachable line for a messaging (not fetch) failure.
+        resp = { ok: false, error: BRIDGE_UNREACHABLE_USER, errorDetail: 'messaging error: ' + (e && e.message ? e.message : 'unknown') };
       }
       if (!resp || !resp.ok) {
-        const errMsg = (resp && resp.error) || 'local model offline - deterministic commands still work';
-        this.printError(errMsg);
+        const errMsg = this._printModelError(resp);
         this._auditPush({ action: 'go-nav-lane-error' }, 'n/a', errMsg);
         this._settle(false, errMsg);
         this._afterSettle(false);
@@ -4099,13 +4283,14 @@
           title: document.title,
         });
       } catch (e) {
-        resp = { ok: false, error: 'local model offline - deterministic commands still work (' + (e && e.message ? e.message : 'messaging error') + ')' };
+        // E1: see the teach-lane catch block above for why this reuses the
+        // bridge-unreachable line for a messaging (not fetch) failure.
+        resp = { ok: false, error: BRIDGE_UNREACHABLE_USER, errorDetail: 'messaging error: ' + (e && e.message ? e.message : 'unknown') };
       }
       const latencyMs = Math.round(performance.now() - t0);
 
       if (!resp || !resp.ok) {
-        const errMsg = (resp && resp.error) || 'local model offline - deterministic commands still work';
-        this.printError(errMsg);
+        const errMsg = this._printModelError(resp);
         this._auditPush({ action: 'llm-error' }, 'n/a', errMsg);
         this._settle(false, errMsg);
         this._afterSettle(false);

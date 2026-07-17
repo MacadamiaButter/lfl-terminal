@@ -247,6 +247,12 @@ const M3_NEW_COMMAND_NAMES = [
   // list only needs to confirm "teach" itself never leaks into the OTHER two
   // lanes' action enums.
   'teach',
+  // member-experience E2/E3/E5 (2026-07-16,
+  // LFL-TERMINAL-MEMBER-EXPERIENCE-DESIGN.md) - same guarantee. None of
+  // these three ever call either LLM lane at all (see registry.js's
+  // RESERVED_NAMES comment on them), so this is a belt-and-suspenders pin,
+  // same as `dev`/`origins`/`man` above having never called a lane either.
+  'welcome', 'tour', 'status',
 ];
 
 async function testVocabularyLock() {

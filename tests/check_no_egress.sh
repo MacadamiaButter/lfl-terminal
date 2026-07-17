@@ -21,6 +21,17 @@
 #   - = fetch / fetch]            aliasing fetch to a local name to dodge a
 #                                  naive `fetch(` grep (e.g. `const f = fetch;`
 #                                  or destructuring `const {fetch} = window;`)
+#
+# P4 posture widening (2026-07-16, LFL-TERMINAL-MEMBER-EXPERIENCE-DESIGN.md
+# §6, owner sign-off E condition: Fable security review required). E5's
+# `status` command adds a SECOND fetch() call site inside service-worker.js
+# (a loopback GET /health + best-effort GET /v1/models, alongside the
+# pre-existing model-lane POST) - the guarantee this file's own comment used
+# to describe ("exactly one fetch/XHR/... call site, and it's the loopback
+# model endpoint") is no longer literally "one call site", so it is now
+# checked as "every call site, individually proven loopback-only" instead -
+# see tests/check_sw_fetch_loopback.js, invoked at the end of this script,
+# for the mechanical proof (not just this comment's say-so).
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -47,3 +58,6 @@ if ! grep -qE "${PATTERN}" "${EXT_DIR}/background/service-worker.js"; then
 fi
 
 echo "PASS: no network API usage outside ${ALLOWED_FILE}."
+
+echo "checking every fetch() call site inside ${ALLOWED_FILE} resolves to a 127.0.0.1 loopback URL ..."
+node "${ROOT}/tests/check_sw_fetch_loopback.js"

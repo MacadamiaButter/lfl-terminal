@@ -274,6 +274,17 @@
     // already do, so an alias/macro defined under one of these three names
     // would silently be unreachable by its own name).
     'memory', 'remember', 'forget',
+    // member-experience E2/E3 (2026-07-16, LFL-TERMINAL-MEMBER-EXPERIENCE-
+    // DESIGN.md §4/§5): `welcome` (re-prints the first-open block) and
+    // `tour` (the in-extension walkthrough) - same shadowing footgun and
+    // same "standalone control command, intercepted in terminal.js's
+    // _submitCommand before chain-splitting" posture as memory/teach/script
+    // above (see terminal.js's own comment there). Neither ever reaches
+    // either LLM lane, so there is nothing here for a macro/alias shadow to
+    // silently redirect a member away from a model call - the risk is
+    // purely "the built-in stops being reachable by its own name", the same
+    // risk every other name in this set exists to close.
+    'welcome', 'tour',
   ]);
 
   // M4b (design doc §3/§5): games are never allowed to run as part of a
@@ -1527,6 +1538,139 @@
     return spans;
   }
 
+  // ---- E2 member-experience: first-open welcome block (design doc §4) ----
+  //
+  // Engine-authored, plain-text lines (backtick convention - richTextSpans()
+  // above classes anything inside backticks 'lfl-syn-cmd') - never fed by
+  // the model or a page, so rendering these via outputRich is exactly the
+  // P4 invariant richTextSpans()'s own comment describes. WELCOME_LINES is
+  // ALSO the plain-text scrollback form (joined by '\n'), same
+  // rich-display/plain-persist split as helpRich()/helpText() and
+  // tryDeterministic()'s own det.output/det.outputRich pair - see
+  // welcomeText()/welcomeRich() below and terminal.js's _printWelcome().
+  const WELCOME_LINES = [
+    'lfl-terminal - a command terminal for this page, plus a local model that proposes page actions you approve.',
+    'Open it three ways: the backtick key, `Ctrl+K`, or the toolbar button. `Esc` closes.',
+    'Type `help` for the full command list, `tour` for a 60-second walkthrough.',
+    'Everything runs locally - your commands, the model, all of it. Nothing leaves your machine.',
+    'The model never acts on its own: every page-changing action waits for your Enter, and you can always reject it.',
+    'This only shows once - type `welcome` any time to see it again.',
+  ];
+
+  function welcomeText() {
+    return WELCOME_LINES.join('\n');
+  }
+
+  function welcomeRich() {
+    return WELCOME_LINES.map((line) => ({ spans: richTextSpans(line, 'lfl-syn-info') }));
+  }
+
+  // ---- E3 member-experience: in-extension `tour` (design doc §5) ----
+  //
+  // Six steps, purely textual - never touches the page, never calls either
+  // LLM lane. `tour`/`tour <n>` are intercepted in terminal.js's
+  // _submitCommand() before chain-splitting (same posture as
+  // welcome/memory/teach/script above), so there is no code path from this
+  // command to a model request at all - see terminal.js's own comment on
+  // that dispatch cluster. Content and sequencing are both pure/DOM-free
+  // here, unit-tested directly with no browser (tests/member_experience.test.js).
+  const TOUR_STEPS = [
+    {
+      title: 'open, close, move',
+      lines: [
+        'Open/close: the backtick key, `Ctrl+K`, or the toolbar button. `Esc` closes.',
+        'Drag the title bar to move the panel; `pin` freezes it in place (`unpin` undoes that).',
+      ],
+    },
+    {
+      title: 'deterministic verbs',
+      lines: [
+        'Deterministic verbs run locally, no model involved: `ls` numbers every link/button/field on the page.',
+        'Try `ls`, then `open 3` (or whatever number you see there) to follow it.',
+      ],
+    },
+    {
+      title: 'find & read',
+      lines: [
+        '`find <text>` scrolls to and highlights text on the page; a bare `find` jumps to the next match.',
+        '`read` extracts the page\'s main article text without leaving the terminal.',
+      ],
+    },
+    {
+      title: 'the model lane',
+      lines: [
+        'Type anything that is not a known command and the local model proposes ONE page action.',
+        'An approval card shows exactly what it wants to do. `Enter` (or Approve) runs it; `Esc` (or Reject) cancels - nothing runs without that.',
+      ],
+    },
+    {
+      title: 'scripts, teach & the cheat sheet',
+      lines: [
+        '`script new` records a named, repeatable sequence; `run <name>` replays it.',
+        '`teach <goal>` (opt-in: `teach on`) asks the model to draft a script from plain words - you still approve it. Full reference: docs/CHEATSHEET.md.',
+      ],
+    },
+    {
+      title: 'themes & games',
+      lines: [
+        '`theme` switches the panel look (default, phosphor, amber, paper).',
+        '`snake`, `2048`, and `games` are here if you want them. That is the last step - `help` lists everything, `tour <n>` jumps back to any step, bare `tour` starts over.',
+      ],
+    },
+  ];
+
+  function tourStepCount() {
+    return TOUR_STEPS.length;
+  }
+
+  // The "current step, then advance" sequencing rule (design §5): given the
+  // index of the step last SHOWN (0 = tour never started this tab session),
+  // returns the NEXT step number a bare `tour` should show. Wraps back to
+  // step 1 after the last step, rather than dead-ending - modular
+  // arithmetic makes the wrap a one-line fact instead of a special case:
+  // last=0 -> 1, last=1 -> 2, ..., last=N -> 1.
+  function tourNextStep(lastShown) {
+    const n = TOUR_STEPS.length;
+    const last = (typeof lastShown === 'number' && lastShown >= 0) ? Math.floor(lastShown) : 0;
+    return (last % n) + 1;
+  }
+
+  // `tour <n>` - explicit jump. Strict integer-only parsing (no "3abc", no
+  // floats, no leading/trailing junk) with a usage message on anything else
+  // or anything out of range, same defensive-validation posture as this
+  // module's other user-facing argument parsers (e.g. checkNameAvailable()).
+  function tourJumpStep(arg) {
+    const n = TOUR_STEPS.length;
+    const trimmed = (typeof arg === 'string' ? arg : '').trim();
+    if (!/^[0-9]+$/.test(trimmed)) return { ok: false, reason: `usage: tour <n> - n must be an integer 1-${n}` };
+    const parsed = parseInt(trimmed, 10);
+    if (parsed < 1 || parsed > n) return { ok: false, reason: `usage: tour <n> - n must be an integer 1-${n}` };
+    return { ok: true, step: parsed };
+  }
+
+  // 1-indexed - tourStepRich(1) is the first step. Returns null for an
+  // out-of-range n (callers only ever reach this via tourNextStep()/
+  // tourJumpStep(), both of which already clamp to [1, tourStepCount()], so
+  // this is a defensive floor, not a normal path).
+  function tourStepRich(n) {
+    const step = TOUR_STEPS[n - 1];
+    if (!step) return null;
+    const header = {
+      spans: [
+        { text: '$ ', cls: 'lfl-syn-accent' },
+        { text: `TOUR ${n}/${TOUR_STEPS.length} - ${step.title.toUpperCase()}`, cls: 'lfl-syn-header' },
+      ],
+    };
+    const body = step.lines.map((line) => ({ spans: richTextSpans(line, 'lfl-syn-info') }));
+    return [header].concat(body);
+  }
+
+  function tourStepText(n) {
+    const step = TOUR_STEPS[n - 1];
+    if (!step) return '';
+    return [`tour ${n}/${TOUR_STEPS.length} - ${step.title}`].concat(step.lines).join('\n');
+  }
+
   // ---- memory lane M1/M2 (2026-07-16, LFL-TERMINAL-MEMORY-LANE-DESIGN.md
   // §2/§3/§4/§8) ----
   //
@@ -1960,5 +2104,8 @@
     // memory lane M3 (trusted preface into the brainstorm/teach lane only)
     MEMORY_CONTEXT_MAX_VERBS, MEMORY_CONTEXT_MAX_SCRIPT_NAMES,
     MEMORY_CONTEXT_SCRIPT_NAME_MAX_LEN, buildMemoryContext,
+    // member-experience E2 (welcome) / E3 (tour)
+    welcomeText, welcomeRich,
+    tourStepCount, tourNextStep, tourJumpStep, tourStepRich, tourStepText,
   };
 });

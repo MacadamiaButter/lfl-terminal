@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lfl-terminal - welcome</title>
+<!--
+  E4 member-experience install-time welcome tab (design doc §6, owner
+  sign-off D: "reason=install only, one tab, never again"). Static,
+  self-contained, offline: no external requests of any kind (no fonts,
+  no images, no analytics, no CSS/JS from a CDN) - everything a page
+  needs is inline, right here. Opened by service-worker.js's
+  chrome.runtime.onInstalled listener (reason === 'install' only), never
+  listed in manifest.json's web_accessible_resources - a page cannot
+  navigate here or reference this URL; only the extension itself opens
+  it, via chrome.tabs.create({url: chrome.runtime.getURL('welcome.html')}).
+-->
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b0e14;
+    --fg: #dbe4f0;
+    --accent: #e0a339;
+    --accent-bright: #f5a623;
+    --dim: #5d7290;
+    --border: #2a3140;
+    --cmd-bg: #151a24;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    line-height: 1.5;
+  }
+  main {
+    max-width: 640px;
+    margin: 0 auto;
+    padding: 48px 24px 64px;
+  }
+  h1 {
+    color: var(--accent);
+    font-size: 22px;
+    margin: 0 0 6px;
+  }
+  .tagline {
+    color: var(--dim);
+    margin: 0 0 32px;
+    font-size: 14px;
+  }
+  h2 {
+    color: var(--accent-bright);
+    font-size: 14px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin: 32px 0 10px;
+  }
+  p { margin: 0 0 12px; font-size: 14px; }
+  ul { margin: 0 0 12px; padding-left: 22px; font-size: 14px; }
+  li { margin: 0 0 6px; }
+  code, kbd {
+    background: var(--cmd-bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 6px;
+    color: #8fd0ff;
+    font-family: inherit;
+    font-size: 13px;
+  }
+  .privacy {
+    margin-top: 40px;
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--dim);
+    font-size: 13px;
+  }
+  .privacy strong { color: var(--fg); }
+</style>
+</head>
+<body>
+<main>
+  <h1>lfl-terminal is installed</h1>
+  <p class="tagline">A command terminal for any page, plus a local model that proposes page actions you approve.</p>
+
+  <h2>Open it</h2>
+  <ul>
+    <li>Press the backtick key <kbd>`</kbd> (when focus isn't in a page input)</li>
+    <li>Press <kbd>Ctrl+K</kbd></li>
+    <li>Click the toolbar button</li>
+  </ul>
+  <p><kbd>Esc</kbd> closes it again.</p>
+
+  <h2>Get started</h2>
+  <p>Once it's open, type <code>help</code> for the full command list, or <code>tour</code> for a
+  60-second walkthrough of the deterministic commands, the model lane, and the approval card.</p>
+
+  <h2>What it does</h2>
+  <p>Deterministic commands (<code>ls</code>, <code>open</code>, <code>find</code>, <code>read</code>,
+  and more) run locally, no model involved. Type something else and a local model proposes ONE
+  page action - click, fill, navigate - which you approve or reject before anything happens.</p>
+
+  <div class="privacy">
+    <strong>Privacy:</strong> everything runs locally. Commands, the model, all of it - nothing
+    leaves your machine. Page actions always need your explicit approval; the model never acts on
+    its own.
+  </div>
+</main>
+</body>
+</html>

@@ -490,11 +490,24 @@ check('.lfl-syn-arg is italic and uses --lfl-dim in BOTH CSS twins', () => {
 // Part 5 - isolation + gates
 // =====================================================================
 
-console.log('\n[5] isolation - guards/executor/nav/nav-watch/axtree/service-worker/manifest byte-identical to be72a74; gates green');
+console.log('\n[5] isolation - guards/executor/nav/nav-watch/axtree/manifest byte-identical to be72a74; service-worker.js checked for color-grammar mentions only; gates green');
 
-const git = spawnSync('git', ['diff', '--stat', 'be72a74', '--', 'extension/content/guards.js', 'extension/content/executor.js', 'extension/content/nav.js', 'extension/content/nav-watch.js', 'extension/content/axtree.js', 'extension/background/service-worker.js', 'extension/manifest.json'], { cwd: ROOT, encoding: 'utf8' });
+// service-worker.js was DROPPED from the byte-identical-to-be72a74 pin below
+// (2026-07-16, LFL-TERMINAL-MEMBER-EXPERIENCE-DESIGN.md §7 sign-off E/§8):
+// that pin was this color-grammar build's OWN "nothing unrelated moved"
+// snapshot at the commit right before color grammar landed - not a
+// permanent, all-future-builds invariant. The member-experience build
+// explicitly and deliberately touches service-worker.js (E1 error mapping,
+// E3 tour-progress storage, E4 install listener, E5 status check - see that
+// file's own header "SIXTH ROLE" comment), with its own Fable security
+// review of that diff. guards/executor/nav/nav-watch/axtree/manifest remain
+// pinned exactly as before - this build's own HARD CONSTRAINTS list holds
+// itself to that same untouched set. service-worker.js still gets the
+// second check just below (no color-grammar-specific tokens/API mentions),
+// which remains true and meaningful independent of the byte-identity pin.
+const git = spawnSync('git', ['diff', '--stat', 'be72a74', '--', 'extension/content/guards.js', 'extension/content/executor.js', 'extension/content/nav.js', 'extension/content/nav-watch.js', 'extension/content/axtree.js', 'extension/manifest.json'], { cwd: ROOT, encoding: 'utf8' });
 
-check('git diff against be72a74 for guards/executor/nav/nav-watch/axtree/service-worker/manifest is EMPTY (byte-identical)', () => {
+check('git diff against be72a74 for guards/executor/nav/nav-watch/axtree/manifest is EMPTY (byte-identical)', () => {
   assert.strictEqual(git.status, 0, git.stderr);
   assert.strictEqual(git.stdout.trim(), '', `unexpected diff:\n${git.stdout}`);
 });

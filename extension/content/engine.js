@@ -102,6 +102,17 @@
   // plan-preview approval card, same posture as script/run above). Opt-in,
   // off by default (`teach on`/`teach off`); a bare `teach` prints status.
   reg.register({ name: 'teach', argSpec: 'teach <goal> [as <name>] | teach save that [as <name>] | teach on|off', help: 'describe a workflow, the local model drafts a script you approve (opt-in, off by default); "teach save that" turns a repeated pattern memory noticed into a script', group: GROUP_AUTO });
+  // member-experience E2/E3/E5 (2026-07-16, LFL-TERMINAL-MEMBER-EXPERIENCE-
+  // DESIGN.md) - all three dispatched by terminal.js (chrome.storage.local/
+  // chrome.runtime.sendMessage access this file's synchronous contract
+  // doesn't have, same posture as teach/dev/origins above). `welcome` and
+  // `tour` are 100% deterministic - neither ever calls the local model (see
+  // registry.js's RESERVED_NAMES comment on these two names). `status`
+  // messages the service worker for a loopback-only GET (never the model
+  // lanes' POST /v1/chat/completions).
+  reg.register({ name: 'welcome', argSpec: 'welcome', help: 're-print the first-open welcome block (shown automatically once, the very first time you open the terminal)', group: GROUP_SESSION });
+  reg.register({ name: 'tour', argSpec: 'tour | tour <n>', help: 'in-extension walkthrough, about 6 steps - bare `tour` shows the current step and advances (wraps after the last one), `tour <n>` jumps to step n', group: GROUP_SESSION });
+  reg.register({ name: 'status', argSpec: 'status', help: 'is the local bridge reachable, and (best-effort) what model is behind it - never an error even if the model name is unavailable', group: GROUP_SESSION });
   // M4a "friction trio" - three deterministic tools that never call the
   // local model, registered here for help/man text same as everything
   // above; dispatched inside tryDeterministic() below except `here`, which

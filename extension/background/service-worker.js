@@ -127,6 +127,29 @@
  * all, whether or not a caller's message object happens to carry one - see
  * that function's own body, which still reads exactly
  * command/elementList/origin/title, nothing else.
+ *
+ * SIXTH ROLE, added for the member-experience pass (2026-07-16,
+ * LFL-TERMINAL-MEMBER-EXPERIENCE-DESIGN.md, all §7 sign-offs A-F): three
+ * small, unrelated additions, called out separately because each touches a
+ * different part of this file's existing surface rather than being one new
+ * cohesive feature:
+ *   (a) E1 error mapping - classifyModelError() (near the top of this file,
+ *       right after the shared LLM_* constants) turns callLocalModelWithPayload()'s
+ *       fetch outcome into a humane {user, detail} pair instead of one raw
+ *       string. Only the RESPONSE/ERROR handling changed - buildPayload()/
+ *       buildNavLanePayload()/buildBrainstormPayload() and the fetch() call
+ *       itself (URL, method, headers, body, signal) are byte-unchanged.
+ *   (b) E5 `status` command - handleStatusCheck() (just above, near the
+ *       three lane callers) is a SECOND fetch call site to the same
+ *       127.0.0.1:1238 origin (GET /health, best-effort GET /v1/models) -
+ *       see that function's own comment for the egress-gate posture change
+ *       this required (owner sign-off §7E condition: Fable security review).
+ *   (c) E3 `tour` - the terminal-state store gained one integer field
+ *       (`tourStep`, see emptyTermState()/loadTermStateForTab() and the
+ *       TS_TOUR_GET/TS_TOUR_SET cases in handleTerminalStateMessage()) and
+ *       E4's chrome.runtime.onInstalled listener (bottom of this file, next
+ *       to the existing tabs.onRemoved/action.onClicked listeners) opens
+ *       the bundled welcome.html on first install only.
  */
 
 // Loads the real content/ratelimit.js source into this worker's own global
@@ -141,6 +164,75 @@ const LLM_ENDPOINT = 'http://127.0.0.1:1238/v1/chat/completions';
 const LLM_TIMEOUT_MS = 30000;
 const MAX_TOKENS = 120;
 const TEMPERATURE = 0.1;
+
+// ---- E1 humane error mapping (LFL-TERMINAL-MEMBER-EXPERIENCE-DESIGN.md §3) ----
+//
+// Before this feature, every non-2xx/network failure from the single fetch
+// sink below collapsed into one raw string: "local model offline -
+// deterministic commands still work (server 429: {json...})" - a member
+// cannot tell a daily-cap 429 (gw.py F4) apart from the bridge process not
+// running, a 5xx from the gateway/upstream, or anything else, even though
+// each has a different correct next step. classifyModelError() is the one
+// place that decision gets made, in code, off the HTTP status / fetch-
+// failure class alone (design §2 P1) - never anything the model said.
+//
+// Kept as a standalone top-level function (not a closure inside
+// callLocalModelWithPayload()) specifically so it can be unit-tested in
+// isolation, table-driven, with no live fetch/server involved at all - see
+// tests/member_experience.test.js, which loads this whole file via `vm`
+// exactly the way tests/sw_ratelimit_persistence.test.js already does, then
+// calls this function directly off the sandbox.
+const BRIDGE_UNREACHABLE_USER = "can't reach your local bridge at 127.0.0.1:1238 - is it running? deterministic commands still work (see the cheat sheet / member setup guide)";
+const DAILY_CAP_USER = 'daily request cap reached on the shared beta model - resets at midnight UTC; deterministic commands still work';
+const SERVER_ERROR_USER = 'the model endpoint had a server error - try again in a moment; deterministic commands still work';
+
+// classifyModelError(kind, status, bodyText) -> {user, detail}. PURE - no
+// fetch/storage/DOM access, so it is safe to call from a table-driven test.
+//
+// `kind` is one of:
+//   'network' - fetch() itself rejected: the bridge process isn't
+//               listening, DNS/connection refused, or this request's own
+//               AbortController timeout fired. `status` is unused;
+//               `bodyText` is the raw JS Error#message (or a synthesized
+//               "timeout after Xs" string - see the catch block below).
+//   'http'    - fetch() resolved but resp.ok was false. `status` is
+//               resp.status; `bodyText` is up to 200 chars of resp.text().
+//   'empty'   - fetch() resolved 2xx but choices[0].message.content was
+//               falsy. `status` is resp.status (always 2xx here); `bodyText`
+//               is unused.
+//
+// `detail` is ALWAYS populated (design §3 P2: "raw detail never fully
+// lost") - the original `server <status>: <body>` (or the fetch error
+// message), printed by terminal.js ONLY when dev mode is on (`dev on`),
+// never shown to a member by default.
+function classifyModelError(kind, status, bodyText) {
+  const body = typeof bodyText === 'string' ? bodyText : '';
+
+  if (kind === 'network') {
+    return { user: BRIDGE_UNREACHABLE_USER, detail: body || 'network error' };
+  }
+
+  if (kind === 'empty') {
+    return { user: 'local model returned an empty response', detail: `server ${status}: (empty response)` };
+  }
+
+  // kind === 'http': fetch got a response, but a non-2xx status.
+  const detail = `server ${status}: ${body.slice(0, 200)}`;
+  if (status === 429) {
+    // gw.py F4 daily-cap response - the status code alone is enough to
+    // classify this; the JSON body ({error:{type:"rate_limit",...}}) is
+    // preserved in `detail` for dev mode but never required to decide the
+    // user-facing message.
+    return { user: DAILY_CAP_USER, detail };
+  }
+  if (typeof status === 'number' && status >= 500) {
+    return { user: SERVER_ERROR_USER, detail };
+  }
+  // Every other non-2xx status (403 endpoint-not-allowlisted, 404, etc.) -
+  // the pre-E1 wording, minus the raw response body (design §3: "current
+  // wording, minus the raw body").
+  return { user: `local model offline - deterministic commands still work (server ${status})`, detail };
+}
 
 const SYSTEM_PROMPT = [
   'You translate ONE user command into ONE action on the current web page.',
@@ -554,25 +646,34 @@ async function callLocalModelWithPayload(payload, timeoutMs) {
     });
     if (!resp.ok) {
       const text = await resp.text().catch(() => '');
-      return { ok: false, error: `local model offline - deterministic commands still work (server ${resp.status}: ${text.slice(0, 200)})` };
+      const { user, detail } = classifyModelError('http', resp.status, text);
+      return { ok: false, error: user, errorDetail: detail };
     }
     const data = await resp.json();
     const content = data && data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
     if (!content) {
-      return { ok: false, error: 'local model returned an empty response' };
+      const { user, detail } = classifyModelError('empty', resp.status, '');
+      return { ok: false, error: user, errorDetail: detail };
     }
     let parsed;
     try {
       parsed = JSON.parse(content);
     } catch (_e) {
+      // Not one of E1's classified cases (design §3 lists fetch-reject/429/
+      // 5xx/other-non-2xx/empty-response only) - a 2xx response whose body
+      // parsed as JSON but whose *content* string didn't is a distinct,
+      // rarer failure mode (the model ignored response_format entirely);
+      // left with its pre-E1 wording rather than folded into
+      // classifyModelError() for a case the design doc doesn't cover.
       return { ok: false, error: 'local model returned non-JSON content: ' + String(content).slice(0, 200) };
     }
     return { ok: true, action: parsed };
   } catch (e) {
-    if (e && e.name === 'AbortError') {
-      return { ok: false, error: `local model offline - deterministic commands still work (timeout after ${Math.round(effectiveTimeoutMs / 1000)}s)` };
-    }
-    return { ok: false, error: 'local model offline - deterministic commands still work (' + (e && e.message ? e.message : 'network error') + ')' };
+    const msg = (e && e.name === 'AbortError')
+      ? `timeout after ${Math.round(effectiveTimeoutMs / 1000)}s`
+      : (e && e.message ? e.message : 'network error');
+    const { user, detail } = classifyModelError('network', undefined, msg);
+    return { ok: false, error: user, errorDetail: detail };
   } finally {
     clearTimeout(timer);
   }
@@ -588,6 +689,85 @@ function callNavLaneModel(msg) {
 
 function callBrainstormLaneModel(msg) {
   return callLocalModelWithPayload(buildBrainstormPayload(msg), BRAINSTORM_TIMEOUT_MS);
+}
+
+// ---- E5 `status` command (design doc §6/§7 sign-off E) ----
+//
+// A SECOND fetch call site to the SAME loopback origin the three LLM lanes
+// above already use - GET, never POST, and never carries the LLM_TIMEOUT_MS/
+// max_tokens/schema machinery those lanes need (there is no model payload
+// here at all). This is the posture change the owner's sign-off condition
+// (§7E) required Fable security review for: the egress gate
+// (tests/check_no_egress.sh + tests/check_sw_fetch_loopback.js) was widened
+// from "exactly one fetch call site in this file" to "every fetch call site
+// in this file, individually proven to resolve to a 127.0.0.1 loopback URL" -
+// see that gate's own header comment for how it enforces this mechanically,
+// not just by this comment's say-so.
+const HEALTH_ENDPOINT = 'http://127.0.0.1:1238/health';
+// F5 (gw.py path allowlist, see that file's ALLOW_PATHS): GET /v1/models is
+// actually on the allowlist today, but this is deliberately treated as
+// best-effort anyway - the cohort gateway or the upstream server itself may
+// still refuse it for other reasons (auth, a future allowlist change), and
+// this status check must never turn that into an error line; see
+// handleStatusCheck() below, which degrades silently on ANY non-2xx here.
+const MODELS_ENDPOINT = 'http://127.0.0.1:1238/v1/models';
+const STATUS_TIMEOUT_MS = 5000;
+
+// Runs `fetcher(signal)` (expected to be a `fetch(<literal endpoint
+// const>, {..., signal})` call) under an AbortController-based timeout.
+// Deliberately takes a CALLBACK rather than a `url` parameter: every
+// `fetch(...)` call site in this file must have its endpoint argument be a
+// literal or a directly-visible `const` identifier (never a value that
+// arrived through a function parameter) so tests/check_sw_fetch_loopback.js
+// can resolve and verify it mechanically - see that gate's own comment.
+// Both call sites below pass the literal HEALTH_ENDPOINT/MODELS_ENDPOINT
+// identifier straight into their own `fetch(...)` call for exactly that
+// reason.
+async function withTimeout(timeoutMs, fetcher) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetcher(controller.signal);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Never throws, never returns ok:false - a status check that itself fails
+// noisily would defeat the point (design §6: "degrade to ... on any non-2xx,
+// never an error"). terminal.js builds the friendly bridge-unreachable line
+// itself (the same BRIDGE_UNREACHABLE_USER wording classifyModelError()
+// uses) when bridgeReachable is false; this function only reports plain
+// facts.
+async function handleStatusCheck() {
+  let bridgeReachable = false;
+  try {
+    const healthResp = await withTimeout(STATUS_TIMEOUT_MS, (signal) => fetch(HEALTH_ENDPOINT, { method: 'GET', signal }));
+    bridgeReachable = !!(healthResp && healthResp.ok);
+  } catch (_e) {
+    bridgeReachable = false;
+  }
+
+  let modelAlias = null;
+  if (bridgeReachable) {
+    try {
+      const modelsResp = await withTimeout(STATUS_TIMEOUT_MS, (signal) => fetch(MODELS_ENDPOINT, { method: 'GET', signal }));
+      if (modelsResp && modelsResp.ok) {
+        const data = await modelsResp.json().catch(() => null);
+        const first = data && Array.isArray(data.data) && data.data[0];
+        if (first && typeof first.id === 'string' && first.id) modelAlias = first.id;
+      }
+      // Any non-2xx here (403 through the cohort gateway is the EXPECTED
+      // case, per design §6) - modelAlias simply stays null; no error, no
+      // detail, nothing surfaced beyond "name unavailable".
+    } catch (_e) {
+      // Same posture: a network error on the second call degrades to "name
+      // unavailable", never an error line - the bridge itself already
+      // proved reachable via /health above.
+    }
+  }
+
+  return { ok: true, bridgeReachable, modelAlias };
 }
 
 // ---- M2.3 rate-limit authority (per-tab, chrome.storage.session-backed) ----
@@ -704,7 +884,16 @@ function tsStorageKey(tabId) {
 }
 
 function emptyTermState() {
-  return { open: false, scrollback: [], visitedOrigins: [], queue: [], queueExpectedOrigin: null };
+  // E3 `tour` (design doc §5): `tourStep` is the index of the last step
+  // SHOWN (0 = tour never started this tab session) - mirrors every other
+  // field here in being per-tab, chrome.storage.session-backed, and reset
+  // by a fresh content-script injection exactly the way the design doc
+  // asks ("resets per tab session"). The actual step CONTENT and
+  // advance/jump sequencing rules live in registry.js's pure
+  // tourNextStep()/tourJumpStep() helpers, not here - this file only
+  // stores the one integer, the same "authority for persistence, not for
+  // logic" split every other TS_* field already holds itself to.
+  return { open: false, scrollback: [], visitedOrigins: [], queue: [], queueExpectedOrigin: null, tourStep: 0 };
 }
 
 async function loadTermStateForTab(tabId) {
@@ -718,6 +907,7 @@ async function loadTermStateForTab(tabId) {
     visitedOrigins: Array.isArray(stored.visitedOrigins) ? stored.visitedOrigins : [],
     queue: Array.isArray(stored.queue) ? stored.queue : [],
     queueExpectedOrigin: typeof stored.queueExpectedOrigin === 'string' ? stored.queueExpectedOrigin : null,
+    tourStep: (typeof stored.tourStep === 'number' && stored.tourStep >= 0) ? Math.floor(stored.tourStep) : 0,
   };
 }
 
@@ -809,6 +999,16 @@ async function handleTerminalStateMessage(msg, sender) {
       dirty = true;
       out = { queue: state.queue, expectedOrigin: state.queueExpectedOrigin };
       break;
+    // E3 `tour` (design doc §5) - read-only peek / set-after-showing, same
+    // shape as every other TS_* pair above.
+    case 'TS_TOUR_GET':
+      out = { tourStep: state.tourStep };
+      break;
+    case 'TS_TOUR_SET':
+      state.tourStep = (typeof msg.step === 'number' && msg.step >= 0) ? Math.floor(msg.step) : 0;
+      dirty = true;
+      out = { tourStep: state.tourStep };
+      break;
     default:
       return { ok: false, error: `unknown terminal-state message type "${msg.type}"` };
   }
@@ -831,6 +1031,8 @@ const TS_MESSAGE_TYPES = new Set([
   'TS_SCROLLBACK_GET', 'TS_SCROLLBACK_APPEND', 'TS_SCROLLBACK_CLEAR',
   'TS_VISITED_CHECK', 'TS_VISITED_ADD', 'TS_VISITED_LIST',
   'TS_QUEUE_SET', 'TS_QUEUE_PEEK', 'TS_QUEUE_POP', 'TS_QUEUE_CLEAR',
+  // E3 `tour`
+  'TS_TOUR_GET', 'TS_TOUR_SET',
 ]);
 
 // Cleared on tab close - chrome.tabs.onRemoved fires without the `tabs`
@@ -858,6 +1060,27 @@ if (chrome.action && chrome.action.onClicked && typeof chrome.action.onClicked.a
   });
 }
 
+// E4 install-time welcome tab (design doc §6, owner sign-off D: "reason=
+// install only, one tab, never again"). `reason === 'install'` excludes
+// both 'update' (an existing member's extension auto-updating - the LAST
+// thing a returning member wants is a tab popping open) and
+// 'chrome_update'/'shared_module_update'. welcome.html is a static,
+// offline, self-contained page bundled in the extension package (no
+// external requests, no chrome.* API of its own) - see that file. No new
+// manifest permission: chrome.tabs.create() needs none, and
+// chrome.runtime.getURL() needs none either (see the tabs.onRemoved/
+// action.onClicked comments above for the same "which chrome.tabs surface
+// actually needs the `tabs` permission" reasoning - creating our OWN
+// extension's tab is not it).
+if (chrome.runtime && chrome.runtime.onInstalled && typeof chrome.runtime.onInstalled.addListener === 'function') {
+  chrome.runtime.onInstalled.addListener((details) => {
+    if (!details || details.reason !== 'install') return;
+    try {
+      chrome.tabs.create({ url: chrome.runtime.getURL('welcome.html') });
+    } catch (_e) { /* best-effort - a failed tab open is not worth surfacing an error for */ }
+  });
+}
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg) return false;
   if (msg.type === 'LFL_LLM_REQUEST') {
@@ -878,6 +1101,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
   if (TS_MESSAGE_TYPES.has(msg.type)) {
     handleTerminalStateMessage(msg, sender).then(sendResponse);
+    return true;
+  }
+  if (msg.type === 'STATUS_CHECK') {
+    handleStatusCheck().then(sendResponse);
     return true;
   }
   return false;
