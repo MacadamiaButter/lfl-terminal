@@ -248,10 +248,12 @@ const M3_NEW_COMMAND_NAMES = [
   // lanes' action enums.
   'teach',
   // member-experience E2/E3/E5 (2026-07-16,
-  // LFL-TERMINAL-MEMBER-EXPERIENCE-DESIGN.md) - same guarantee. None of
-  // these three ever call either LLM lane at all (see registry.js's
-  // RESERVED_NAMES comment on them), so this is a belt-and-suspenders pin,
-  // same as `dev`/`origins`/`man` above having never called a lane either.
+  // LFL-TERMINAL-MEMBER-EXPERIENCE-DESIGN.md) - same guarantee. Their
+  // HANDLERS never call either LLM lane (typed-head interception only; as a
+  // chain segment or alias expansion the words fall through to the gated
+  // page-lane model like any unrecognized segment - see registry.js's
+  // RESERVED_NAMES comment on them). This pin proves the registry entries
+  // themselves never leak into a model-emittable action enum.
   'welcome', 'tour', 'status',
 ];
 

@@ -105,11 +105,15 @@
   // member-experience E2/E3/E5 (2026-07-16, LFL-TERMINAL-MEMBER-EXPERIENCE-
   // DESIGN.md) - all three dispatched by terminal.js (chrome.storage.local/
   // chrome.runtime.sendMessage access this file's synchronous contract
-  // doesn't have, same posture as teach/dev/origins above). `welcome` and
-  // `tour` are 100% deterministic - neither ever calls the local model (see
-  // registry.js's RESERVED_NAMES comment on these two names). `status`
-  // messages the service worker for a loopback-only GET (never the model
-  // lanes' POST /v1/chat/completions).
+  // doesn't have, same posture as teach/dev/origins above). The handlers
+  // themselves are deterministic: `welcome`/`tour` print fixed text, and
+  // `status` messages the service worker for a loopback-only GET (never the
+  // model lanes' POST /v1/chat/completions). Honest scope note: that holds
+  // for the TYPED bare command (terminal.js intercepts the head before
+  // chain-splitting); as a chain segment or an alias expansion the word
+  // falls through to the gated page-lane model like any other unrecognized
+  // segment - the same accepted posture memory/budget/dev already have (see
+  // registry.js's RESERVED_NAMES comment on these three names).
   reg.register({ name: 'welcome', argSpec: 'welcome', help: 're-print the first-open welcome block (shown automatically once, the very first time you open the terminal)', group: GROUP_SESSION });
   reg.register({ name: 'tour', argSpec: 'tour | tour <n>', help: 'in-extension walkthrough, about 6 steps - bare `tour` shows the current step and advances (wraps after the last one), `tour <n>` jumps to step n', group: GROUP_SESSION });
   reg.register({ name: 'status', argSpec: 'status', help: 'is the local bridge reachable, and (best-effort) what model is behind it - never an error even if the model name is unavailable', group: GROUP_SESSION });

@@ -218,15 +218,25 @@ function testWelcomeContent() {
     assert.ok(lines.length >= 5 && lines.length <= 6, `expected 5-6 lines, got ${lines.length}`);
   });
 
-  check('welcomeText() mentions all three ways to open, help, tour, and the privacy one-liner', () => {
+  check('welcomeText() mentions all three ways to open, help, tour, and the privacy line', () => {
     const text = registry.welcomeText();
     assert.match(text, /backtick/);
     assert.match(text, /Ctrl\+K/);
     assert.match(text, /toolbar/);
     assert.match(text, /`help`/);
     assert.match(text, /`tour`/);
-    assert.match(text, /locally/i);
     assert.match(text, /approve/i);
+  });
+
+  check('welcome privacy line is HONEST about the shared beta (verify H1 2026-07-16): names the loopback bridge, the tailnet relay, and never overclaims "nothing leaves your machine" unqualified', () => {
+    const text = registry.welcomeText();
+    assert.match(text, /127\.0\.0\.1:1238/, 'must name the bridge address');
+    assert.match(text, /tailnet/, 'must name the tailnet relay path for the shared beta');
+    assert.match(text, /never the open internet/, 'must bound the relay honestly');
+    // The overclaim itself must be gone: "nothing leaves your machine" may
+    // only ever appear qualified by the self-hosted case, never as a bare
+    // blanket claim about the whole product.
+    assert.ok(!/Nothing leaves your machine\./.test(text), 'the unqualified overclaim must not reappear');
   });
 
   check('welcomeRich() returns one {spans} line object per welcomeText() line, non-empty spans', () => {
@@ -341,7 +351,14 @@ function testTourSequencing() {
 function testReservedNamesAndRegistration() {
   console.log('\n[3] RESERVED_NAMES coverage (behavioral, via real setAlias/setMacro) + engine.js registration for welcome/tour/status');
 
-  ['welcome', 'tour'].forEach((name) => {
+  // All three names are in registry.js's RESERVED_NAMES (verify L1
+  // 2026-07-16 added `status`: before that, setAlias('status', 'help')
+  // succeeded but the alias was unreachable - _submitCommand's typed-head
+  // interception fires first - a pure member footgun with no error at
+  // definition time). Note the pre-existing meta-commands `budget` and
+  // `continue` ARE also in RESERVED_NAMES (registry.js's original set) -
+  // an earlier revision of this comment claimed otherwise, wrongly.
+  ['welcome', 'tour', 'status'].forEach((name) => {
     check(`RESERVED_NAMES: "${name}" cannot be shadowed by an alias`, () => {
       const store = registry.createAliasStore(null, []);
       const r = store.setAlias(name, 'help');
@@ -356,17 +373,6 @@ function testReservedNamesAndRegistration() {
       assert.match(r.reason, /built-in command/);
     });
   });
-
-  // `status` is intentionally NOT in registry.js's RESERVED_NAMES set - see
-  // that set's own comment: it governs the alias/macro NAMESPACE, and
-  // "status" was never one of the pre-existing meta-command names design
-  // doc §7E's sign-off asked to reserve there (welcome/tour are the two
-  // named explicitly in §4/§5 as "standalone control commands" the way
-  // memory/teach/script are). `status` IS still fully protected the way
-  // every other command is: engine.js registers it into commandRegistry
-  // (checked below) and terminal.js's _submitCommand intercepts the exact
-  // literal `status` before chain-splitting - the same posture `budget`/
-  // `continue` (also not in RESERVED_NAMES) already hold themselves to.
 
   const engineSrc = fs.readFileSync(ENGINE_PATH, 'utf8');
   ['welcome', 'tour', 'status'].forEach((name) => {
@@ -515,6 +521,94 @@ async function testStatusPlumbing() {
     const resp = await sw.send({ type: 'STATUS_CHECK' });
     assert.strictEqual(resp.bridgeReachable, true);
     assert.strictEqual(resp.modelAlias, null);
+  });
+}
+
+// =====================================================================
+// Part 4b - E4 onInstalled reason gating (verify M1 2026-07-16): the
+// design's own hard rule is "reason === 'install' ONLY, one tab, never on
+// update" - previously nothing pinned that, so a mutation firing the
+// welcome tab on every extension auto-update survived all suites. This
+// loads the real SW via vm with a fake chrome that CAPTURES the onInstalled
+// listener and every chrome.tabs.create call, then invokes the captured
+// listener with each reason Chrome can actually deliver.
+// =====================================================================
+
+function buildInstallSwInstance() {
+  const sandbox = {};
+  sandbox.self = sandbox;
+  sandbox.globalThis = sandbox;
+  const installedListeners = [];
+  const tabsCreated = [];
+  sandbox.chrome = {
+    runtime: {
+      onMessage: { addListener() {} },
+      onInstalled: { addListener(fn) { installedListeners.push(fn); } },
+      getURL(p) { return `chrome-extension://fake-extension-id/${p}`; },
+    },
+    storage: { session: { get: () => Promise.resolve({}), set: () => Promise.resolve(), remove: () => Promise.resolve() } },
+    tabs: {
+      onRemoved: { addListener() {} },
+      create(opts) { tabsCreated.push(opts); return Promise.resolve({ id: 1 }); },
+      sendMessage() { return Promise.resolve(); },
+    },
+  };
+  sandbox.importScripts = function importScripts(...urls) {
+    urls.forEach((u) => {
+      const resolved = path.join(ROOT, 'extension', 'background', u);
+      assert.strictEqual(resolved, RATELIMIT_PATH);
+      vm.runInContext(fs.readFileSync(resolved, 'utf8'), sandbox, { filename: u });
+    });
+  };
+  sandbox.AbortController = function AbortController() { this.signal = {}; this.abort = function () {}; };
+  sandbox.setTimeout = () => 0;
+  sandbox.clearTimeout = () => {};
+  sandbox.fetch = () => Promise.reject(new Error('install-gating tests never fetch'));
+  vm.createContext(sandbox);
+  vm.runInContext(fs.readFileSync(SW_PATH, 'utf8'), sandbox, { filename: 'service-worker.js' });
+  return { installedListeners, tabsCreated };
+}
+
+function testInstallReasonGating() {
+  console.log('\n[4b] E4 onInstalled reason gating - welcome tab on install ONLY, never on update');
+
+  check('the SW registers exactly one chrome.runtime.onInstalled listener', () => {
+    const sw = buildInstallSwInstance();
+    assert.strictEqual(sw.installedListeners.length, 1);
+  });
+
+  check("reason 'install' opens exactly one tab, whose url ends welcome.html", () => {
+    const sw = buildInstallSwInstance();
+    sw.installedListeners[0]({ reason: 'install' });
+    assert.strictEqual(sw.tabsCreated.length, 1, 'exactly one chrome.tabs.create call');
+    assert.ok(sw.tabsCreated[0].url.endsWith('welcome.html'), `url must end welcome.html, got: ${sw.tabsCreated[0].url}`);
+  });
+
+  check("reason 'update' opens ZERO tabs (a returning member's auto-update must never pop a tab)", () => {
+    const sw = buildInstallSwInstance();
+    sw.installedListeners[0]({ reason: 'update' });
+    assert.strictEqual(sw.tabsCreated.length, 0);
+  });
+
+  check("reason 'chrome_update' opens zero tabs", () => {
+    const sw = buildInstallSwInstance();
+    sw.installedListeners[0]({ reason: 'chrome_update' });
+    assert.strictEqual(sw.tabsCreated.length, 0);
+  });
+
+  check("reason 'shared_module_update', a missing reason, and a null details object all open zero tabs (fail closed)", () => {
+    const sw = buildInstallSwInstance();
+    sw.installedListeners[0]({ reason: 'shared_module_update' });
+    sw.installedListeners[0]({});
+    sw.installedListeners[0](null);
+    assert.strictEqual(sw.tabsCreated.length, 0);
+  });
+
+  check("a second 'install' event on the SAME SW instance would open a second tab - Chrome only ever delivers reason 'install' once per install, but pin the listener's own behavior as exactly one create per event, no internal latch pretending otherwise", () => {
+    const sw = buildInstallSwInstance();
+    sw.installedListeners[0]({ reason: 'install' });
+    sw.installedListeners[0]({ reason: 'install' });
+    assert.strictEqual(sw.tabsCreated.length, 2, 'one tabs.create per install event - the once-ever guarantee is Chrome delivering install once, not a hidden latch');
   });
 }
 
@@ -975,6 +1069,103 @@ async function testStatusIntegration() {
   });
 }
 
+// =====================================================================
+// Part 5d - E1 dev-mode gate on the errorDetail line (verify M2
+// 2026-07-16): terminal.js's `this._devHooksEnabled && ...` conjunction in
+// _printModelError() is the ONLY thing keeping raw server bodies (the
+// `errorDetail` the SW preserves for diagnostics) off member screens -
+// previously no test pinned it, so deleting `_devHooksEnabled &&` failed
+// nothing. Behavioral proof via the same real-Terminal vm harness Part 5
+// already uses: the same failing model response is dispatched with dev
+// hooks off (detail must NOT render) and again after `dev on` (detail MUST
+// render), so removing or inverting the gate fails one direction or the
+// other.
+// =====================================================================
+
+const RAW_DETAIL = 'server 500: raw gateway body THAT MUST STAY OFF MEMBER SCREENS xyzzy';
+
+function wireFailingModelLane(sandbox) {
+  // Intercept only the model-lane request; everything else (RL_*/TS_*)
+  // still goes to the fake SW so dispatch settles normally.
+  const orig = sandbox.chrome.runtime.sendMessage;
+  sandbox.chrome.runtime.sendMessage = (payload) => {
+    if (payload && payload.type === 'LFL_LLM_REQUEST') {
+      return Promise.resolve({
+        ok: false,
+        error: 'the model endpoint had a server error - try again in a moment; deterministic commands still work',
+        errorDetail: RAW_DETAIL,
+      });
+    }
+    return orig(payload);
+  };
+}
+
+async function testDevDetailGate() {
+  console.log('\n[5d] E1 dev-mode gate - errorDetail renders ONLY under `dev on`');
+
+  await acheck('dev hooks OFF (default): a failing model call prints the friendly error line but NEVER the raw errorDetail', async () => {
+    const { terminal, sandbox, fakeSw } = buildTerminalSandbox();
+    wireFailingModelLane(sandbox);
+    await flush();
+    terminal._submitCommand('frobnicate the page somehow');
+    await flush(12);
+    const printed = outputText(terminal);
+    assert.match(printed, /the model endpoint had a server error/);
+    assert.ok(!printed.includes(RAW_DETAIL), 'raw errorDetail leaked to a member screen with dev hooks off');
+    assert.ok(!printed.includes('xyzzy'), 'no fragment of the raw body may leak either');
+  });
+
+  await acheck('dev hooks ON (`dev on`): the SAME failing model call additionally prints one detail line carrying the raw errorDetail', async () => {
+    const { terminal, sandbox, fakeSw } = buildTerminalSandbox();
+    wireFailingModelLane(sandbox);
+    await flush();
+    terminal._submitCommand('dev on');
+    await flush();
+    terminal._submitCommand('frobnicate the page somehow');
+    await flush(12);
+    const printed = outputText(terminal);
+    assert.match(printed, /the model endpoint had a server error/);
+    assert.ok(printed.includes(RAW_DETAIL), 'errorDetail must render under dev on');
+    assert.match(printed, /detail: server 500:/);
+  });
+
+  await acheck('`dev off` after `dev on` re-hides the detail line (the gate is live, not set-once)', async () => {
+    const { terminal, sandbox, fakeSw } = buildTerminalSandbox();
+    wireFailingModelLane(sandbox);
+    await flush();
+    terminal._submitCommand('dev on');
+    await flush();
+    terminal._submitCommand('dev off');
+    await flush();
+    terminal._submitCommand('frobnicate the page somehow');
+    await flush(12);
+    const printed = outputText(terminal);
+    assert.ok(!printed.includes(RAW_DETAIL), 'errorDetail must stop rendering after dev off');
+  });
+
+  check('source pin: the errorDetail print site in terminal.js is reachable only under a this._devHooksEnabled conjunction', () => {
+    const termSrc = fs.readFileSync(TERMINAL_PATH, 'utf8');
+    // The one place errorDetail is rendered must sit in an `if` whose FIRST
+    // conjunct is this._devHooksEnabled - specific enough that deleting
+    // `this._devHooksEnabled && ` (or reordering it away from the front)
+    // fails this check even if the behavioral proofs above were ever
+    // weakened.
+    assert.match(
+      termSrc,
+      /if \(this\._devHooksEnabled && resp && typeof resp\.errorDetail === 'string' && resp\.errorDetail\) \{/,
+      'the dev-gated errorDetail conjunction is missing or was reworded - if this is a deliberate refactor, keep _devHooksEnabled as the leading conjunct and update this pin',
+    );
+    const renderSites = termSrc.match(/errorDetail/g) || [];
+    // resp.errorDetail appears in: the gate conjunction (x2 within the same
+    // if line counts the property twice), the _appendLineDom template, the
+    // three catch-path synthesized responses, and comments. The real pin is
+    // the regex above; this count just flags a NEW render site being added
+    // somewhere unguarded (update the expected count consciously if the
+    // code legitimately changes).
+    assert.ok(renderSites.length >= 4, 'errorDetail references vanished - the E1 plumbing changed; re-check the dev gate');
+  });
+}
+
 // ---- run everything ----
 
 async function main() {
@@ -983,9 +1174,11 @@ async function main() {
   testTourSequencing();
   testReservedNamesAndRegistration();
   await testStatusPlumbing();
+  testInstallReasonGating();
   await testWelcomeIntegration();
   await testTourIntegration();
   await testStatusIntegration();
+  await testDevDetailGate();
 
   console.log(`\n${passed} passed, ${failed} failed`);
   process.exit(failed > 0 ? 1 : 0);

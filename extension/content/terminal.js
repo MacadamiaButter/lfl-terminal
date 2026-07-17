@@ -1766,10 +1766,15 @@
       }
       // member-experience E2/E3/E5 (LFL-TERMINAL-MEMBER-EXPERIENCE-DESIGN.md)
       // - same "standalone control command, no chain participation" posture
-      // as the rest of this cluster. `welcome`/`tour` are 100%
-      // deterministic; `status` only ever reaches the SW's loopback-only
-      // STATUS_CHECK GET, never either model lane's POST - none of the
-      // three has a code path to _runChain()/_dispatchSegment() at all.
+      // as the rest of this cluster. The handlers themselves are
+      // deterministic (`welcome`/`tour` print fixed text; `status` reaches
+      // only the SW's loopback-only STATUS_CHECK GET, never either model
+      // lane's POST). Honest scope note: this interception covers the TYPED
+      // bare command only - as a chain segment or an alias expansion
+      // ("x && tour", an alias body containing "status") these words fall
+      // through _dispatchSegment() to the gated page-lane model like any
+      // other unrecognized segment, the same accepted posture memory/budget/
+      // dev already have.
       if (/^welcome$/i.test(raw)) { this._handleWelcomeCommand(); return; }
       if (/^tour(?:\s+\S+)?$/i.test(raw)) { this._handleTourCommand(raw); return; }
       if (/^status$/i.test(raw)) { this._handleStatusCommand(); return; }
@@ -3639,9 +3644,12 @@
     // ---- E3 member-experience: `tour` (design doc §5) ----
     //
     // Standalone control command, no chain participation (see
-    // _submitCommand()'s own comment on that dispatch cluster) - `tour`/
-    // `tour <n>` never reach _runChain()/_dispatchSegment() at all, so there
-    // is no code path from this command to either LLM lane. Progress
+    // _submitCommand()'s own comment on that dispatch cluster, including
+    // the honest scope note there: the typed bare `tour`/`tour <n>` never
+    // reaches _runChain()/_dispatchSegment(); a chain segment or alias
+    // expansion carrying the word falls through to the gated page-lane
+    // model like any other unrecognized segment). This handler itself never
+    // calls either LLM lane. Progress
     // (`tourStep` - the index of the last step SHOWN) lives in the SW's
     // per-tab terminal-state store (chrome.storage.session, resets per tab
     // session - design §5) via the TS_TOUR_GET/TS_TOUR_SET messages

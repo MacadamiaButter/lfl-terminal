@@ -274,17 +274,22 @@
     // already do, so an alias/macro defined under one of these three names
     // would silently be unreachable by its own name).
     'memory', 'remember', 'forget',
-    // member-experience E2/E3 (2026-07-16, LFL-TERMINAL-MEMBER-EXPERIENCE-
-    // DESIGN.md §4/§5): `welcome` (re-prints the first-open block) and
-    // `tour` (the in-extension walkthrough) - same shadowing footgun and
-    // same "standalone control command, intercepted in terminal.js's
+    // member-experience E2/E3/E5 (2026-07-16, LFL-TERMINAL-MEMBER-
+    // EXPERIENCE-DESIGN.md §4/§5/§6): `welcome` (re-prints the first-open
+    // block), `tour` (the in-extension walkthrough), and `status` (bridge
+    // reachability check) - same shadowing footgun and same "standalone
+    // control command, intercepted as a typed head in terminal.js's
     // _submitCommand before chain-splitting" posture as memory/teach/script
-    // above (see terminal.js's own comment there). Neither ever reaches
-    // either LLM lane, so there is nothing here for a macro/alias shadow to
-    // silently redirect a member away from a model call - the risk is
-    // purely "the built-in stops being reachable by its own name", the same
-    // risk every other name in this set exists to close.
-    'welcome', 'tour',
+    // above (see terminal.js's own comment there). Honest scope note: that
+    // interception covers the TYPED bare command only - as a chain segment
+    // or an alias expansion these three fall through _dispatchSegment() to
+    // the gated page-lane model like any other unrecognized segment, the
+    // same accepted posture memory/budget/dev already have. The risk this
+    // set closes is "the built-in stops being reachable by its own name"
+    // (verify L1 2026-07-16: setAlias('status', ...) used to succeed while
+    // the alias was unreachable - a pure footgun, now refused at write time
+    // like every other built-in).
+    'welcome', 'tour', 'status',
   ]);
 
   // M4b (design doc §3/§5): games are never allowed to run as part of a
@@ -1552,7 +1557,7 @@
     'lfl-terminal - a command terminal for this page, plus a local model that proposes page actions you approve.',
     'Open it three ways: the backtick key, `Ctrl+K`, or the toolbar button. `Esc` closes.',
     'Type `help` for the full command list, `tour` for a 60-second walkthrough.',
-    'Everything runs locally - your commands, the model, all of it. Nothing leaves your machine.',
+    'Deterministic commands run entirely in your browser. Model calls go only to your own bridge at 127.0.0.1:1238 - self-hosted, that is your machine; on the shared beta it relays to the cohort model over the private tailnet, never the open internet.',
     'The model never acts on its own: every page-changing action waits for your Enter, and you can always reject it.',
     'This only shows once - type `welcome` any time to see it again.',
   ];
@@ -1567,13 +1572,17 @@
 
   // ---- E3 member-experience: in-extension `tour` (design doc §5) ----
   //
-  // Six steps, purely textual - never touches the page, never calls either
-  // LLM lane. `tour`/`tour <n>` are intercepted in terminal.js's
-  // _submitCommand() before chain-splitting (same posture as
-  // welcome/memory/teach/script above), so there is no code path from this
-  // command to a model request at all - see terminal.js's own comment on
-  // that dispatch cluster. Content and sequencing are both pure/DOM-free
-  // here, unit-tested directly with no browser (tests/member_experience.test.js).
+  // Six steps, purely textual - never touches the page, and its own handler
+  // never calls either LLM lane. `tour`/`tour <n>` are intercepted as
+  // TYPED-HEAD commands in terminal.js's _submitCommand() before
+  // chain-splitting (same posture as welcome/memory/teach/script above).
+  // Honest scope note: as a CHAIN SEGMENT or an alias expansion ("x && tour",
+  // alias body containing "tour"), the word falls through _dispatchSegment()
+  // to the gated page-lane model like any other unrecognized segment - the
+  // same accepted posture memory/budget/dev already have; the interception
+  // guarantee is for the typed bare command only. Content and sequencing are
+  // both pure/DOM-free here, unit-tested directly with no browser
+  // (tests/member_experience.test.js).
   const TOUR_STEPS = [
     {
       title: 'open, close, move',
@@ -1607,7 +1616,7 @@
       title: 'scripts, teach & the cheat sheet',
       lines: [
         '`script new` records a named, repeatable sequence; `run <name>` replays it.',
-        '`teach <goal>` (opt-in: `teach on`) asks the model to draft a script from plain words - you still approve it. Full reference: docs/CHEATSHEET.md.',
+        '`teach <goal>` (opt-in: `teach on`) asks the model to draft a script from plain words - you still approve it. Full reference: the cheat sheet at github.com/MacadamiaButter/lfl-terminal (docs/CHEATSHEET.md).',
       ],
     },
     {

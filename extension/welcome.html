@@ -103,8 +103,10 @@
   page action - click, fill, navigate - which you approve or reject before anything happens.</p>
 
   <div class="privacy">
-    <strong>Privacy:</strong> everything runs locally. Commands, the model, all of it - nothing
-    leaves your machine. Page actions always need your explicit approval; the model never acts on
+    <strong>Privacy:</strong> deterministic commands run entirely in your browser. Model requests
+    go only to your bridge at 127.0.0.1:1238 - self-hosted, nothing leaves your machine; on the
+    shared beta the bridge relays them to the cohort model over the private tailnet, never the
+    open internet. Page actions always need your explicit approval; the model never acts on
     its own.
   </div>
 </main>

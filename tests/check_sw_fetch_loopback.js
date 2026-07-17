@@ -29,6 +29,20 @@
  *     to a literal at all (an unresolvable target is treated as a
  *     violation, not silently skipped - a gate that can be defeated by
  *     making the target harder to read is worse than no gate),
+ *   - any identifier with MORE THAN ONE `const`/`let`/`var` declaration in
+ *     the file (verify M3 2026-07-16: the original first-textual-match
+ *     resolution could be defeated by a later shadowing declaration inside
+ *     a function - `const HEALTH_ENDPOINT = 'https://evil...'` in an inner
+ *     scope resolves to the innocent top-level const textually while the
+ *     runtime uses the evil one; a duplicate declaration is therefore
+ *     treated as unresolvable and fails closed),
+ *   - any reference to bare `fetch` that is not immediately followed by
+ *     `(` (verify M4 2026-07-16: aliasing - `const probeFn = fetch;
+ *     probeFn(url)` - is invisible to both the call-site scan here and
+ *     check_no_egress.sh's `= fetch` grep once the alias is called under
+ *     its new name; a strict no-bare-fetch-references rule closes that
+ *     whole class, including the `fetch (url)` spaced-call variant this
+ *     scan's own call-site regex would otherwise miss),
  *   - zero fetch(...) call sites found at all (a gate that never actually
  *     checks anything must fail loudly, not pass silently).
  *
@@ -106,11 +120,31 @@ function literalFromQuoted(raw) {
   return raw.slice(1, -1);
 }
 
+// M3 (fail-closed duplicate handling): resolves `name` to its string
+// literal ONLY when the file contains exactly ONE declaration of that name.
+// Counting ALL `const`/`let`/`var <name> =` declarations (not just string-
+// literal-valued const ones) is the load-bearing part: a later shadowing
+// declaration inside a function (`const HEALTH_ENDPOINT = 'https://evil...'`
+// in an inner scope) would otherwise be invisible to a first-textual-match
+// lookup while being exactly what the runtime uses at that call site.
+// Returns {literal} on success, {error} on any ambiguity.
 function resolveIdentifierLiteral(name) {
-  const re = new RegExp(`const\\s+${name}\\s*=\\s*(['"\`][^'"\`]*['"\`])`);
+  const declRe = new RegExp(`\\b(?:const|let|var)\\s+${name}\\s*=`, 'g');
+  const declCount = (src.match(declRe) || []).length;
+  if (declCount === 0) {
+    return { error: `no const/let/var declaration of "${name}" found in the file` };
+  }
+  if (declCount > 1) {
+    return { error: `${declCount} declarations of "${name}" found - a duplicate/shadowing declaration makes the call target ambiguous (fail closed)` };
+  }
+  const re = new RegExp(`\\b(?:const|let|var)\\s+${name}\\s*=\\s*(['"\`][^'"\`]*['"\`])`);
   const m = src.match(re);
-  if (!m) return null;
-  return literalFromQuoted(m[1]);
+  if (!m) {
+    return { error: `the single declaration of "${name}" is not a plain quoted string literal` };
+  }
+  const literal = literalFromQuoted(m[1]);
+  if (literal === null) return { error: `could not parse the string literal assigned to "${name}"` };
+  return { literal };
 }
 
 const fetchCallRe = /\bfetch\(\s*([^,)\s][^,)]*)/g;
@@ -118,17 +152,39 @@ let match;
 let calls = 0;
 const failures = [];
 
+// M4 (aliasing scan, fail-closed): every reference to bare `fetch` in the
+// comment-stripped source must be a direct call - `fetch` immediately
+// followed by `(`. Anything else (`const probeFn = fetch;`, `[fetch]`,
+// `{fetch}`, `fetch.call(...)`, a spaced `fetch (url)` call) is refused
+// outright: an alias would let the aliased name make network calls this
+// gate's call-site scan below never sees, and a spaced call would slip
+// between that scan's `fetch\(` and check_no_egress.sh's own patterns.
+// Deliberately no allowlist of "safe-looking" non-call references - there
+// is no legitimate reason for this file to mention bare `fetch` any other
+// way, so the simplest rule is also the safest one.
+const bareFetchRe = /\bfetch\b(?!\()/g;
+let aliasMatch;
+while ((aliasMatch = bareFetchRe.exec(src))) {
+  const start = Math.max(0, aliasMatch.index - 40);
+  const context = src.slice(start, aliasMatch.index + 45).replace(/\s+/g, ' ').trim();
+  failures.push(`bare "fetch" reference that is not a direct fetch( call - aliasing/indirection is refused (fail closed): ...${context}...`);
+}
+
 while ((match = fetchCallRe.exec(src))) {
   calls += 1;
   const arg = match[1].trim();
   let literal = null;
+  let resolveError = null;
   if (/^['"`]/.test(arg)) {
     literal = literalFromQuoted(arg);
+    if (literal === null) resolveError = 'could not parse the quoted literal';
   } else if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(arg)) {
-    literal = resolveIdentifierLiteral(arg);
+    const resolved = resolveIdentifierLiteral(arg);
+    if (resolved.literal !== undefined) literal = resolved.literal;
+    else resolveError = resolved.error;
   }
   if (literal === null) {
-    failures.push(`fetch(${arg}...) - could not resolve to a literal URL string; treated as a violation until it can be verified loopback-only`);
+    failures.push(`fetch(${arg}...) - could not resolve to a literal URL string${resolveError ? ` (${resolveError})` : ''}; treated as a violation until it can be verified loopback-only`);
     continue;
   }
   if (!LOOPBACK_RE.test(literal)) {
