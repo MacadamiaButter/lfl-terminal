@@ -31,36 +31,47 @@
   window.LFL.commandRegistry = LFL.registry.createRegistry();
   const reg = LFL.commandRegistry;
 
-  reg.register({ name: 'search', argSpec: 'search "query" | search query', help: 'fill+submit the page search box' });
-  reg.register({ name: 'open', argSpec: 'open <link text> | open <N>', help: 'navigate a same-origin link by visible text, or by the number shown in the last `ls` (M4a)' });
-  reg.register({ name: 'open!', argSpec: 'open!', help: 'confirm the last cross-origin open' });
-  reg.register({ name: 'back', argSpec: 'back', help: 'browser back' });
-  reg.register({ name: 'scroll', argSpec: 'scroll up | scroll down', help: 'scroll the page' });
-  reg.register({ name: 'extract-links', argSpec: 'extract links', help: 'list visible links (text + href)' });
-  reg.register({ name: 'extract-table', argSpec: 'extract table', help: 'dump the first table as aligned text' });
-  reg.register({ name: 'log', argSpec: 'log', help: 'show this session\'s proposal/verdict audit log' });
-  reg.register({ name: 'budget', argSpec: 'budget', help: 'show remaining LLM-call / executed-action rate-limit budget' });
-  reg.register({ name: 'continue', argSpec: 'continue', help: 'resume after a rate-limit pause (M2.3)' });
-  reg.register({ name: 'help', argSpec: 'help', help: 'this text' });
-  reg.register({ name: 'man', argSpec: 'man <cmd>', help: 'detailed usage for one command (M3)' });
-  reg.register({ name: 'clear', argSpec: 'clear', help: 'clear the output pane' });
+  // color grammar v2 (2026-07-17, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md §5) -
+  // the fixed help-grouping taxonomy every non-hidden entry below is
+  // assigned into (one `group:` field per reg.register() call). Literal
+  // strings, never read by dispatch - see registry.js's `group` field
+  // comment on createRegistry()'s register().
+  const GROUP_NAV = 'pages & navigation';
+  const GROUP_FIND = 'reading & finding';
+  const GROUP_AUTO = 'automation';
+  const GROUP_SESSION = 'settings & session';
+  const GROUP_FUN = 'fun';
+
+  reg.register({ name: 'search', argSpec: 'search "query" | search query', help: 'fill+submit the page search box', group: GROUP_NAV });
+  reg.register({ name: 'open', argSpec: 'open <link text> | open <N>', help: 'navigate a same-origin link by visible text, or by the number shown in the last `ls` (M4a)', group: GROUP_NAV });
+  reg.register({ name: 'open!', argSpec: 'open!', help: 'confirm the last cross-origin open', group: GROUP_NAV });
+  reg.register({ name: 'back', argSpec: 'back', help: 'browser back', group: GROUP_NAV });
+  reg.register({ name: 'scroll', argSpec: 'scroll up | scroll down', help: 'scroll the page', group: GROUP_NAV });
+  reg.register({ name: 'extract-links', argSpec: 'extract links', help: 'list visible links (text + href)', group: GROUP_FIND });
+  reg.register({ name: 'extract-table', argSpec: 'extract table', help: 'dump the first table as aligned text', group: GROUP_FIND });
+  reg.register({ name: 'log', argSpec: 'log', help: 'show this session\'s proposal/verdict audit log', group: GROUP_SESSION });
+  reg.register({ name: 'budget', argSpec: 'budget', help: 'show remaining LLM-call / executed-action rate-limit budget', group: GROUP_SESSION });
+  reg.register({ name: 'continue', argSpec: 'continue', help: 'resume after a rate-limit pause (M2.3)', group: GROUP_SESSION });
+  reg.register({ name: 'help', argSpec: 'help', help: 'this text', group: GROUP_SESSION });
+  reg.register({ name: 'man', argSpec: 'man <cmd>', help: 'detailed usage for one command (M3)', group: GROUP_SESSION });
+  reg.register({ name: 'clear', argSpec: 'clear', help: 'clear the output pane', group: GROUP_SESSION });
   // M3 terminal-browser commands (design doc §2/§5/§6) - dispatched by
   // terminal.js, see this file's header comment.
-  reg.register({ name: 'go', argSpec: 'go <destination>', help: 'navigate anywhere - literal URL/domain, a defined alias, or (as a last resort) the local model resolves a destination from your typed words alone. First visit to a new origin (or any model-resolved destination) asks for confirmation.' });
-  reg.register({ name: 'alias', argSpec: 'alias <name> = <command>', help: 'define a single-command shortcut, e.g. alias wiki = go en.wikipedia.org (M3)' });
-  reg.register({ name: 'unalias', argSpec: 'unalias <name>', help: 'remove a defined alias (M3)' });
-  reg.register({ name: 'macro', argSpec: 'macro <name> = <cmd1> && <cmd2>...', help: 'define a named && chain, depth-1 (a macro may not reference another macro) (M3)' });
-  reg.register({ name: 'unmacro', argSpec: 'unmacro <name>', help: 'remove a defined macro (M3)' });
-  reg.register({ name: 'origins', argSpec: 'origins', help: 'list origins visited by this tab this session (M3)' });
-  reg.register({ name: 'dev', argSpec: 'dev on | dev off', help: 'toggle the data-lfl-state test hook (off by default - see docs/threat-model.md H2) (M3)' });
-  reg.register({ name: 'autoopen', argSpec: 'autoopen', help: 'toggle auto-opening the terminal when you land on THIS site (e.g. your start page) - opt-in per origin, off by default' });
+  reg.register({ name: 'go', argSpec: 'go <destination>', help: 'navigate anywhere - literal URL/domain, a defined alias, or (as a last resort) the local model resolves a destination from your typed words alone. First visit to a new origin (or any model-resolved destination) asks for confirmation.', group: GROUP_NAV });
+  reg.register({ name: 'alias', argSpec: 'alias <name> = <command>', help: 'define a single-command shortcut, e.g. alias wiki = go en.wikipedia.org (M3)', group: GROUP_AUTO });
+  reg.register({ name: 'unalias', argSpec: 'unalias <name>', help: 'remove a defined alias (M3)', group: GROUP_AUTO });
+  reg.register({ name: 'macro', argSpec: 'macro <name> = <cmd1> && <cmd2>...', help: 'define a named && chain, depth-1 (a macro may not reference another macro) (M3)', group: GROUP_AUTO });
+  reg.register({ name: 'unmacro', argSpec: 'unmacro <name>', help: 'remove a defined macro (M3)', group: GROUP_AUTO });
+  reg.register({ name: 'origins', argSpec: 'origins', help: 'list origins visited by this tab this session (M3)', group: GROUP_SESSION });
+  reg.register({ name: 'dev', argSpec: 'dev on | dev off', help: 'toggle the data-lfl-state test hook (off by default - see docs/threat-model.md H2) (M3)', group: GROUP_SESSION });
+  reg.register({ name: 'autoopen', argSpec: 'autoopen', help: 'toggle auto-opening the terminal when you land on THIS site (e.g. your start page) - opt-in per origin, off by default', group: GROUP_SESSION });
   // Popover redesign (2026-07-15, LFL-TERMINAL-POPOVER-REDESIGN.md) -
   // dispatched by terminal.js, same posture as autoopen/theme just above
   // (chrome.storage.local access this file's synchronous contract doesn't
   // have).
-  reg.register({ name: 'config', argSpec: 'config | config anchor cursor|dock | config middleclick on|off|alt|plain', help: 'view or change panel placement settings: cursor-anchored (default) vs docked-bottom, and the opt-in middle-click trigger' });
-  reg.register({ name: 'pin', argSpec: 'pin', help: 'freeze the floating panel at its current spot (drag the titlebar to move it) instead of re-anchoring to the cursor on every open' });
-  reg.register({ name: 'unpin', argSpec: 'unpin', help: 'undo `pin` - the panel goes back to re-anchoring at the cursor (or the keyboard fallback spot) on every open' });
+  reg.register({ name: 'config', argSpec: 'config | config anchor cursor|dock | config middleclick on|off|alt|plain', help: 'view or change panel placement settings: cursor-anchored (default) vs docked-bottom, and the opt-in middle-click trigger', group: GROUP_SESSION });
+  reg.register({ name: 'pin', argSpec: 'pin', help: 'freeze the floating panel at its current spot (drag the titlebar to move it) instead of re-anchoring to the cursor on every open', group: GROUP_SESSION });
+  reg.register({ name: 'unpin', argSpec: 'unpin', help: 'undo `pin` - the panel goes back to re-anchoring at the cursor (or the keyboard fallback spot) on every open', group: GROUP_SESSION });
   // memory lane M1/M2 (2026-07-16, LFL-TERMINAL-MEMORY-LANE-DESIGN.md) -
   // dispatched by terminal.js (chrome.storage.local access this file's
   // synchronous contract doesn't have, same posture as autoopen/dev above).
@@ -74,19 +85,23 @@
     aliases: ['remember', 'forget'],
     argSpec: 'memory | memory show | memory on|off | memory quiet|loud | memory forget <origin> | memory clear',
     help: 'opt-in, local-only record of which commands you use on which sites (verbs + origins + counts only, never arguments or page content) to suggest scripts; off by default - "remember" turns it on, "forget <origin>" (or "memory forget <origin>") erases one site',
+    group: GROUP_AUTO,
   });
   // scripts v1 (2026-07-14, LFL-TERMINAL-SCRIPTS-DESIGN.md) - dispatched by
   // terminal.js (script/run need chrome.* async access; pause is dispatched
   // as an ordinary chain segment via _dispatchSegment - see that file's
   // _handleScriptCommand()/_handleRunCommand()/_handlePauseSegment()).
-  reg.register({ name: 'script', argSpec: 'script new|ls|show|rm <name> | export [<name>|--all] | import', help: 'define/list/show/remove a named, parameterized, multi-step script; export to or import from a plain-text .lflscript file (v1/P2)' });
-  reg.register({ name: 'run', argSpec: 'run <name> [args...]', help: 'preview then run a defined script, substituting $1..$9/$@ - Enter to run, Esc to cancel (v1)' });
-  reg.register({ name: 'pause', argSpec: 'pause "<instruction>"', help: 'inside a script: stop and hand control back for a manual step (e.g. an index-addressed click); "continue" resumes (v1)' });
+  reg.register({ name: 'script', argSpec: 'script new|ls|show|rm <name> | export [<name>|--all] | import', help: 'define/list/show/remove a named, parameterized, multi-step script; export to or import from a plain-text .lflscript file (v1/P2)', group: GROUP_AUTO });
+  reg.register({ name: 'run', argSpec: 'run <name> [args...]', help: 'preview then run a defined script, substituting $1..$9/$@ - Enter to run, Esc to cancel (v1)', group: GROUP_AUTO });
+  // color grammar v2 (design doc §5, taxonomy): `pause` follows the design
+  // doc's own worked taxonomy example, which places it under settings &
+  // session (not automation) - see the design doc's §5 block comment.
+  reg.register({ name: 'pause', argSpec: 'pause "<instruction>"', help: 'inside a script: stop and hand control back for a manual step (e.g. an index-addressed click); "continue" resumes (v1)', group: GROUP_SESSION });
   // brainstorm lane (2026-07-15, LFL-TERMINAL-BRAINSTORM-LANE-DESIGN.md) -
   // dispatched by terminal.js (`teach` needs chrome.* async access and the
   // plan-preview approval card, same posture as script/run above). Opt-in,
   // off by default (`teach on`/`teach off`); a bare `teach` prints status.
-  reg.register({ name: 'teach', argSpec: 'teach <goal> [as <name>] | teach save that [as <name>] | teach on|off', help: 'describe a workflow, the local model drafts a script you approve (opt-in, off by default); "teach save that" turns a repeated pattern memory noticed into a script' });
+  reg.register({ name: 'teach', argSpec: 'teach <goal> [as <name>] | teach save that [as <name>] | teach on|off', help: 'describe a workflow, the local model drafts a script you approve (opt-in, off by default); "teach save that" turns a repeated pattern memory noticed into a script', group: GROUP_AUTO });
   // M4a "friction trio" - three deterministic tools that never call the
   // local model, registered here for help/man text same as everything
   // above; dispatched inside tryDeterministic() below except `here`, which
@@ -95,18 +110,19 @@
   // state.rlBudgetCache - see doHere()'s comment - not a fresh async call,
   // so unlike go/alias/macro/dev/origins it does NOT need terminal.js's
   // chrome.*-capable dispatch path).
-  reg.register({ name: 'ls', argSpec: 'ls | ls links [filter] | ls buttons [filter] | ls fields [filter]', help: 'numbered listing of visible links/buttons/fields on the page (M4a)' });
-  reg.register({ name: 'click', argSpec: 'click <N>', help: 'click the ls-listing item numbered N - same hard blocks as an approved LLM click, no approval card (M4a)' });
-  reg.register({ name: 'fill', argSpec: 'fill <N> with <text> | fill <label> with <text>', help: 'fill the ls-listing field numbered N, or matched by its label - credential fields still blocked (M4a)' });
-  reg.register({ name: 'read', argSpec: 'read', help: 'extract the page\'s main readable content (article/main, or the largest visible text block) (M4a)' });
-  reg.register({ name: 'find', argSpec: 'find <text> | find', help: 'search visible page text and scroll to it; bare find advances to the next match (M4a)' });
+  reg.register({ name: 'ls', argSpec: 'ls | ls links [filter] | ls buttons [filter] | ls fields [filter]', help: 'numbered listing of visible links/buttons/fields on the page (M4a)', group: GROUP_NAV });
+  reg.register({ name: 'click', argSpec: 'click <N>', help: 'click the ls-listing item numbered N - same hard blocks as an approved LLM click, no approval card (M4a)', group: GROUP_NAV });
+  reg.register({ name: 'fill', argSpec: 'fill <N> with <text> | fill <label> with <text>', help: 'fill the ls-listing field numbered N, or matched by its label - credential fields still blocked (M4a)', group: GROUP_NAV });
+  reg.register({ name: 'read', argSpec: 'read', help: 'extract the page\'s main readable content (article/main, or the largest visible text block) (M4a)', group: GROUP_FIND });
+  reg.register({ name: 'find', argSpec: 'find <text> | find', help: 'search visible page text and scroll to it; bare find advances to the next match (M4a)', group: GROUP_FIND });
   reg.register({
     name: 'highlight',
     argSpec: 'highlight <text> | highlight clear | highlight',
     help: 'mark every visible occurrence of <text> on the page (read-only visual layer, CSS Custom Highlight API - no page DOM is modified); bare highlight shows status; highlight clear removes the marks; matches also feed `find`, so bare `find` steps through them (M4c)',
+    group: GROUP_FIND,
   });
-  reg.register({ name: 'matches', argSpec: 'matches', help: 'list all current highlight/find matches with surrounding context, numbered; step through them with `find` (M4c)' });
-  reg.register({ name: 'here', argSpec: 'here', help: 'compact orientation: origin, element counts, search/pagination hints, suggested next commands (M4a)' });
+  reg.register({ name: 'matches', argSpec: 'matches', help: 'list all current highlight/find matches with surrounding context, numbered; step through them with `find` (M4c)', group: GROUP_FIND });
+  reg.register({ name: 'here', argSpec: 'here', help: 'compact orientation: origin, element counts, search/pagination hints, suggested next commands (M4a)', group: GROUP_NAV });
   // funpack v1 (extension/content/funpack.js) - fortune/stats/theme/cowsay
   // are dispatched by terminal.js, not this file's tryDeterministic() chain,
   // because they need chrome.storage.local access (persisted theme choice,
@@ -116,10 +132,13 @@
   // (including did-you-mean's candidate list, via LFL.commandRegistry.names()).
   // MOTD itself has no typed command name to register - it is shown
   // automatically, at most once per calendar day, when the overlay is opened.
-  reg.register({ name: 'fortune', argSpec: 'fortune', help: 'print one local-first/privacy one-liner or command tip (funpack v1)' });
-  reg.register({ name: 'stats', argSpec: 'stats', help: 'this session\'s command counters, including the share that never touched the model (funpack v1)' });
-  reg.register({ name: 'theme', argSpec: 'theme [name]', help: 'switch (or list) the overlay color theme: default, phosphor, amber, paper (funpack v1)' });
-  reg.register({ name: 'cowsay', argSpec: 'cowsay <text>', help: 'classic ASCII cow with a word-wrapped, 40-col speech bubble (funpack v1)' });
+  reg.register({ name: 'fortune', argSpec: 'fortune', help: 'print one local-first/privacy one-liner or command tip (funpack v1)', group: GROUP_FUN });
+  reg.register({ name: 'stats', argSpec: 'stats', help: 'this session\'s command counters, including the share that never touched the model (funpack v1)', group: GROUP_FUN });
+  // color grammar v2 (design doc §5, taxonomy): `theme` follows the design
+  // doc's own worked taxonomy example, which places it under settings &
+  // session (not fun) - see the design doc's §5 block comment.
+  reg.register({ name: 'theme', argSpec: 'theme [name]', help: 'switch (or list) the overlay color theme: default, phosphor, amber, paper (funpack v1)', group: GROUP_SESSION });
+  reg.register({ name: 'cowsay', argSpec: 'cowsay <text>', help: 'classic ASCII cow with a word-wrapped, 40-col speech bubble (funpack v1)', group: GROUP_FUN });
   // M4b fun pack v2 (extension/content/games.js) - snake/2048 are
   // dispatched by terminal.js's program-mode runner (_enterProgram, design
   // doc §3), not this file's tryDeterministic() chain, for the same reason
@@ -129,9 +148,9 @@
   // text and vocabulary enumeration, same as the funpack v1 block above.
   // Never allowed inside a `&&` chain or a macro body - see registry.js's
   // GAME_NAMES/RESERVED_NAMES and terminal.js's _handleGameCommand().
-  reg.register({ name: 'snake', argSpec: 'snake', help: 'classic snake - arrows to move, q or Esc to quit (fun pack v2)' });
-  reg.register({ name: '2048', argSpec: '2048', help: '2048 - arrows to slide/merge, q or Esc to quit (fun pack v2)' });
-  reg.register({ name: 'games', argSpec: 'games', help: 'list available games and best scores (fun pack v2)' });
+  reg.register({ name: 'snake', argSpec: 'snake', help: 'classic snake - arrows to move, q or Esc to quit (fun pack v2)', group: GROUP_FUN });
+  reg.register({ name: '2048', argSpec: '2048', help: '2048 - arrows to slide/merge, q or Esc to quit (fun pack v2)', group: GROUP_FUN });
+  reg.register({ name: 'games', argSpec: 'games', help: 'list available games and best scores (fun pack v2)', group: GROUP_FUN });
   // `sl` - the classic steam-locomotive easter egg. Deliberately hidden
   // (registry.js's `hidden` flag) from the general `help` listing above -
   // easter eggs stay undiscoverable by browsing help - but still fully
@@ -139,7 +158,8 @@
   // `hidden` (it only filters helpText()). Not listed in `games` either
   // (terminal.js's _printGamesList() hardcodes snake/2048 only) and has no
   // chrome.storage.local score entry - no high-score/storage entanglement
-  // for this one, by design.
+  // for this one, by design. No `group` (hidden entries are excluded from
+  // helpRich()/helpText() alike - see registry.js's `group` field comment).
   reg.register({
     name: 'sl',
     argSpec: 'sl',
@@ -147,10 +167,14 @@
     help: 'steam locomotive easter egg - one silent pass chugging right to left across the terminal (~5s), then exits on its own with a dry one-liner; q or Esc still quit it early, unlike the classic',
   });
 
-  const HELP_TEXT = [
-    'deterministic commands (never call the local model):',
-    reg.helpText(),
-    '',
+  // color grammar v2 (design doc §5): the trailing prose paragraphs of
+  // `help`, factored out of HELP_TEXT's own array literal so
+  // buildHelpOutputRich() below can walk the SAME lines (backtick-rendered
+  // via registry.js's richTextSpans()) without re-typing them. HELP_TEXT
+  // itself (below) is UNCHANGED byte-for-byte from before this feature -
+  // still the join of the same pieces, just built from this shared array
+  // instead of a second inline literal.
+  const HELP_PROSE_LINES = [
     '`cmd1 && cmd2 && ...` chains up to 5 ordinary commands (M3) - quote-aware,',
     'any error/block/rejection/Esc clears the rest of the chain.',
     '',
@@ -165,7 +189,31 @@
     'anything else, or "ask <...>", is sent to the local model as ONE proposed',
     'action. click/fill/select/navigate require your approval (Enter/click',
     'Approve, or Esc/click Reject).',
+  ];
+
+  const HELP_TEXT = [
+    'deterministic commands (never call the local model):',
+    reg.helpText(),
+    '',
+    ...HELP_PROSE_LINES,
   ].join('\n');
+
+  // color grammar v2 (design doc §5): the rich (grouped, colored) `help`
+  // output - registry.js's helpRich() for the command listing, then the
+  // SAME leading label line and trailing prose HELP_TEXT itself uses,
+  // rendered rich via registry.js's richTextSpans() (the backtick convention
+  // already present in every one of these strings - see HELP_PROSE_LINES
+  // above). Engine-authored text only, same posture as helpRich() itself -
+  // see registry.js's own comment on this. Built once at module load (the
+  // registry never changes after this file's top-level registrations run),
+  // not per `help` invocation - cheap either way, but there is no reason to
+  // redo it every time.
+  const HELP_RICH = [
+    { spans: [{ text: 'deterministic commands (never call the local model):', cls: 'lfl-syn-info' }] },
+    ...reg.helpRich(),
+    { spans: [{ text: '', cls: null }] },
+    ...HELP_PROSE_LINES.map((line) => ({ spans: LFL.registry.richTextSpans(line, 'lfl-syn-info') })),
+  ];
 
   function findSearchInput() {
     const selectors = [
@@ -401,6 +449,31 @@
     return `[${e.index}] ${e.role} "${e.name}"${extra}`;
   }
 
+  // color grammar v2 (2026-07-17, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md §6) -
+  // the RICH counterpart of formatListingEntry() above: the index number
+  // gets cls 'lfl-syn-num', the engine-computed type bucket
+  // (classifyEntry(e) - link/button/field, never the raw page-supplied
+  // accessible role) gets cls 'lfl-syn-op' (the existing dim/op class, reused
+  // per the design's own "or similar existing dim/op class" note), and the
+  // REST - `${e.role} "${e.name}"${extra}`, every bit of it page-derived -
+  // is emitted as ONE plain span, cls 'lfl-syn-fg', never further tokenized.
+  // THIS is the load-bearing P4 boundary for this command: e.name/e.role/
+  // extra come straight from axtree.js's read of the live page and MUST
+  // NEVER be parsed for markup - see this file's header comment and the
+  // build's own hard security invariant note.
+  function formatListingEntryRich(e) {
+    const extra = e.extra ? ` (${e.extra})` : '';
+    const pageText = `${e.role} "${e.name}"${extra}`;
+    return [
+      { text: '[', cls: null },
+      { text: String(e.index), cls: 'lfl-syn-num' },
+      { text: '] ', cls: null },
+      { text: classifyEntry(e), cls: 'lfl-syn-op' },
+      { text: ' ', cls: null },
+      { text: pageText, cls: 'lfl-syn-fg' },
+    ];
+  }
+
   // ---- pure: case-insensitive substring filter on an entry's accessible name ----
   function filterEntriesByText(entries, filter) {
     const f = (filter || '').trim().toLowerCase();
@@ -413,6 +486,21 @@
     const { lines, truncated } = capLines(filtered.map(formatListingEntry), LS_SECTION_CAP);
     if (truncated > 0) lines.push(`(${truncated} more)`);
     return lines;
+  }
+
+  // color grammar v2 (design doc §6) - the RICH counterpart of
+  // sectionLines() above: same filter/cap logic (capLines() is generic over
+  // any array, so this runs it over the ENTRIES themselves rather than
+  // over pre-formatted strings), each surviving entry rendered via
+  // formatListingEntryRich(). Returns line objects ({spans:[...]})  ready
+  // for terminal.js's _appendRichLine(), matching sectionLines()'s own
+  // "(N more)" truncation note as a plain, unclassed line.
+  function sectionRichLines(entries, kind, filter) {
+    const filtered = filterEntriesByText(entries.filter((e) => classifyEntry(e) === kind), filter);
+    const { lines, truncated } = capLines(filtered, LS_SECTION_CAP);
+    const richLines = lines.map((e) => ({ spans: formatListingEntryRich(e) }));
+    if (truncated > 0) richLines.push({ spans: [{ text: `(${truncated} more)`, cls: null }] });
+    return richLines;
   }
 
   // ---- pure: fill-by-label matching (exact wins, else unique substring, else ambiguous) ----
@@ -582,20 +670,34 @@
     const entries = built.entries;
     if (kind === 'all') {
       const parts = [];
+      // color grammar v2 (design doc §6): outputRich is built ALONGSIDE the
+      // existing plain-text loop below, never in place of it - `parts`/the
+      // final `output` string are computed by the exact same, untouched
+      // code every earlier build left here (scrollback persists this plain
+      // text only - see terminal.js's _printDetResult()).
+      const richLines = [];
       for (const sect of ['link', 'button', 'field']) {
         const count = entries.filter((e) => classifyEntry(e) === sect).length;
         const label = sect === 'link' ? 'links' : sect === 'button' ? 'buttons' : 'fields';
         const lines = sectionLines(entries, sect, null);
         parts.push(`${label} (${count}):`);
         parts.push(lines.length ? lines.map((l) => `  ${l}`).join('\n') : '  (none)');
+        richLines.push({ spans: [{ text: `${label} (${count}):`, cls: null }] });
+        const rich = sectionRichLines(entries, sect, null);
+        if (rich.length === 0) {
+          richLines.push({ spans: [{ text: '  (none)', cls: null }] });
+        } else {
+          for (const rl of rich) richLines.push({ spans: [{ text: '  ', cls: null }, ...rl.spans] });
+        }
       }
-      return { output: parts.join('\n') };
+      return { output: parts.join('\n'), outputRich: richLines };
     }
     const lines = sectionLines(entries, kind, filter);
     if (lines.length === 0) {
       return { output: `(no ${kind}${filter ? ` matching "${filter}"` : ''})` };
     }
-    return { output: lines.join('\n') };
+    const richLines = sectionRichLines(entries, kind, filter);
+    return { output: lines.join('\n'), outputRich: richLines };
   }
 
   function resolveListingEntry(state, n) {
@@ -998,7 +1100,25 @@
     });
     const capNote = total > MATCH_LIST_CAP ? ` (showing first ${MATCH_LIST_CAP})` : '';
     const header = `${total} match${total === 1 ? '' : 'es'} for "${q}"${capNote}`;
-    return { output: `${header}\n${lines.join('\n')}` };
+    // color grammar v2 (design doc §6): outputRich alongside the untouched
+    // plain `output` above - index number cls num, the active `find` cursor
+    // in accent, and the snippet (page-derived - matchSnippet() slices raw
+    // node.textContent) as ONE plain span, cls fg, never further tokenized
+    // (P4, same load-bearing boundary as formatListingEntryRich() above).
+    const richLines = [{ spans: [{ text: header, cls: 'lfl-syn-info' }] }];
+    shown.forEach((node, i) => {
+      const cursor = (i === ctx.idx) ? '>' : ' ';
+      const snippet = matchSnippet((node && node.textContent) || '', q, MATCH_SNIPPET_RADIUS);
+      richLines.push({
+        spans: [
+          { text: cursor, cls: cursor === '>' ? 'lfl-syn-accent' : null },
+          { text: `${i + 1}.`, cls: 'lfl-syn-num' },
+          { text: ' ', cls: null },
+          { text: snippet, cls: 'lfl-syn-fg' },
+        ],
+      });
+    });
+    return { output: `${header}\n${lines.join('\n')}`, outputRich: richLines };
   }
 
   // ---- `here` ----
@@ -1056,7 +1176,7 @@
   function tryDeterministic(raw, state) {
     const trimmed = raw.trim();
     if (trimmed === '') return { output: '' };
-    if (/^help$/i.test(trimmed)) return { output: HELP_TEXT };
+    if (/^help$/i.test(trimmed)) return { output: HELP_TEXT, outputRich: HELP_RICH };
     if (/^clear$/i.test(trimmed)) {
       // M4a: the ls-listing context and any active find are page-scoped,
       // human-visible state - `clear` is an explicit "start fresh" gesture,
@@ -1093,7 +1213,7 @@
     if (/^here$/i.test(trimmed)) return doHere(state);
 
     let m = trimmed.match(/^man\s+(\S+)$/i);
-    if (m) return { output: reg.manText(m[1]) };
+    if (m) return { output: reg.manText(m[1]), outputRich: reg.manRich(m[1]) };
 
     // ---- M4a: `ls` + numbered actions ----
     if (/^ls$/i.test(trimmed)) return doLs('all', null, state);
@@ -1173,5 +1293,9 @@
     // M4c DOM-touching handlers, exported so a test can drive/inspect them
     // directly (paint, status, clear, teardown, list) the same way the M4a set above is.
     doHighlight, doHighlightClear, teardownHighlight, doMatches,
+    // color grammar v2 (2026-07-17, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md) -
+    // pure rich-line builders, exported for direct unit testing without a
+    // DOM - see tests/color_grammar.test.js.
+    HELP_RICH, formatListingEntryRich, sectionRichLines,
   };
 })();

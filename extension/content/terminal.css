@@ -145,6 +145,13 @@
   --lfl-approve-bg: #1c3a1c;
   --lfl-reject-bg: #3a1c1c;
   --lfl-input-bg: #0e131c;
+  /* color grammar v2 (2026-07-17, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md §4):
+     num ties visually to the accent (ls/matches indices, design doc §6);
+     sub is a slightly dimmer shade of the cmd hue (design §3 - structure via
+     shade/weight, never a new hue). Keep in sync with CSS_TEXT in
+     terminal.js. */
+  --lfl-num: #e0a339;
+  --lfl-sub: #6fa8d8;
 }
 
 .lfl-panel.lfl-theme-phosphor {
@@ -156,7 +163,13 @@
   --lfl-titlebar-fg: #22cc22;
   --lfl-dim: #177217;
   --lfl-dim-input: #177217;
-  --lfl-cmd: #33ff33;
+  /* color grammar v2 (2026-07-17): FIX - --lfl-cmd used to be byte-identical
+     to --lfl-fg (#33ff33), making the live highlighter invisible on this
+     theme (design doc §1 item 3 / §4). Monochrome brightness ladder: dim
+     #177217 < info #2ecc2e < fg #33ff33 < cmd #b3ffb3 < BRIGHT #66ff66 -
+     authentic CRT behavior expressed via brightness, never a new hue (P2).
+     Keep in sync with CSS_TEXT in terminal.js. */
+  --lfl-cmd: #b3ffb3;
   --lfl-info: #2ecc2e;
   --lfl-error: #ff5555;
   --lfl-ok: #33ff33;
@@ -167,6 +180,8 @@
   --lfl-approve-bg: #003300;
   --lfl-reject-bg: #330000;
   --lfl-input-bg: #000000;
+  --lfl-num: #99ff99;
+  --lfl-sub: #66ff66;
 }
 
 .lfl-panel.lfl-theme-amber {
@@ -178,7 +193,11 @@
   --lfl-titlebar-fg: #cc8b00;
   --lfl-dim: #805800;
   --lfl-dim-input: #805800;
-  --lfl-cmd: #ffcc66;
+  /* color grammar v2 (2026-07-17): FIX - --lfl-cmd (#ffcc66) used to sit too
+     close to --lfl-fg (#ffb000) to read as lit (design doc §1 item 3 / §4).
+     sub takes over the OLD cmd value (still a real, distinct shade of this
+     theme's one hue - P2). Keep in sync with CSS_TEXT in terminal.js. */
+  --lfl-cmd: #ffe3a1;
   --lfl-info: #e0a339;
   --lfl-error: #ff6b4a;
   --lfl-ok: #ffb000;
@@ -189,6 +208,8 @@
   --lfl-approve-bg: #332200;
   --lfl-reject-bg: #3a1400;
   --lfl-input-bg: #1a0f00;
+  --lfl-num: #ffd166;
+  --lfl-sub: #ffcc66;
 }
 
 .lfl-panel.lfl-theme-paper {
@@ -211,6 +232,10 @@
   --lfl-approve-bg: #e3f3e6;
   --lfl-reject-bg: #f8e4e2;
   --lfl-input-bg: #ffffff;
+  /* color grammar v2 (2026-07-17): keep in sync with CSS_TEXT in
+     terminal.js. */
+  --lfl-num: #a15c00;
+  --lfl-sub: #4a86c4;
 }
 
 .lfl-panel.lfl-open {
@@ -542,6 +567,11 @@
    the surrounding text color. Keep in sync with CSS_TEXT in terminal.js. */
 .lfl-syn-cmd {
   color: var(--lfl-cmd, #8fd0ff);
+  /* color grammar v2 (2026-07-17, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md §3/§8
+     sign-off E): bold command heads everywhere - works in monochrome
+     (phosphor/amber), subtle in the color themes. Keep in sync with
+     CSS_TEXT in terminal.js. */
+  font-weight: 600;
 }
 
 .lfl-syn-str {
@@ -550,4 +580,46 @@
 
 .lfl-syn-op {
   color: var(--lfl-dim, #5d7290);
+}
+
+/* color grammar v2 (2026-07-17, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md §3/§4)
+   - new token classes: num (bare-number commands, numeric index args - ls/
+   matches indices too, design doc §6), sub (a known subcommand's second
+   token, table-driven - registry.js's SUBCOMMAND_TABLE), arg (an argSpec
+   placeholder in the rich help/man renderer - italic, dim). Keep in sync
+   with CSS_TEXT in terminal.js. */
+.lfl-syn-num {
+  color: var(--lfl-num, #e0a339);
+}
+
+.lfl-syn-sub {
+  color: var(--lfl-sub, #6fa8d8);
+}
+
+.lfl-syn-arg {
+  font-style: italic;
+  color: var(--lfl-dim, #5d7290);
+}
+
+/* color grammar v2 - rich-renderer-only classes (design doc §5/§6), used by
+   registry.js's helpRich()/manRich() and engine.js's ls/matches rich
+   builders via terminal.js's _appendRichLine(). Never produced by
+   synSpans() (the live mirror/echo) - see this module's own SYN_CLASS map.
+   Keep in sync with CSS_TEXT in terminal.js. */
+.lfl-syn-info {
+  color: var(--lfl-info, #9fb0c3);
+}
+
+.lfl-syn-fg {
+  color: var(--lfl-fg, #dbe4f0);
+}
+
+.lfl-syn-accent {
+  color: var(--lfl-accent, #e0a339);
+}
+
+.lfl-syn-header {
+  color: var(--lfl-dim, #5d7290);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }

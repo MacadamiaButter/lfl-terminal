@@ -87,6 +87,18 @@
         // widening of the entry shape, not a behavior change for anyone
         // who doesn't opt in.
         hidden: !!entry.hidden,
+        // color grammar v2 (2026-07-17, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md
+        // §5): the `help` grouping bucket this entry belongs under (e.g.
+        // "pages & navigation") - a plain display label, never read by
+        // dispatch. Required (unit-test enforced, see
+        // tests/color_grammar.test.js) on every entry that is not
+        // `hidden` - a hidden entry (the `sl` easter egg) is excluded from
+        // helpRich()/helpText() alike, so it has nothing to be grouped
+        // under. Defaults to null (an entry that forgets to set it simply
+        // falls into helpRich()'s own defensive "other" bucket rather than
+        // throwing) - additive widening of the entry shape, same posture as
+        // `hidden` above.
+        group: entry.group || null,
       });
     }
 
@@ -112,7 +124,70 @@
       return `${e.name}${aliasTxt}\n  usage: ${e.argSpec}\n  ${e.help}`;
     }
 
-    return { register, get, names, helpText, manText, entries };
+    // color grammar v2 (design doc §5) - groups non-hidden entries by their
+    // `group` field, preserving both group-of-first-appearance order and
+    // each group's own registration order (a plain Map walk, no sorting) -
+    // deterministic for a given registration sequence, same posture as
+    // helpText()'s own entries.filter().map() above.
+    function groupedEntries() {
+      const groups = new Map();
+      for (const e of entries) {
+        if (e.hidden) continue;
+        const g = e.group || 'other';
+        if (!groups.has(g)) groups.set(g, []);
+        groups.get(g).push(e);
+      }
+      return groups;
+    }
+
+    // One command's rich line: `name` in cls 'lfl-syn-cmd' (bold, per
+    // argSpecSpans()), placeholder runs in cls 'lfl-syn-arg', a literal "  - "
+    // separator (unclassed - matches helpText()'s own "- " separator, just
+    // without the column-padding that only makes sense in a monospace flat
+    // dump), then the description via richTextSpans() (backtick convention,
+    // design doc §5).
+    function commandLineSpans(e) {
+      const spans = argSpecSpans(e.argSpec, e.name);
+      spans.push({ text: '  - ', cls: null });
+      return spans.concat(richTextSpans(e.help, 'lfl-syn-info'));
+    }
+
+    // helpRich() -> array of line objects [{spans:[{text, cls}]}] (design
+    // doc §5): per group, a section-header line (accent "$ " prefix + dim
+    // uppercase group name), then one line per command in that group.
+    // helpText() (above) is UNCHANGED and stays the source of truth for
+    // scrollback/man-fallback/existing tests - this is purely an additional,
+    // richer view of the exact same entries.
+    function helpRich() {
+      const lines = [];
+      for (const [group, groupEntries] of groupedEntries()) {
+        lines.push({
+          spans: [
+            { text: '$ ', cls: 'lfl-syn-accent' },
+            { text: group.toUpperCase(), cls: 'lfl-syn-header' },
+          ],
+        });
+        for (const e of groupEntries) lines.push({ spans: commandLineSpans(e) });
+      }
+      return lines;
+    }
+
+    // manRich(name) -> array of line objects, the same treatment as
+    // helpRich() but for exactly one command (design doc §5) - mirrors
+    // manText()'s own shape (name+aliases / usage / description), one field
+    // per line.
+    function manRich(name) {
+      const e = get(name);
+      if (!e) return [{ spans: [{ text: `no such command: ${name}`, cls: 'lfl-syn-info' }] }];
+      const aliasTxt = e.aliases.length ? ` (aliases: ${e.aliases.join(', ')})` : '';
+      return [
+        { spans: [{ text: e.name, cls: 'lfl-syn-cmd' }, { text: aliasTxt, cls: null }] },
+        { spans: [{ text: '  usage: ', cls: null }].concat(argSpecSpans(e.argSpec, e.name)) },
+        { spans: [{ text: '  ', cls: null }].concat(richTextSpans(e.help, 'lfl-syn-info')) },
+      ];
+    }
+
+    return { register, get, names, helpText, manText, helpRich, manRich, entries };
   }
 
   // ---- 2. alias/macro store ----
@@ -1187,24 +1262,93 @@
   // token boundary = whitespace, quotes not stripped" (design doc §2). A
   // final pass merges consecutive same-classified characters into runs and
   // maps each run to its CSS class - null means "default, inherit".
-  const SYN_CLASS = { cmd: 'lfl-syn-cmd', quote: 'lfl-syn-str', op: 'lfl-syn-op' };
+  const SYN_CLASS = {
+    cmd: 'lfl-syn-cmd', quote: 'lfl-syn-str', op: 'lfl-syn-op',
+    // color grammar v2 (2026-07-17, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md §3):
+    // two new per-character kinds a v2 call can produce - see synSpans()'s
+    // own v2 gate below for exactly when.
+    sub: 'lfl-syn-sub', num: 'lfl-syn-num',
+  };
   const SYN_HEAD_RE = /^(\s*)(\S+)/;
+  // color grammar v2: a plain whitespace-delimited token, walked within one
+  // already-delimited segment's raw text (quote characters included
+  // verbatim, same "token boundary = whitespace, quotes not stripped"
+  // posture as SYN_HEAD_RE above - see markSegmentTokensV2()'s own comment).
+  const SYN_TOKEN_RE = /\S+/g;
+  const SYN_NUMERIC_TOKEN_RE = /^\d+$/;
 
-  function synSpans(line, knownNames) {
+  // synSpans(line, knownNames, subTable) -> array of {text, cls}. Extends
+  // the M4c/M4c-syntax-highlight-era two-arg contract (design doc §3):
+  // per-segment classification order is head lookup (cls 'cmd') -> known
+  // subcommand for the segment's SECOND token (cls 'sub') -> pure-numeric
+  // token, any position (cls 'num') -> quoted string / && operator (cls
+  // 'str'/'op', unchanged from v1). Unknown heads stay unlit (P3 - no
+  // per-verb category hues, ever).
+  //
+  // BACKWARD COMPATIBILITY (normative, unit-tested in
+  // tests/syntax_highlight.test.js AND tests/color_grammar.test.js): a call
+  // with no third argument (or an explicit `undefined`/`null` third
+  // argument) MUST reproduce today's (pre-color-grammar) two-arg output
+  // byte-for-byte - no num/sub classification at all. This is what makes
+  // the change additive rather than a breaking change to every existing
+  // caller/test of this function: v2 behavior is opt-in, keyed off whether
+  // a subTable was actually supplied, not off any property of the line
+  // itself.
+  function synSpans(line, knownNames, subTable) {
     const s = typeof line === 'string' ? line : '';
     const n = s.length;
     if (n === 0) return [];
     const known = new Set(Array.isArray(knownNames) ? knownNames : []);
-    const kind = new Array(n); // 'quote' | 'op' | 'plain'
+    const v2 = subTable !== undefined && subTable !== null;
+    const subs = (v2 && typeof subTable === 'object') ? subTable : {};
+    const kind = new Array(n); // 'quote' | 'op' | 'plain' | 'cmd' | 'sub' | 'num'
 
+    // v1, UNCHANGED byte-for-byte (see this function's own backward-
+    // compatibility note above) - the segment's leading token becomes 'cmd'
+    // when it is an exact, case-sensitive match in `known`. Returns the
+    // matched head's {text, start, end} (or null) so the v2 pass below can
+    // reuse it without re-parsing the segment a second time.
     function markHeadIfKnown(segStart, segEnd) {
       const seg = s.slice(segStart, segEnd);
       const m = SYN_HEAD_RE.exec(seg);
-      if (!m || !m[2] || !known.has(m[2])) return;
+      if (!m || !m[2] || !known.has(m[2])) return null;
       const headStart = segStart + m[1].length;
       const headEnd = headStart + m[2].length;
       for (let k = headStart; k < headEnd; k++) {
         if (kind[k] === 'plain') kind[k] = 'cmd';
+      }
+      return { text: m[2], start: headStart, end: headEnd };
+    }
+
+    // v2 only: within one already-delimited segment, upgrade the segment's
+    // exact SECOND whitespace-delimited token to 'sub' when the matched
+    // head is a real, recognized command (design doc §3: subcommand shading
+    // only ever applies under a real parent command name) whose subTable
+    // entry lists that exact token; separately, upgrade ANY still-'plain'
+    // pure-digit token (any position, including an unmatched numeric head -
+    // "a bare-number command", design doc §3) to 'num'. Only ever touches
+    // characters still marked 'plain' - a character already 'quote'/'op'/
+    // 'cmd' is never revisited, so this pass can only ever ADD structure on
+    // top of what markHeadIfKnown and the quote/op scan already decided,
+    // never override it.
+    function markSegmentTokensV2(segStart, segEnd, head) {
+      const segText = s.slice(segStart, segEnd);
+      const subList = (head && Object.prototype.hasOwnProperty.call(subs, head.text) && Array.isArray(subs[head.text]))
+        ? subs[head.text] : null;
+      SYN_TOKEN_RE.lastIndex = 0;
+      let m;
+      let tokenIdx = 0;
+      while ((m = SYN_TOKEN_RE.exec(segText))) {
+        tokenIdx += 1;
+        const tokStart = segStart + m.index;
+        const tokEnd = tokStart + m[0].length;
+        if (tokenIdx === 2 && subList && subList.indexOf(m[0]) !== -1) {
+          for (let k = tokStart; k < tokEnd; k++) if (kind[k] === 'plain') kind[k] = 'sub';
+          continue;
+        }
+        if (SYN_NUMERIC_TOKEN_RE.test(m[0])) {
+          for (let k = tokStart; k < tokEnd; k++) if (kind[k] === 'plain') kind[k] = 'num';
+        }
       }
     }
 
@@ -1222,7 +1366,8 @@
       if (!inQuotes && ch === '&' && s[i + 1] === '&') {
         kind[i] = 'op';
         kind[i + 1] = 'op';
-        markHeadIfKnown(segStart, i);
+        const head = markHeadIfKnown(segStart, i);
+        if (v2) markSegmentTokensV2(segStart, i, head);
         segStart = i + 2;
         i += 2;
         continue;
@@ -1230,7 +1375,8 @@
       kind[i] = inQuotes ? 'quote' : 'plain';
       i += 1;
     }
-    markHeadIfKnown(segStart, n);
+    const lastHead = markHeadIfKnown(segStart, n);
+    if (v2) markSegmentTokensV2(segStart, n, lastHead);
 
     const spans = [];
     let runStart = 0;
@@ -1239,6 +1385,143 @@
       if (idx === n || kind[idx] !== runKind) {
         spans.push({ text: s.slice(runStart, idx), cls: SYN_CLASS[runKind] || null });
         if (idx < n) { runStart = idx; runKind = kind[idx]; }
+      }
+    }
+    return spans;
+  }
+
+  // ---- color grammar v2 (2026-07-17, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md
+  // §3) - the subcommand table synSpans()'s v2 path reads ----
+  //
+  // DATA, not guesswork: every list below was verified against the actual
+  // dispatch code that accepts it (see the file/line noted per entry - all
+  // in extension/content/terminal.js unless stated otherwise). A command
+  // not listed here simply gets no 'sub' classification for its second
+  // token (falls through to the numeric-token test, then stays unlit) -
+  // that is a correct, safe default for every command with no fixed
+  // subcommand vocabulary (search/open/go/alias/... take free-form
+  // arguments, not a closed set of second words).
+  const SUBCOMMAND_TABLE = Object.freeze({
+    // _handleMemoryCommand() (terminal.js): show|on|off|quiet|loud|clear|forget.
+    memory: Object.freeze(['show', 'on', 'off', 'quiet', 'loud', 'clear', 'forget']),
+    // _handleScriptCommand() (terminal.js): new|ls|show|rm|export|import.
+    script: Object.freeze(['new', 'ls', 'show', 'rm', 'export', 'import']),
+    // _handleTeachCommand() (terminal.js): on|off, plus the fixed "save
+    // that" magic-goal phrase's leading word.
+    teach: Object.freeze(['on', 'off', 'save']),
+    // _handleTheme() (terminal.js) accepts exactly LFL.funpack.THEMES
+    // (extension/content/funpack.js) as the second token.
+    theme: Object.freeze(['default', 'phosphor', 'amber', 'paper']),
+    // _handleConfigCommand() (terminal.js): anchor|middleclick.
+    config: Object.freeze(['anchor', 'middleclick']),
+  });
+
+  // ---- color grammar v2: help/man rich-text builders (design doc §5) ----
+  //
+  // Engine-authored text ONLY - every string these two helpers ever read
+  // (an argSpec, a help description, a prose line) originates from this
+  // module's own registered entries or from a caller-supplied literal
+  // string that is itself engine-authored (see engine.js's own comment on
+  // HELP_PROSE_LINES). NEVER feed page-derived or model-lane text through
+  // either of these - that is the load-bearing P4 invariant this whole
+  // feature is built around; the whole reason richness is available at all
+  // is that this text was never attacker-influenced in the first place.
+  const BACKTICK_RE = /`([^`]*)`/g;
+
+  // Splits `text` on `` `code` `` spans (the backtick convention already
+  // present throughout this codebase's help/man strings - see e.g. the
+  // existing `open`/`unpin`/`matches`/HELP_TEXT strings in engine.js),
+  // stripping the backticks themselves. A backtick-wrapped span gets cls
+  // 'lfl-syn-cmd' (visually, a literal command word); everything else gets
+  // `plainCls` (typically 'lfl-syn-info'). Pure and DOM-free.
+  function richTextSpans(text, plainCls) {
+    const s = typeof text === 'string' ? text : '';
+    const spans = [];
+    let last = 0;
+    BACKTICK_RE.lastIndex = 0;
+    let m;
+    while ((m = BACKTICK_RE.exec(s))) {
+      if (m.index > last) spans.push({ text: s.slice(last, m.index), cls: plainCls || null });
+      spans.push({ text: m[1], cls: 'lfl-syn-cmd' });
+      last = m.index + m[0].length;
+    }
+    if (last < s.length) spans.push({ text: s.slice(last), cls: plainCls || null });
+    if (spans.length === 0) spans.push({ text: '', cls: plainCls || null });
+    return spans;
+  }
+
+  // Marks every non-word-adjacent, exact occurrence of `name` inside `s` as
+  // 'cmd' in the `marks` array (only where still unmarked - a placeholder
+  // run already claims priority, mirroring synSpans()'s own "head lookup
+  // first" ordering). Deliberately NOT a `\b`-anchored regex: a command
+  // name can itself end in a non-word character (e.g. "open!"), and `\b`
+  // does not match between two non-word characters (a trailing "!" followed
+  // by end-of-string/whitespace would silently never match) - a plain
+  // indexOf scan with an explicit "is the character on each side a
+  // word character" check has no such blind spot.
+  function markNameOccurrences(s, name, marks) {
+    if (!name) return;
+    const isWordChar = (ch) => ch !== undefined && /[A-Za-z0-9_]/.test(ch);
+    let from = 0;
+    while (from <= s.length) {
+      const idx = s.indexOf(name, from);
+      if (idx === -1) break;
+      const before = idx > 0 ? s[idx - 1] : undefined;
+      const after = idx + name.length < s.length ? s[idx + name.length] : undefined;
+      if (!isWordChar(before) && !isWordChar(after)) {
+        for (let k = idx; k < idx + name.length; k++) {
+          if (marks[k] === null) marks[k] = 'cmd';
+        }
+      }
+      from = idx + name.length;
+    }
+  }
+
+  // `<...>` / `[...]` (no nesting - registry argSpecs never nest these) and
+  // a TIGHT `a|b|c` alternation (no surrounding whitespace, e.g. "on|off",
+  // "new|ls|show|rm") - the three placeholder shapes design doc §5 names.
+  // A spaced-out `cmd1 | cmd2` usage-variant separator (e.g. "dev on | dev
+  // off") is deliberately NOT matched here - that pipe separates two whole
+  // usage lines, not a single placeholder's alternatives, and is left as
+  // plain text.
+  const ARG_PLACEHOLDER_RE = /<[^<>]*>|\[[^[\]]*\]|\b[A-Za-z0-9!]+(?:\|[A-Za-z0-9!]*)+\b/g;
+
+  // Tokenizes one registry entry's argSpec (design doc §5): every exact,
+  // whole-word occurrence of the command's own `name` gets cls 'lfl-syn-cmd'
+  // (bold via that class's own font-weight:600, same as a live-typed head);
+  // a placeholder run gets cls 'lfl-syn-arg' (italic dim); everything else
+  // is left plain (null - inherits the line's own color). Pure and DOM-free.
+  function argSpecSpans(argSpec, name) {
+    const s = typeof argSpec === 'string' ? argSpec : '';
+    if (!s) return [];
+    const marks = new Array(s.length).fill(null); // null | 'arg' | 'cmd'
+    ARG_PLACEHOLDER_RE.lastIndex = 0;
+    let m;
+    while ((m = ARG_PLACEHOLDER_RE.exec(s))) {
+      for (let k = m.index; k < m.index + m[0].length; k++) marks[k] = 'arg';
+    }
+    markNameOccurrences(s, name, marks);
+    // A registry `name` is sometimes a disambiguating KEY, not the literal
+    // typed word - e.g. the two `extract` entries are registered as
+    // "extract-links"/"extract-table" (so they can each have their own
+    // help/man text) but their argSpec text reads "extract links"/"extract
+    // table"; the literal typed head word is "extract", not the registry
+    // key. Also mark occurrences of argSpec's OWN leading token so a
+    // mismatch like this still gets its real command word highlighted,
+    // rather than silently rendering with no cls 'lfl-syn-cmd' span at all.
+    // A no-op when the two already agree (the common case) - markNameOccurrences()
+    // only ever upgrades a still-unmarked character.
+    const headMatch = SYN_HEAD_RE.exec(s);
+    const headWord = headMatch ? headMatch[2] : null;
+    if (headWord && headWord !== name) markNameOccurrences(s, headWord, marks);
+    const spans = [];
+    let runStart = 0;
+    let runMark = marks[0];
+    for (let idx = 1; idx <= s.length; idx++) {
+      if (idx === s.length || marks[idx] !== runMark) {
+        const cls = runMark === 'arg' ? 'lfl-syn-arg' : (runMark === 'cmd' ? 'lfl-syn-cmd' : null);
+        spans.push({ text: s.slice(runStart, idx), cls });
+        if (idx < s.length) { runStart = idx; runMark = marks[idx]; }
       }
     }
     return spans;
@@ -1666,6 +1949,8 @@
     placePanel, defaultAnchor, PANEL_PLACEMENT_MARGIN, PANEL_PLACEMENT_OFFSET,
     // live syntax highlighting
     synSpans,
+    // color grammar v2
+    SUBCOMMAND_TABLE, richTextSpans, argSpecSpans,
     // memory lane M1/M2
     MEMORY_KEY, MEMORY_ENABLED_KEY, MEMORY_SCHEMA_VERSION, MEMORY_MAX_ORIGINS,
     MEMORY_MAX_VERBS_PER_ORIGIN, MEMORY_MAX_RECENT_PER_ORIGIN, MEMORY_REPEAT_THRESHOLD,

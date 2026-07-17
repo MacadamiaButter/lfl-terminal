@@ -90,10 +90,10 @@
 .lfl-panel.lfl-collapsed .lfl-output{display:none;}
 .lfl-resizer{flex:0 0 auto;height:7px;cursor:ns-resize;background:var(--lfl-titlebar-bg,#151a24);}
 .lfl-resizer:hover{background:var(--lfl-accent,#e0a339);}
-.lfl-panel.lfl-theme-default{--lfl-bg:#0b0e14;--lfl-fg:#dbe4f0;--lfl-accent:#e0a339;--lfl-accent-bright:#f5a623;--lfl-titlebar-bg:#151a24;--lfl-titlebar-fg:#8fa3c0;--lfl-dim:#5d7290;--lfl-dim-input:#4b5768;--lfl-cmd:#8fd0ff;--lfl-info:#9fb0c3;--lfl-error:#ff6b6b;--lfl-ok:#7ee787;--lfl-border:#2a3140;--lfl-proposal-bg:#1a1408;--lfl-proposal-fg:#f2d9a8;--lfl-proposal-detail:#c9b28a;--lfl-approve-bg:#1c3a1c;--lfl-reject-bg:#3a1c1c;--lfl-input-bg:#0e131c;}
-.lfl-panel.lfl-theme-phosphor{--lfl-bg:#000000;--lfl-fg:#33ff33;--lfl-accent:#33ff33;--lfl-accent-bright:#66ff66;--lfl-titlebar-bg:#001a00;--lfl-titlebar-fg:#22cc22;--lfl-dim:#177217;--lfl-dim-input:#177217;--lfl-cmd:#33ff33;--lfl-info:#2ecc2e;--lfl-error:#ff5555;--lfl-ok:#33ff33;--lfl-border:#0a3d0a;--lfl-proposal-bg:#001a00;--lfl-proposal-fg:#33ff33;--lfl-proposal-detail:#22aa22;--lfl-approve-bg:#003300;--lfl-reject-bg:#330000;--lfl-input-bg:#000000;}
-.lfl-panel.lfl-theme-amber{--lfl-bg:#1a0f00;--lfl-fg:#ffb000;--lfl-accent:#ffb000;--lfl-accent-bright:#ffd166;--lfl-titlebar-bg:#241500;--lfl-titlebar-fg:#cc8b00;--lfl-dim:#805800;--lfl-dim-input:#805800;--lfl-cmd:#ffcc66;--lfl-info:#e0a339;--lfl-error:#ff6b4a;--lfl-ok:#ffb000;--lfl-border:#3a2200;--lfl-proposal-bg:#241500;--lfl-proposal-fg:#ffd166;--lfl-proposal-detail:#cc8b00;--lfl-approve-bg:#332200;--lfl-reject-bg:#3a1400;--lfl-input-bg:#1a0f00;}
-.lfl-panel.lfl-theme-paper{--lfl-bg:#f7f5f0;--lfl-fg:#1c1c1c;--lfl-accent:#a15c00;--lfl-accent-bright:#c97a00;--lfl-titlebar-bg:#ece7dc;--lfl-titlebar-fg:#4a4a4a;--lfl-dim:#8a8a8a;--lfl-dim-input:#8a8a8a;--lfl-cmd:#0b5fa5;--lfl-info:#4a4a4a;--lfl-error:#b3261e;--lfl-ok:#1e7b34;--lfl-border:#d8d2c4;--lfl-proposal-bg:#fff8e6;--lfl-proposal-fg:#3a3a3a;--lfl-proposal-detail:#6b5c3f;--lfl-approve-bg:#e3f3e6;--lfl-reject-bg:#f8e4e2;--lfl-input-bg:#ffffff;}
+.lfl-panel.lfl-theme-default{--lfl-bg:#0b0e14;--lfl-fg:#dbe4f0;--lfl-accent:#e0a339;--lfl-accent-bright:#f5a623;--lfl-titlebar-bg:#151a24;--lfl-titlebar-fg:#8fa3c0;--lfl-dim:#5d7290;--lfl-dim-input:#4b5768;--lfl-cmd:#8fd0ff;--lfl-info:#9fb0c3;--lfl-error:#ff6b6b;--lfl-ok:#7ee787;--lfl-border:#2a3140;--lfl-proposal-bg:#1a1408;--lfl-proposal-fg:#f2d9a8;--lfl-proposal-detail:#c9b28a;--lfl-approve-bg:#1c3a1c;--lfl-reject-bg:#3a1c1c;--lfl-input-bg:#0e131c;--lfl-num:#e0a339;--lfl-sub:#6fa8d8;}
+.lfl-panel.lfl-theme-phosphor{--lfl-bg:#000000;--lfl-fg:#33ff33;--lfl-accent:#33ff33;--lfl-accent-bright:#66ff66;--lfl-titlebar-bg:#001a00;--lfl-titlebar-fg:#22cc22;--lfl-dim:#177217;--lfl-dim-input:#177217;--lfl-cmd:#b3ffb3;--lfl-info:#2ecc2e;--lfl-error:#ff5555;--lfl-ok:#33ff33;--lfl-border:#0a3d0a;--lfl-proposal-bg:#001a00;--lfl-proposal-fg:#33ff33;--lfl-proposal-detail:#22aa22;--lfl-approve-bg:#003300;--lfl-reject-bg:#330000;--lfl-input-bg:#000000;--lfl-num:#99ff99;--lfl-sub:#66ff66;}
+.lfl-panel.lfl-theme-amber{--lfl-bg:#1a0f00;--lfl-fg:#ffb000;--lfl-accent:#ffb000;--lfl-accent-bright:#ffd166;--lfl-titlebar-bg:#241500;--lfl-titlebar-fg:#cc8b00;--lfl-dim:#805800;--lfl-dim-input:#805800;--lfl-cmd:#ffe3a1;--lfl-info:#e0a339;--lfl-error:#ff6b4a;--lfl-ok:#ffb000;--lfl-border:#3a2200;--lfl-proposal-bg:#241500;--lfl-proposal-fg:#ffd166;--lfl-proposal-detail:#cc8b00;--lfl-approve-bg:#332200;--lfl-reject-bg:#3a1400;--lfl-input-bg:#1a0f00;--lfl-num:#ffd166;--lfl-sub:#ffcc66;}
+.lfl-panel.lfl-theme-paper{--lfl-bg:#f7f5f0;--lfl-fg:#1c1c1c;--lfl-accent:#a15c00;--lfl-accent-bright:#c97a00;--lfl-titlebar-bg:#ece7dc;--lfl-titlebar-fg:#4a4a4a;--lfl-dim:#8a8a8a;--lfl-dim-input:#8a8a8a;--lfl-cmd:#0b5fa5;--lfl-info:#4a4a4a;--lfl-error:#b3261e;--lfl-ok:#1e7b34;--lfl-border:#d8d2c4;--lfl-proposal-bg:#fff8e6;--lfl-proposal-fg:#3a3a3a;--lfl-proposal-detail:#6b5c3f;--lfl-approve-bg:#e3f3e6;--lfl-reject-bg:#f8e4e2;--lfl-input-bg:#ffffff;--lfl-num:#a15c00;--lfl-sub:#4a86c4;}
 .lfl-titlebar{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:4px 10px;background:var(--lfl-titlebar-bg,#151a24);border-bottom:1px solid var(--lfl-border,#2a3140);color:var(--lfl-titlebar-fg,#8fa3c0);font-size:11px;letter-spacing:.04em;text-transform:uppercase;cursor:pointer;user-select:none;}
 .lfl-titlebar .lfl-caret{color:var(--lfl-dim,#5d7290);margin-right:2px;font-size:10px;flex-shrink:0;}
 .lfl-titlebar .lfl-badge{color:var(--lfl-accent,#e0a339);white-space:nowrap;flex-shrink:0;}
@@ -129,9 +129,16 @@
 .lfl-input::selection{background:rgba(224,163,57,.3);color:transparent;}
 .lfl-input::placeholder{color:var(--lfl-dim-input,#4b5768);}
 .lfl-input[readonly]{color:var(--lfl-dim-input,#4b5768);}
-.lfl-syn-cmd{color:var(--lfl-cmd,#8fd0ff);}
+.lfl-syn-cmd{color:var(--lfl-cmd,#8fd0ff);font-weight:600;}
 .lfl-syn-str{color:var(--lfl-info,#9fb0c3);}
 .lfl-syn-op{color:var(--lfl-dim,#5d7290);}
+.lfl-syn-num{color:var(--lfl-num,#e0a339);}
+.lfl-syn-sub{color:var(--lfl-sub,#6fa8d8);}
+.lfl-syn-arg{font-style:italic;color:var(--lfl-dim,#5d7290);}
+.lfl-syn-info{color:var(--lfl-info,#9fb0c3);}
+.lfl-syn-fg{color:var(--lfl-fg,#dbe4f0);}
+.lfl-syn-accent{color:var(--lfl-accent,#e0a339);}
+.lfl-syn-header{color:var(--lfl-dim,#5d7290);text-transform:uppercase;letter-spacing:.04em;}
 `;
 
   function createAuditLog() {
@@ -1325,7 +1332,15 @@
     // make this trivially testable if a caller ever needs it).
     _renderSynSpansInto(container, line, knownNames) {
       container.textContent = '';
-      const spans = LFL.registry.synSpans(line, knownNames);
+      // color grammar v2 (2026-07-17, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md
+      // §3/§4): always call the v2 (three-arg) form of synSpans() here - the
+      // static, data-driven SUBCOMMAND_TABLE (registry.js) is the same for
+      // every tab/session, so there is no reason for the live input mirror
+      // or the highlighted scrollback echo to stay on the plain two-arg (no
+      // num/sub classes) path. This is the ONLY call site that needs to
+      // change for both the mirror and the echo to light up - see this
+      // method's own external signature (unchanged) and callers below.
+      const spans = LFL.registry.synSpans(line, knownNames, LFL.registry.SUBCOMMAND_TABLE);
       for (const sp of spans) {
         if (!sp.text) continue;
         // Every piece, classed or not, becomes its own <span> (className
@@ -1398,6 +1413,70 @@
     printInfo(text) { if (text) this._appendLine(text, 'info'); }
     printOk(text) { if (text) this._appendLine(text, 'ok'); }
     printError(text) { if (text) this._appendLine(text, 'error'); }
+
+    // Color grammar v2 (2026-07-17, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md
+    // §5): renders ONE rich line - {spans:[{text, cls}]}, produced by
+    // registry.js's helpRich()/manRich() or engine.js's ls/matches rich
+    // builders - as a scrollback-output div. Spans are built with
+    // createElement/textContent ONLY, never innerHTML - same H3 posture
+    // (design doc §8's original threat-model note) as
+    // _renderSynSpansInto() above, which this deliberately mirrors span for
+    // span.
+    //
+    // CRITICAL SECURITY INVARIANT (design doc §3/P4, load-bearing): this
+    // method - and outputRich generally - may ONLY ever be fed
+    // engine-authored deterministic text (tryDeterministic()'s own help/
+    // man/ls/matches results). Model-lane responses, page-derived echoes,
+    // and error passthroughs must NEVER be routed through outputRich/
+    // _appendRichLine - see _printDetResult() below, the ONE call site that
+    // decides when this is reached, and engine.js's own comments on every
+    // outputRich producer for why the page-derived portions inside ls/
+    // matches stay a single, unparsed plain span even there.
+    _appendRichLine(spans, cls) {
+      const div = document.createElement('div');
+      div.className = `lfl-line lfl-${cls || 'info'}`;
+      for (const sp of (Array.isArray(spans) ? spans : [])) {
+        if (!sp || !sp.text) continue;
+        const el = document.createElement('span');
+        if (sp.cls) el.className = sp.cls;
+        el.textContent = sp.text;
+        div.appendChild(el);
+      }
+      this.outputEl.appendChild(div);
+      while (this.outputEl.children.length > MAX_OUTPUT_LINES) {
+        this.outputEl.removeChild(this.outputEl.firstChild);
+      }
+      this.outputEl.scrollTop = this.outputEl.scrollHeight;
+    }
+
+    // Renders an outputRich array (one _appendRichLine() call per line
+    // object) - display only, never persisted itself (see
+    // _printDetResult()'s own comment on scrollback staying plain-text).
+    _printRichLines(lines) {
+      for (const line of (Array.isArray(lines) ? lines : [])) {
+        this._appendRichLine(line && line.spans, 'info');
+      }
+    }
+
+    // Prints a tryDeterministic() result: rich when det.outputRich is
+    // present (help/man/ls/matches - engine-authored, see
+    // _appendRichLine()'s own invariant note), plain via printInfo()
+    // otherwise - exactly the behavior every command had before this
+    // feature existed. Scrollback persistence is UNCHANGED either way:
+    // always the plain det.output string, via the same TS_SCROLLBACK_APPEND
+    // call printInfo()'s own _appendLine() already makes - a restored
+    // scrollback (_restoreTerminalState()) therefore always replays PLAIN
+    // text, never outputRich, which is never persisted anywhere (display-
+    // only richness, design doc §5 - same posture the existing scrollback
+    // mechanism already holds itself to).
+    _printDetResult(det) {
+      if (det && det.outputRich && det.outputRich.length > 0) {
+        this._printRichLines(det.outputRich);
+        if (det.output) this._tsSend('TS_SCROLLBACK_APPEND', { text: det.output, cls: 'info' });
+        return;
+      }
+      this.printInfo(det && det.output);
+    }
     clearOutput() {
       this.outputEl.innerHTML = '';
       this._tsSend('TS_SCROLLBACK_CLEAR');
@@ -1819,7 +1898,7 @@
         // when memory is off - see _recordMemoryVerb()'s own comment.
         this._recordMemoryVerb(firstTok);
         if (det.clear) this.clearOutput();
-        this.printInfo(det.output);
+        this._printDetResult(det);
         this._auditPush({ action: 'deterministic' }, 'auto', det.output ? det.output.slice(0, 160) : '');
         this._settle(true, det.output || '');
         // FIX 1 (security verify LOW-1): `back`/same-origin `open`/`open!`/
