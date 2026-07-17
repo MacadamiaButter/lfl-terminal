@@ -31,7 +31,7 @@
   window.LFL.commandRegistry = LFL.registry.createRegistry();
   const reg = LFL.commandRegistry;
 
-  // color grammar v2 (2026-07-17, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md §5) -
+  // color grammar v2 (2026-07-16, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md §5) -
   // the fixed help-grouping taxonomy every non-hidden entry below is
   // assigned into (one `group:` field per reg.register() call). Literal
   // strings, never read by dispatch - see registry.js's `group` field
@@ -464,7 +464,7 @@
     return `[${e.index}] ${e.role} "${e.name}"${extra}`;
   }
 
-  // color grammar v2 (2026-07-17, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md §6) -
+  // color grammar v2 (2026-07-16, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md §6) -
   // the RICH counterpart of formatListingEntry() above: the index number
   // gets cls 'lfl-syn-num', the engine-computed type bucket
   // (classifyEntry(e) - link/button/field, never the raw page-supplied
@@ -1308,7 +1308,7 @@
     // M4c DOM-touching handlers, exported so a test can drive/inspect them
     // directly (paint, status, clear, teardown, list) the same way the M4a set above is.
     doHighlight, doHighlightClear, teardownHighlight, doMatches,
-    // color grammar v2 (2026-07-17, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md) -
+    // color grammar v2 (2026-07-16, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md) -
     // pure rich-line builders, exported for direct unit testing without a
     // DOM - see tests/color_grammar.test.js.
     HELP_RICH, formatListingEntryRich, sectionRichLines,

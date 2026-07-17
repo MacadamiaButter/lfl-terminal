@@ -1355,7 +1355,7 @@
     // make this trivially testable if a caller ever needs it).
     _renderSynSpansInto(container, line, knownNames) {
       container.textContent = '';
-      // color grammar v2 (2026-07-17, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md
+      // color grammar v2 (2026-07-16, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md
       // §3/§4): always call the v2 (three-arg) form of synSpans() here - the
       // static, data-driven SUBCOMMAND_TABLE (registry.js) is the same for
       // every tab/session, so there is no reason for the live input mirror
@@ -1463,7 +1463,7 @@
       return errMsg;
     }
 
-    // Color grammar v2 (2026-07-17, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md
+    // Color grammar v2 (2026-07-16, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md
     // §5): renders ONE rich line - {spans:[{text, cls}]}, produced by
     // registry.js's helpRich()/manRich() or engine.js's ls/matches rich
     // builders - as a scrollback-output div. Spans are built with
@@ -1494,7 +1494,7 @@
       if (!div.firstChild) {
         // Deliberate blank separator lines (e.g. HELP_RICH's group gaps)
         // arrive as one empty span; without content the div has zero height
-        // and the gap collapses to the 4px margin (verify LOW-1 2026-07-17).
+        // and the gap collapses to the 4px margin (verify LOW-1 2026-07-16).
         // A no-class single-space span gives the line its full text height
         // (.lfl-output is white-space:pre-wrap, so the space is preserved).
         // A span (not a bare text node) because the sandboxed test documents

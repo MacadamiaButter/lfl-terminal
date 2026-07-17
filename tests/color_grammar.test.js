@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * tests/color_grammar.test.js - unit proof of the color grammar v2 build
- * (2026-07-17, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md). Extends
+ * (2026-07-16, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md). Extends
  * tests/syntax_highlight.test.js (unchanged, still green) and
  * tests/theme_contrast.test.js (the theme-fix mechanical gate, separate
  * file per the build plan).

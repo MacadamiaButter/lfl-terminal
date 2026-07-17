@@ -145,7 +145,7 @@
   --lfl-approve-bg: #1c3a1c;
   --lfl-reject-bg: #3a1c1c;
   --lfl-input-bg: #0e131c;
-  /* color grammar v2 (2026-07-17, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md §4):
+  /* color grammar v2 (2026-07-16, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md §4):
      num ties visually to the accent (ls/matches indices, design doc §6);
      sub is a slightly dimmer shade of the cmd hue (design §3 - structure via
      shade/weight, never a new hue). Keep in sync with CSS_TEXT in
@@ -163,7 +163,7 @@
   --lfl-titlebar-fg: #22cc22;
   --lfl-dim: #177217;
   --lfl-dim-input: #177217;
-  /* color grammar v2 (2026-07-17): FIX - --lfl-cmd used to be byte-identical
+  /* color grammar v2 (2026-07-16): FIX - --lfl-cmd used to be byte-identical
      to --lfl-fg (#33ff33), making the live highlighter invisible on this
      theme (design doc §1 item 3 / §4). Monochrome brightness ladder: dim
      #177217 < info #2ecc2e < fg #33ff33 < sub #66ff66 < cmd #b3ffb3 -
@@ -193,7 +193,7 @@
   --lfl-titlebar-fg: #cc8b00;
   --lfl-dim: #805800;
   --lfl-dim-input: #805800;
-  /* color grammar v2 (2026-07-17): FIX - --lfl-cmd (#ffcc66) used to sit too
+  /* color grammar v2 (2026-07-16): FIX - --lfl-cmd (#ffcc66) used to sit too
      close to --lfl-fg (#ffb000) to read as lit (design doc §1 item 3 / §4).
      sub takes over the OLD cmd value (still a real, distinct shade of this
      theme's one hue - P2). Keep in sync with CSS_TEXT in terminal.js. */
@@ -232,7 +232,7 @@
   --lfl-approve-bg: #e3f3e6;
   --lfl-reject-bg: #f8e4e2;
   --lfl-input-bg: #ffffff;
-  /* color grammar v2 (2026-07-17): keep in sync with CSS_TEXT in
+  /* color grammar v2 (2026-07-16): keep in sync with CSS_TEXT in
      terminal.js. */
   --lfl-num: #a15c00;
   --lfl-sub: #4a86c4;
@@ -567,7 +567,7 @@
    the surrounding text color. Keep in sync with CSS_TEXT in terminal.js. */
 .lfl-syn-cmd {
   color: var(--lfl-cmd, #8fd0ff);
-  /* color grammar v2 (2026-07-17, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md §3/§8
+  /* color grammar v2 (2026-07-16, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md §3/§8
      sign-off E): bold command heads everywhere - works in monochrome
      (phosphor/amber), subtle in the color themes. Keep in sync with
      CSS_TEXT in terminal.js. */
@@ -582,7 +582,7 @@
   color: var(--lfl-dim, #5d7290);
 }
 
-/* color grammar v2 (2026-07-17, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md §3/§4)
+/* color grammar v2 (2026-07-16, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md §3/§4)
    - new token classes: num (bare-number commands, numeric index args - ls/
    matches indices too, design doc §6), sub (a known subcommand's second
    token, table-driven - registry.js's SUBCOMMAND_TABLE), arg (an argSpec

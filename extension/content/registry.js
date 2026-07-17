@@ -87,7 +87,7 @@
         // widening of the entry shape, not a behavior change for anyone
         // who doesn't opt in.
         hidden: !!entry.hidden,
-        // color grammar v2 (2026-07-17, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md
+        // color grammar v2 (2026-07-16, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md
         // §5): the `help` grouping bucket this entry belongs under (e.g.
         // "pages & navigation") - a plain display label, never read by
         // dispatch. Required (unit-test enforced, see
@@ -1280,7 +1280,7 @@
   // maps each run to its CSS class - null means "default, inherit".
   const SYN_CLASS = {
     cmd: 'lfl-syn-cmd', quote: 'lfl-syn-str', op: 'lfl-syn-op',
-    // color grammar v2 (2026-07-17, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md §3):
+    // color grammar v2 (2026-07-16, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md §3):
     // two new per-character kinds a v2 call can produce - see synSpans()'s
     // own v2 gate below for exactly when.
     sub: 'lfl-syn-sub', num: 'lfl-syn-num',
@@ -1406,7 +1406,7 @@
     return spans;
   }
 
-  // ---- color grammar v2 (2026-07-17, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md
+  // ---- color grammar v2 (2026-07-16, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md
   // §3) - the subcommand table synSpans()'s v2 path reads ----
   //
   // DATA, not guesswork: every list below was verified against the actual

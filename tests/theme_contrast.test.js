@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * tests/theme_contrast.test.js - mechanical gate for the color grammar v2
- * theme fix (2026-07-17, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md §1 item 3 /
+ * theme fix (2026-07-16, LFL-TERMINAL-COLOR-GRAMMAR-DESIGN.md §1 item 3 /
  * §4). The bug this closes forever: a theme whose --lfl-cmd custom property
  * happened to be byte-identical (or visually indistinguishable) from its
  * --lfl-fg made the live command highlighter invisible - phosphor was an
