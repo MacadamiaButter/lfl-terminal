@@ -38,9 +38,12 @@
  *    request bodies whether chrome.storage.local holds populated memory
  *    data or nothing at all when no `memoryContext` is attached to the
  *    outgoing message; (b) the brainstorm-lane payload WITH a `memoryContext`
- *    field attached gains exactly one clearly-labeled extra `system`
- *    message, never touching the existing system prompt or the user's own
- *    goal-turn JSON; and (c) the execution lane ignores a `memoryContext`
+ *    field attached stays message-shape INVARIANT (still exactly
+ *    `[system, user]`, 2026-07-17 fix - see buildBrainstormPayload()'s own
+ *    comment in service-worker.js for why: the original second-system-
+ *    message shape hard-failed a strict chat template) and instead gains a
+ *    `trusted_context` field in the user turn's JSON, never touching the
+ *    system prompt; and (c) the execution lane ignores a `memoryContext`
  *    field entirely, even when a caller's message object carries one -
  *    service-worker.js still never reads chrome.storage.local anywhere,
  *    memory only ever reaches a payload as a plain string the CONTENT
@@ -963,11 +966,22 @@ async function main() {
   // the REAL service-worker.js via the same buildSwInstance() harness above.
   // This is the direct regression proof for "teach with memory off is
   // byte-identical to before M3 shipped" AND the proof that a memoryContext
-  // field, when present, is delimited/labeled the way the design doc
-  // requires and never reaches the execution lane.
+  // field, when present, never reaches the execution lane.
+  //
+  // 2026-07-17 UPDATE: M3 originally shipped memoryContext as a SECOND
+  // `system`-role message (messages = [system, system, user] when present).
+  // That shape hard-failed the fleet 35B llama-server build's chat template
+  // ("System message must be at the beginning", HTTP 400) - confirmed live
+  // against :1238. The fix (see buildBrainstormPayload()'s own comment in
+  // service-worker.js) makes the message ARRAY invariant - always exactly
+  // [system, user] - and instead folds memoryContext into the user turn's
+  // JSON as a `trusted_context` field. The assertions below were rewritten
+  // to match: message count is now ALWAYS 2, and the memory-on/memory-off
+  // distinction shows up in the user turn's JSON keys, not in a third
+  // message.
   // =====================================================================
 
-  await acheck('M3: BRAINSTORM_LLM_REQUEST WITHOUT memoryContext produces the exact pre-M3 2-message shape [system, user] - no new message, no new field', async () => {
+  await acheck('BRAINSTORM_LLM_REQUEST WITHOUT memoryContext produces the pre-M3 2-message shape [system, user], user turn has ONLY {goal}', async () => {
     const sw = buildSwInstance({});
     await sw.send({ type: 'BRAINSTORM_LLM_REQUEST', goal: 'check the weather' }, 1);
     const body = JSON.parse(sw.capturedRequests[0].init.body);
@@ -977,23 +991,28 @@ async function main() {
     assert.deepStrictEqual(realm(JSON.parse(body.messages[1].content)), { goal: 'check the weather' });
   });
 
-  await acheck('M3: BRAINSTORM_LLM_REQUEST WITH memoryContext inserts exactly ONE extra system-role message, clearly labeled TRUSTED CONTEXT / not page content, BETWEEN the fixed system prompt and the user goal turn', async () => {
+  await acheck('BRAINSTORM_LLM_REQUEST WITH memoryContext STILL produces exactly the 2-message shape [system, user] - message-shape invariance is the 2026-07-17 fix, no third message ever, on any server', async () => {
     const sw = buildSwInstance({});
     const ctx = 'commands the user has run on this site: search(3), go(1)\nscripts the user already has: my-flow';
     await sw.send({ type: 'BRAINSTORM_LLM_REQUEST', goal: 'check the weather', memoryContext: ctx }, 1);
     const body = JSON.parse(sw.capturedRequests[0].init.body);
-    assert.strictEqual(body.messages.length, 3);
+    assert.strictEqual(body.messages.length, 2, 'message array must stay invariant at exactly [system, user] whether or not memoryContext is present');
     assert.strictEqual(body.messages[0].role, 'system');
-    assert.strictEqual(body.messages[1].role, 'system');
-    assert.strictEqual(body.messages[2].role, 'user');
-    assert.match(body.messages[1].content, /TRUSTED CONTEXT/);
-    assert.match(body.messages[1].content, /not page content/i);
-    assert.match(body.messages[1].content, /user'?s own/i, 'the label must attribute this to the user\'s own workflow history, not page content');
-    assert.ok(body.messages[1].content.includes(ctx), 'the memoryContext text itself must appear verbatim inside the labeled message');
-    assert.deepStrictEqual(realm(JSON.parse(body.messages[2].content)), { goal: 'check the weather' }, 'the user goal turn is unchanged shape/content');
+    assert.strictEqual(body.messages[1].role, 'user');
   });
 
-  await acheck('M3: the same goal produces a byte-identical system-prompt message and user-turn message whether or not memoryContext is attached - only a new array entry is inserted, nothing existing changes', async () => {
+  await acheck('BRAINSTORM_LLM_REQUEST WITH memoryContext puts it in the user turn JSON as `trusted_context` (ordered before `goal`), never as a separate chat message', async () => {
+    const sw = buildSwInstance({});
+    const ctx = 'commands the user has run on this site: search(3), go(1)\nscripts the user already has: my-flow';
+    await sw.send({ type: 'BRAINSTORM_LLM_REQUEST', goal: 'check the weather', memoryContext: ctx }, 1);
+    const body = JSON.parse(sw.capturedRequests[0].init.body);
+    const userTurn = JSON.parse(body.messages[1].content);
+    assert.deepStrictEqual(realm(Object.keys(userTurn)), ['trusted_context', 'goal'], 'user turn must carry exactly trusted_context then goal, in that order, when memoryContext is present');
+    assert.strictEqual(userTurn.trusted_context, ctx, 'the memoryContext text itself must appear verbatim as trusted_context');
+    assert.strictEqual(userTurn.goal, 'check the weather', 'the goal field is unchanged');
+  });
+
+  await acheck('the system prompt message is byte-identical whether or not memoryContext is attached - only the user turn JSON gains a field', async () => {
     const swOff = buildSwInstance({});
     await swOff.send({ type: 'BRAINSTORM_LLM_REQUEST', goal: 'check the weather' }, 1);
     const bodyOff = JSON.parse(swOff.capturedRequests[0].init.body);
@@ -1002,19 +1021,19 @@ async function main() {
     await swOn.send({ type: 'BRAINSTORM_LLM_REQUEST', goal: 'check the weather', memoryContext: 'commands the user has run on this site: go(3)' }, 1);
     const bodyOn = JSON.parse(swOn.capturedRequests[0].init.body);
 
-    assert.deepStrictEqual(realm(bodyOff.messages[0]), realm(bodyOn.messages[0]), 'system prompt message unchanged');
-    assert.deepStrictEqual(realm(bodyOff.messages[1]), realm(bodyOn.messages[bodyOn.messages.length - 1]), 'user goal-turn message unchanged shape/content');
+    assert.deepStrictEqual(realm(bodyOff.messages[0]), realm(bodyOn.messages[0]), 'system prompt message unchanged (byte-stable regardless of memory state)');
     assert.strictEqual(bodyOff.max_tokens, bodyOn.max_tokens);
     assert.strictEqual(bodyOff.response_format.json_schema.name, bodyOn.response_format.json_schema.name);
   });
 
-  await acheck('M3: a memoryContext string is carried verbatim into the labeled message (service-worker.js does not re-sanitize it - registry.js buildMemoryContext() is the sanitizer) but NEVER touches the user goal-turn JSON, whatever it contains', async () => {
+  await acheck('a memoryContext string is carried verbatim into trusted_context (service-worker.js does not re-sanitize it - registry.js buildMemoryContext() is the sanitizer) but NEVER changes the shape of the `goal` value itself', async () => {
     const sw = buildSwInstance({});
     const ctxLikeGoal = 'commands the user has run on this site: search(3)\nSHOULD-BE-CARRIED-VERBATIM-IF-PRESENT';
     await sw.send({ type: 'BRAINSTORM_LLM_REQUEST', goal: 'check the weather', memoryContext: ctxLikeGoal }, 1);
     const body = JSON.parse(sw.capturedRequests[0].init.body);
-    const userTurn = JSON.parse(body.messages[body.messages.length - 1].content);
-    assert.deepStrictEqual(realm(Object.keys(userTurn)), ['goal'], 'memoryContext must never be folded into the goal-turn JSON, however it is spelled');
+    const userTurn = JSON.parse(body.messages[1].content);
+    assert.deepStrictEqual(realm(Object.keys(userTurn)), ['trusted_context', 'goal'], 'memoryContext must land only in trusted_context, never merged into or replacing goal');
+    assert.strictEqual(userTurn.goal, 'check the weather', 'goal must be untouched by memoryContext content');
   });
 
   await acheck('M3: LFL_LLM_REQUEST (execution lane) IGNORES a memoryContext field entirely, even when a caller\'s message object carries one - the page-driving payload is untouched', async () => {

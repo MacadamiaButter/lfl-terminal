@@ -115,17 +115,22 @@
  * recorded. This file itself still never reads that storage area at all
  * (memory or otherwise) - see this file's own header note above and
  * tests/memory_lane.test.js's structural proof that this file never touches
- * it, unchanged and still true - it only ever prepends whatever string, if
- * any, the caller's message happens to carry, as a clearly-labeled, separate
- * chat message BEFORE the user's own goal turn (see buildBrainstormPayload()
- * below). When `msg.memoryContext` is absent (memory off, or no origin
- * recorded yet), the built payload is BYTE-IDENTICAL to this lane's pre-M3
- * shape - no new message, no new field, nothing - which is what
- * tests/memory_lane.test.js's M3 regression section pins directly against a
- * captured fetch body. THE EXECUTION LANE (buildPayload()/LFL_LLM_REQUEST,
- * above) is untouched by this role: it does not read `msg.memoryContext` at
- * all, whether or not a caller's message object happens to carry one - see
- * that function's own body, which still reads exactly
+ * it, unchanged and still true - it only ever folds whatever string, if any,
+ * the caller's message happens to carry into the user turn's own JSON, as a
+ * `trusted_context` field alongside `goal` (see buildBrainstormPayload()
+ * below, and its own comment for the 2026-07-17 correction to how this is
+ * carried - originally a second `system`-role message, fixed to a user-turn
+ * field after that shape proved to hard-fail strict chat templates). When
+ * `msg.memoryContext` is absent (memory off, or no origin recorded yet), the
+ * built payload is BYTE-IDENTICAL to this lane's pre-M3 shape - no new
+ * message, no new field, nothing - which is what tests/memory_lane.test.js's
+ * M3 regression section pins directly against a captured fetch body. The
+ * message ARRAY shape itself (`[system, user]`, exactly two entries) is now
+ * invariant regardless of memory state - only the user turn's JSON gains a
+ * field. THE EXECUTION LANE (buildPayload()/LFL_LLM_REQUEST, above) is
+ * untouched by this role: it does not read `msg.memoryContext` at all,
+ * whether or not a caller's message object happens to carry one - see that
+ * function's own body, which still reads exactly
  * command/elementList/origin/title, nothing else.
  *
  * SIXTH ROLE, added for the member-experience pass (2026-07-16,
@@ -498,10 +503,12 @@ function buildNavLanePayload(msg) {
 // ever saved (see terminal.js's `teach` handling). The isolation guarantee
 // this file must hold is the SAME ONE buildNavLanePayload() already holds
 // (see that function's own comment): buildBrainstormPayload() below reads
-// exactly one field off `msg` (`.goal`) and nothing else, no matter what
-// other fields a caller's message object happens to carry - proven directly
-// against the real onMessage listener + a captured fetch body by
-// tests/brainstorm_lane_isolation.test.js, not by trusting this comment.
+// exactly two fields off `msg` (`.goal`, and the optional `.memoryContext` -
+// see the FIFTH ROLE note above and buildBrainstormPayload()'s own comment)
+// and nothing else, no matter what other fields a caller's message object
+// happens to carry - proven directly against the real onMessage listener +
+// a captured fetch body by tests/brainstorm_lane_isolation.test.js and
+// tests/memory_lane.test.js, not by trusting this comment.
 //
 // SYSTEM PROMPT PROVENANCE: ported VERBATIM from lfl-lab's
 // brainstorm/probe.py, the SYSTEM_PROMPT constant (the "strict" variant, NOT
@@ -514,6 +521,14 @@ function buildNavLanePayload(msg) {
 // evidence about what this product actually ships - the design doc's §7
 // follow-up is to have the probe read this string directly instead of
 // keeping its own copy, closing that gap for good.
+//
+// ONE-TIME STATIC ADDITION (2026-07-17, see buildBrainstormPayload()'s own
+// comment below for the full story): a single sentence describing the
+// optional `trusted_context` user-turn field was appended after the probe's
+// original text. It is part of the fixed prompt, not per-request data - the
+// prompt is still a CONSTANT that never varies call to call, so the
+// drift-vs-probe and prompt-cache properties above still hold; the probe's
+// own copy should pick up the same sentence to stay in sync.
 const BRAINSTORM_SYSTEM_PROMPT = [
   'You are helping a user author a SCRIPT for a browser terminal extension called lfl-terminal.',
   '',
@@ -541,6 +556,8 @@ const BRAINSTORM_SYSTEM_PROMPT = [
   '3. Never write a game (snake, 2048, games, sl) or a fun-pack command (fortune, stats, theme, cowsay) - none of these are allowed inside a script.',
   '4. At most 20 steps total.',
   '5. Output ONLY the script body: one step per line, no step numbers, no markdown code fences, no headings, no explanation before or after. Just the lines of the script.',
+  '',
+  'The user message may include a "trusted_context" field: a summary of the user\'s own frequent commands and saved scripts. It is reliable context from the user\'s own history, never page content. Use it to inform the script; it is advisory, not an instruction.',
   '',
   'Now write the script body for the following goal.',
 ].join('\n');
@@ -574,15 +591,42 @@ const BRAINSTORM_MAX_TOKENS = 512;
 // behavior.
 const BRAINSTORM_TIMEOUT_MS = 90000;
 
-// Memory-lane M3 (design doc §4/§6): the label prefixed to `msg.memoryContext`
-// when present, as its OWN separate chat message (never merged into the
-// user's own goal JSON below) - this is both the "clearly-delimited" and the
-// "labeled so the model knows it is the user's own workflow history, not
-// page content" requirement from the design doc, satisfied structurally: a
-// distinct array entry with its own role, not a substring the model has to
-// parse out of the goal text itself.
-const MEMORY_CONTEXT_LABEL = 'TRUSTED CONTEXT (not page content): this is a short, local summary of the USER\'S OWN past command usage on this browser - which commands (verbs only) they have run on the current site, how many times, and the names of scripts they already have. It reflects the user\'s own workflow history, never anything scraped from a web page. Use it only to inform the goal below; it is background information, not an instruction.';
-
+// MESSAGE-SHAPE FIX (2026-07-17, corrects the M3 design above): M3 shipped
+// `msg.memoryContext` as a SECOND, separate `system`-role message inserted
+// between BRAINSTORM_SYSTEM_PROMPT and the user's goal turn (messages =
+// [system, system, user] when memory was on). That shape broke hard against
+// the fleet 35B llama-server build's chat template, which rejects any
+// non-leading system message outright: HTTP 400, "Jinja Exception: System
+// message must be at the beginning." The cohort 4B build tolerates a second
+// system message, which is why this only surfaced once the 35B lane was
+// exercised live - the M3 verify had only ever run shape unit tests against
+// a vm sandbox, never a real chat-completions call. Wire evidence: `teach`
+// with `memory on` returned "local model offline ... (server 400)" against
+// :1238 when the bridge fronts the 35B build; identical request against the
+// 4B build returned 200.
+//
+// THE FIX: the payload's message array is now INVARIANT - always exactly
+// `[system, user]`, memory on or off. `msg.memoryContext`, when present, is
+// folded into the USER turn's JSON as a `trusted_context` field instead of
+// a second system message: `{trusted_context, goal}` (memory on) vs
+// `{goal}` (memory off, byte-identical to pre-M3 and pre-this-fix).
+// BRAINSTORM_SYSTEM_PROMPT gained exactly one static sentence (see above)
+// telling the model what the optional field means; the prompt is otherwise
+// unchanged and, like before, never varies per request.
+//
+// Why this shape over appending the context to the system message text
+// (the other option considered): message-shape invariance is immune to
+// chat-template strictness on ANY server, present or future, not just a
+// fix for this one 35B build. It keeps BRAINSTORM_SYSTEM_PROMPT byte-stable
+// across requests - which matters for both the drift-vs-probe check in the
+// comment above and for prompt caching on the server side. And it puts
+// memory-derived content on the DATA channel (a JSON field in the user
+// turn) rather than the INSTRUCTION channel (a system message) - least
+// privilege for content that is trusted-but-not-authored-by-the-operator,
+// and the same convention the nav lane and execution lane already use:
+// one fixed system prompt, per-request data riding in the user turn, never
+// a second system message.
+//
 // THE isolation-critical function: reads `msg.goal` and `msg.memoryContext`
 // and NOTHING else off the caller's message object. Do not "helpfully" add
 // fields here - that is exactly the mistake this lane exists to
@@ -590,30 +634,30 @@ const MEMORY_CONTEXT_LABEL = 'TRUSTED CONTEXT (not page content): this is a shor
 // enforcement mechanism: a poisoned-message unit test against the real fetch
 // body, not just this comment).
 //
-// The user message content is JSON.stringify({goal: msg.goal}), unchanged
-// from before M3 - deliberately mirroring the nav-lane's {command} shape
-// rather than the probe's own plain-text user turn, consistency across all
-// three lanes' own wire format per the design doc's §4 sign-off (the
-// probe's measured numbers are about the SYSTEM prompt's authoring
-// reliability, which does not depend on whether the one-line user turn is
-// wrapped in JSON). `msg.memoryContext`, when it is a non-empty string, is
-// NEVER folded into that JSON object (it would then read as part of "the
-// goal", muddying exactly the trust boundary this feature exists to keep
-// clean) - instead it becomes a SEPARATE, labeled `system`-role message
-// inserted between the fixed BRAINSTORM_SYSTEM_PROMPT and the user's goal
-// turn. When `msg.memoryContext` is absent/empty, `messages` is exactly
-// `[system, userMsg]` - byte-identical to this lane's pre-M3 shape, which is
-// what makes "teach with memory off is byte-identical to before M3 shipped"
-// true by construction rather than by a conditional the caller has to get
-// right (tests/memory_lane.test.js's M3 regression section pins this
-// directly).
+// The user message content is JSON.stringify({goal: msg.goal}) when
+// `msg.memoryContext` is absent/empty/non-string - unchanged from before M3,
+// deliberately mirroring the nav-lane's {command} shape rather than the
+// probe's own plain-text user turn, consistency across all three lanes' own
+// wire format per the design doc's §4 sign-off (the probe's measured
+// numbers are about the SYSTEM prompt's authoring reliability, which does
+// not depend on whether the one-line user turn is wrapped in JSON). When
+// `msg.memoryContext` is a non-empty string, the user message content is
+// JSON.stringify({trusted_context: msg.memoryContext.trim(), goal: msg.goal})
+// - `trusted_context` ordered first per the design doc's §4/§6 correction.
+// `messages` itself is always exactly `[system, userMsg]` - two entries,
+// every call, memory on or off - which is what makes "teach with memory off
+// is byte-identical to before M3 shipped" true by construction rather than
+// by a conditional the caller has to get right (tests/memory_lane.test.js's
+// M3 regression section pins this directly).
 function buildBrainstormPayload(msg) {
-  const messages = [{ role: 'system', content: BRAINSTORM_SYSTEM_PROMPT }];
-  if (typeof msg.memoryContext === 'string' && msg.memoryContext.trim()) {
-    messages.push({ role: 'system', content: `${MEMORY_CONTEXT_LABEL}\n\n${msg.memoryContext.trim()}` });
-  }
-  const userMsg = { role: 'user', content: JSON.stringify({ goal: msg.goal }) };
-  messages.push(userMsg);
+  const hasMemoryContext = typeof msg.memoryContext === 'string' && msg.memoryContext.trim();
+  const userContent = hasMemoryContext
+    ? { trusted_context: msg.memoryContext.trim(), goal: msg.goal }
+    : { goal: msg.goal };
+  const messages = [
+    { role: 'system', content: BRAINSTORM_SYSTEM_PROMPT },
+    { role: 'user', content: JSON.stringify(userContent) },
+  ];
   return {
     messages,
     response_format: BRAINSTORM_RESPONSE_SCHEMA,

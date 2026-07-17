@@ -1758,19 +1758,40 @@ to the outgoing `BRAINSTORM_LLM_REQUEST` message as an OPTIONAL
 `memoryContext` field, ONLY when memory is on AND something is recorded for
 the current origin - never unconditionally. `background/service-worker.js`'s
 `buildBrainstormPayload()` accepts that field and, when it is a non-empty
-string, inserts it as a SEPARATE, labeled `system`-role chat message
-(`MEMORY_CONTEXT_LABEL`, stating plainly that this is the user's own past
-command usage, not page content, and is background information rather than
-an instruction) between the fixed brainstorm system prompt and the user's
-own goal turn - never folded into the goal JSON itself, so the trust
-boundary between "what the user asked for" and "background the terminal
-already knew" stays visible in the wire format, not just in prose. When
-`memoryContext` is absent (memory off, or nothing recorded yet for this
-origin), `buildBrainstormPayload()`'s output is BYTE-IDENTICAL to its pre-M3
-shape - no new message, no new field - which is what makes "teach behaves
-exactly as it always has when memory is off" true by construction, pinned
-directly in `tests/memory_lane.test.js` against the real, unmodified
-`service-worker.js` source.
+string, folds it into the USER turn's own JSON as a `trusted_context` field
+(ordered before `goal`) - `{"trusted_context": "...", "goal": "..."}` - so
+the trust boundary between "what the user asked for" and "background the
+terminal already knew" stays visible in the wire format as two distinct
+JSON keys, not just in prose. When `memoryContext` is absent (memory off, or
+nothing recorded yet for this origin), `buildBrainstormPayload()`'s output
+is BYTE-IDENTICAL to its pre-M3 shape - no new field - which is what makes
+"teach behaves exactly as it always has when memory is off" true by
+construction, pinned directly in `tests/memory_lane.test.js` against the
+real, unmodified `service-worker.js` source.
+The `messages` ARRAY shape itself (`[system, user]`, exactly two entries)
+is INVARIANT regardless of memory state - see the 2026-07-17 correction
+below; only the user turn's JSON gains a field.
+
+**2026-07-17 correction (message-shape fix):** M3 originally shipped
+`memoryContext` as a SECOND `system`-role message inserted between the
+fixed brainstorm system prompt and the user's goal turn (`messages =
+[system, system, user]` when present). Live wire testing against the fleet
+35B `llama-server` build found that its chat template hard-rejects any
+non-leading system message: HTTP 400, `Jinja Exception: System message must
+be at the beginning`. The cohort 4B build tolerates a second system
+message, which is why this was not caught earlier - the M3 verify only ran
+shape unit tests against a `vm` sandbox, never a live chat-completions call
+against the 35B build. Fixed by making the message array invariant at
+exactly `[system, user]` always (the shape now described above) instead of
+appending the context to the system message text - message-shape invariance
+is immune to chat-template strictness on any server, keeps
+`BRAINSTORM_SYSTEM_PROMPT` byte-stable (relevant to both the drift-vs-probe
+check and server-side prompt caching), and keeps memory-derived content on
+the data channel (a user-turn JSON field) rather than the instruction
+channel (a system message) - the same convention the nav lane and execution
+lane already use. `BRAINSTORM_SYSTEM_PROMPT` gained one static sentence
+describing the optional `trusted_context` field; the prompt is otherwise
+unchanged and still never varies per request.
 
 `teach save that` is a fixed magic goal (recognized by an exact,
 case-insensitive match on the phrase, never a substring/prefix match) that
