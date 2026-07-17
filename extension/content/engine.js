@@ -86,7 +86,8 @@
   // dispatched by terminal.js (`teach` needs chrome.* async access and the
   // plan-preview approval card, same posture as script/run above). Opt-in,
   // off by default (`teach on`/`teach off`); a bare `teach` prints status.
-  reg.register({ name: 'teach', argSpec: 'teach <goal> [as <name>] | teach on|off', help: 'describe a workflow, the local model drafts a script you approve (opt-in, off by default)' });
+  reg.register({ name: 'teach', argSpec: 'teach <goal> [as <name>] | teach save that [as <name>] | teach on|off', help: 'describe a workflow, the local model drafts a script you approve (opt-in, off by default); "teach save that" turns a repeated pattern memory noticed into a script' });
+  reg.register({ name: 'memory', argSpec: 'memory [show] | memory forget <origin> | memory clear | memory on|off | memory quiet|loud', help: 'opt-in, off by default: remember which commands you use on which sites (verbs only, never arguments or page content) so teach can suggest scripts' });
   // M4a "friction trio" - three deterministic tools that never call the
   // local model, registered here for help/man text same as everything
   // above; dispatched inside tryDeterministic() below except `here`, which

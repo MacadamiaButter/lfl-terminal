@@ -130,6 +130,28 @@ Tips that make drafts land on the first try:
   `pause` - that is by design, not a failure.
 - `... as <name>` at the end names the script; otherwise you are asked.
 
+## Memory - let it learn your habits (opt-in, off by default)
+
+The terminal can remember which COMMANDS you use on which SITES, so `teach` can
+offer to turn a routine into a script. It records verbs and site origins only:
+never what you typed into a search box or form, never page content, never full
+URLs. Off until you turn it on.
+
+```
+memory on              # start remembering (off by default)
+memory show            # see exactly what it knows - plain text, nothing hidden
+memory forget <site>   # drop one site's record
+memory clear           # wipe everything
+memory off             # stop; memory quiet / memory loud toggles the nudges
+```
+
+When it notices you repeat a sequence on a site, it prints one line:
+`you've run "go, search, read" here 3 times - type "teach save that" to make it a script`.
+Then `teach save that` (needs `teach on` too) drafts a script from that pattern -
+the drafting model sees only your verbs-and-counts summary, never any page, and
+the draft still goes through the same approval card as any teach. Nothing about
+this memory is ever sent anywhere except your own model when you ask it to draft.
+
 ## Looks and toys
 
 `theme` lists themes (`default`, `phosphor`, `amber`, `paper`). `snake`, `2048`,
