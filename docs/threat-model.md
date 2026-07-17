@@ -1615,14 +1615,22 @@ those same gates see it.
 
 ### Scope exclusions (v1)
 
-No memory - stateless, single-shot per invocation (terminal-scoped memory
-across multiple `teach` turns is its own future design, not built here). No
-automatic retry on an INVALID verdict - the human re-runs `teach` with a
+No automatic retry on an INVALID verdict - the human re-runs `teach` with a
 clearer description, or writes the script by hand with `script new`. Single
 endpoint only (v1 hits whatever is behind the one existing `:1238`
 endpoint; a separate, second brainstorm-only endpoint was considered and
 explicitly deferred - it would need a new `host_permissions` entry, a CWS
 re-review, and a config surface the product does not have yet).
+
+**Superseded 2026-07-16:** this section originally also said "no memory -
+stateless, single-shot per invocation (terminal-scoped memory across
+multiple `teach` turns is its own future design, not built here)". That is
+no longer true - see "Terminal memory (M1-M3)" below for the opt-in,
+separately-designed memory feature that now feeds a curated, whitelisted
+summary into this exact lane on `teach`. The isolation boundary this
+section describes for page content is unaffected: memory is never page
+content, and the execution lane (the one that ever sees an untrusted page)
+still gets none of it, memory or otherwise.
 
 ## Popover redesign (2026-07-15, LFL-TERMINAL-POPOVER-REDESIGN.md)
 
@@ -1676,3 +1684,189 @@ middle-click and drag - a touch-only device falls back to the keyboard/
 toolbar triggers and the deterministic anchor. No multi-monitor-aware
 placement beyond the single `window.innerWidth/innerHeight` viewport the
 panel already lives in.
+
+## Terminal memory (M1-M3, 2026-07-16, LFL-TERMINAL-MEMORY-LANE-DESIGN.md)
+
+A terminal-scoped, opt-in, local-only record of "which VERB ran on which
+ORIGIN, how many times", plus (M3) a curated summary of that record fed into
+the brainstorm/`teach` lane as trusted background context. This is the one
+feature in the whole product designed around a single governing invariant
+(design doc §1): **trust of INPUT decides what a model may hold, not model
+size, not "it earned it".** Two lanes, permanently separated - the execution
+lane (drives pages, sees untrusted page bytes) gets NO personal memory,
+ever; the brainstorm/`teach` lane (sees only the user's own typed goal,
+never page bytes) MAY carry a small trusted memory, because what it already
+sees is already trusted.
+
+### M1/M2 - the deterministic core (no model anywhere)
+
+`chrome.storage.local` key `lflMemory` (`{v:1, origins:{origin:{verb:{n,
+lastUsed}}}, prefs:{}, recent:{origin:[verb,...]}}`), a separate opt-in
+master switch `lflMemoryEnabled` (default OFF, same posture as `teach`/
+`dev`/`autoopen`), and a `memory`/`remember`/`forget` command surface
+(`memory show`/`on`/`off`/`quiet`/`loud`/`forget <origin>`/`clear`) that
+never touches a model. The one write choke point is `recordVerb(mem,
+origin, verb)` in `registry.js`: arity exactly 3, both string inputs
+independently re-validated inside the function (never trusted from the
+caller) against `normalizeOriginKey()` (strips a URL down to scheme+host,
+http(s) only - path/query/fragment are structurally impossible to store)
+and `MEMORY_VERB_RE` (a short bare word, letters/digits/-/_ only, starting
+with a letter, <=24 chars) - this is what makes "an argument (`search "my
+query"`) can never be recorded, even if a caller tried" true by
+construction, not by convention: any multi-word, quoted, or otherwise
+argument-shaped string simply fails the shape check and is silently
+dropped. `recordVerb()` is called from exactly two places in terminal.js's
+dispatch path (the resolved deterministic verb, and the fixed literal
+string `'ask'` for the model-dispatch branch - never the raw command text),
+gated first by the master switch, before any storage access at all. Capped
+(200 origins, 64 verbs/origin, 12-entry recent ring, LRU-evicted) so even
+this benign data cannot grow unbounded. `formatMemoryDump()` (`memory
+show`'s renderer) and `detectRepeat()`/`formatNudge()` (the print-only
+repeat detector behind the "you've run X here N times" nudge) are pure,
+deterministic, and - like every function in this section except the M3
+addition below - contain no reference to `fetch`/`chrome.*`/a model at all
+(pinned directly: `tests/memory_lane.test.js` greps their own `.toString()`
+for exactly that).
+
+### M3 - buildMemoryContext() and the trusted preface into `teach`
+
+`buildMemoryContext(mem, origin, scriptNames)` (`registry.js`) is the read
+side of the same wall: it turns a stored memory object into text a MODEL
+will see, and it is the ONLY function anywhere in this codebase that does
+that. It reads exactly three whitelisted things - `mem.origins[origin]`
+(verb keys re-checked against `MEMORY_VERB_RE`, only the numeric `n` read
+off each entry), `mem.recent[origin]` fed through the same `detectRepeat()`
+M2 already uses, and an optional array of existing script names (re-checked
+against the script-naming `NAME_RE` and a defensive length cap) - and it
+never does `JSON.stringify(mem)`, `Object.values(entry)`, or any other
+generic serialization of anything read from storage; every line of output
+is built by naming one specific field. This is what makes "whatever got
+into the store, however it got there, still cannot reach the model as
+anything but a verb/count/script-name" true by construction rather than by
+review: `tests/memory_lane.test.js`'s adversarial section feeds this
+function memory hand-seeded with argument-shaped garbage in every position
+it can reach (extra properties on a verb entry, extra top-level keys on the
+memory object itself, unrecognized pref keys, a poisoned recent-ring entry,
+oversized/space-containing/quoted script names) and asserts none of it
+survives into the returned string. Its own arity is 2 (`scriptNames`
+defaults to `[]`) - the same "no room for a smuggled extra input" shape
+every other memory function in this file holds itself to.
+
+Wiring: `terminal.js`'s `_handleTeachCommand()` builds this string (via the
+new `_loadMemorySnapshot()`/`_teachScriptNames()` helpers) and attaches it
+to the outgoing `BRAINSTORM_LLM_REQUEST` message as an OPTIONAL
+`memoryContext` field, ONLY when memory is on AND something is recorded for
+the current origin - never unconditionally. `background/service-worker.js`'s
+`buildBrainstormPayload()` accepts that field and, when it is a non-empty
+string, inserts it as a SEPARATE, labeled `system`-role chat message
+(`MEMORY_CONTEXT_LABEL`, stating plainly that this is the user's own past
+command usage, not page content, and is background information rather than
+an instruction) between the fixed brainstorm system prompt and the user's
+own goal turn - never folded into the goal JSON itself, so the trust
+boundary between "what the user asked for" and "background the terminal
+already knew" stays visible in the wire format, not just in prose. When
+`memoryContext` is absent (memory off, or nothing recorded yet for this
+origin), `buildBrainstormPayload()`'s output is BYTE-IDENTICAL to its pre-M3
+shape - no new message, no new field - which is what makes "teach behaves
+exactly as it always has when memory is off" true by construction, pinned
+directly in `tests/memory_lane.test.js` against the real, unmodified
+`service-worker.js` source.
+
+`teach save that` is a fixed magic goal (recognized by an exact,
+case-insensitive match on the phrase, never a substring/prefix match) that
+skips writing a goal at all: it requires memory to be on, requires
+`detectRepeat()` to actually fire for the current origin right now (both
+checked, and failed loudly with no network call, BEFORE the rate-limit
+check/LLM call - same "fail before spending a slot" posture the
+name-availability check above it already uses), and synthesizes the goal
+text from `rep.verbs`/`rep.count` ONLY - the identical verbs-only data
+`detectRepeat()` was already built on in M2, never a fresh read of anything
+argument-shaped. `teach save that as <name>` reuses the SAME `as <name>`
+extraction the plain `teach` path already has.
+
+### The execution lane still gets ZERO memory - unchanged, re-proven
+
+`buildPayload()` (the execution/page-driving lane, `LFL_LLM_REQUEST`) is not
+touched by this build at all - it still reads exactly
+`command`/`elementList`/`origin`/`title` off the caller's message, and does
+not read a `memoryContext` field even when a caller's message object
+happens to carry one (there is no code path in that function that could -
+it was never given one to read). `buildNavLanePayload()` (`NAV_LLM_REQUEST`)
+is the same: unmodified, and a `memoryContext` field attached to a nav-lane
+message is silently ignored. `tests/memory_lane.test.js`'s M3 section sends
+both lanes a poisoned message carrying an obviously-marked `memoryContext`
+string and asserts it never appears anywhere in either captured request
+body - the isolation is proven against the real, unmodified source, not
+assumed from the design.
+
+`background/service-worker.js` itself still never reads
+`chrome.storage.local` (memory or any other key) anywhere - `memoryContext`
+only ever arrives as a plain string on the `BRAINSTORM_LLM_REQUEST` message
+object, already built by the content script, which is where that storage
+area actually lives. This is the same structural proof M1/M2 already
+established (`tests/memory_lane.test.js`'s "service-worker.js never calls
+chrome.storage.local" check, still green, unmodified by M3) - M3 does not
+change *where* memory is read from, only adds one new optional field a
+caller may (or, for two of the three lanes, may not) attach to a message.
+
+### Threat model additions (design doc §6)
+
+- **Injected memory.** A hostile page cannot write to `lflMemory` at all -
+  it lives in the content script's `chrome.storage.local`, which page
+  JavaScript has no API to reach; only this extension's own content script
+  writes it, and only through the single `recordVerb()` choke point
+  described above. Even in the hypothetical where a value somehow arrived
+  malformed, `buildMemoryContext()`'s whitelist means the worst case is a
+  junk verb name or an inflated count showing up in the "commands the user
+  has run on this site" line - never an instruction, never an exfiltration
+  channel, because the function structurally cannot emit anything shaped
+  like one.
+- **Memory as an exfiltration target.** The execution lane never reads
+  memory (proven above), so a hostile page cannot cause memory to be
+  *retrieved* by manipulating page content either - the only path that ever
+  reads `lflMemory` for a model-facing purpose is the trusted brainstorm
+  lane, and only when the human directly types `teach`/`teach save that`
+  themselves. There is no reachability path from chain/macro/alias
+  expansion or any other non-human-typed context into this lane at all (the
+  existing `teach` reachability locks - `RESERVED_NAMES`, the
+  `_dispatchSegment()` refusal for chain/macro/alias context, the
+  script-step verb-whitelist exclusion - are unchanged by M3 and still
+  apply; see the brainstorm-lane section above).
+- **The drafted script is still just a draft.** Whatever a memory-primed
+  `teach` call drafts goes through the exact same `parseScriptBody()`/
+  `validateScriptBody()` path and the exact same human approval card as
+  every other `teach` draft (see the brainstorm-lane section above) - memory
+  can influence *what gets proposed*, never *whether it gets validated or
+  who approves it*. A hostile pattern of verbs (however it hypothetically
+  got recorded) cannot buy its way past the fixed script-verb vocabulary,
+  the no-index-addressing rule, or the approval gate.
+- **Disclosed residual: verb-shaped junk is not membership-checked.**
+  `recordVerb()`/`MEMORY_VERB_RE` enforce SHAPE (a short bare alphanumeric
+  word), not that the verb is a real, currently-registered command - this
+  mirrors `registry.js`'s own documented posture elsewhere in this file (the
+  M1/M2 section's own comment on this). A verb-shaped-but-fictitious string
+  could in principle appear in a `commands the user has run on this site`
+  line; given the shape's extreme restriction (no spaces, no quotes, <=24
+  chars, letters/digits/-/_ only) this cannot carry an instruction or a
+  piece of exfiltrated content, only, at most, a slightly wrong-looking verb
+  name - never a wider capability than "the model reads one more short
+  token before drafting a script that is validated and approved exactly
+  like any other."
+- **Honesty in README/PRIVACY.** Both documents state plainly that, with
+  memory and `teach` both on, a short summary (verbs/counts/script names
+  only) is sent to the user's own local model as part of `teach`'s existing
+  loopback request - never anonymized-and-safe-sounding language beyond
+  what is actually true, and never a claim that memory is "never sent
+  anywhere" once M3 shipped (that claim was accurate for M1/M2 alone and is
+  now corrected in both documents).
+
+### Scope exclusions (unchanged from design doc §5)
+
+Not a memory for the execution lane (proven above, not just stated). Not
+autonomy growth - approval on every mutating action remains permanent and
+structural; a script drafted with memory's help is previewed and
+per-step-approved on `run` exactly like a hand-typed one, every time. Not
+the advisor - no vault RAG, no `hermes-priv`, no fleet context reachable
+from any part of this feature. Not cross-device sync - local to this
+browser profile. Not keystroke/argument logging - verbs, origins, and
+counts, full stop.

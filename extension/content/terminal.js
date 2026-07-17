@@ -2528,6 +2528,68 @@
         }
       }
 
+      // ---- memory lane M3 (2026-07-16, LFL-TERMINAL-MEMORY-LANE-DESIGN.md
+      // §4/§6/§8) - `teach save that` and the memory-context preface ----
+      //
+      // `teach save that` (goal is the literal phrase "save that", not a
+      // real user description) is a fixed magic goal: it takes the
+      // most-recent detected repeat pattern on the CURRENT origin (the SAME
+      // pure detectRepeat() the deterministic M2 nudge already uses - no new
+      // detection logic) and synthesizes a goal description from ONLY the
+      // repeated verbs/count - never an argument, since detectRepeat()'s own
+      // ring is verbs-only (registry.js §recordVerb). Requires memory ON;
+      // requires a repeat to actually be detected right now - if either is
+      // false this returns BEFORE the rate-limit check/LLM call below, same
+      // "fail before spending a slot" posture as the name-availability check
+      // just above. "teach save that as <name>" also works (the `as`
+      // extraction above already ran before this block sees `goal`).
+      //
+      // Independently of `save that`, ANY `teach <goal>` while memory is on
+      // MAY also carry the memory-context preface for the current origin
+      // (design §4: "Plain `teach <goal>` when memory is ON MAY also get the
+      // memory-context preface") - this does not touch or override the
+      // user's own typed goal text, only adds trusted background alongside
+      // it. Both branches build the SAME curated string via registry.js's
+      // buildMemoryContext() (verbs+counts+script-names only, see that
+      // function's own comment) and attach it as `memoryContext` on the
+      // outgoing message ONLY when it is non-empty - when memory is off (or
+      // there is nothing recorded for this origin yet), `memoryContext`
+      // stays unset and the message sent below is IDENTICAL in shape to the
+      // pre-M3 `{type, goal}` payload (see the isolation proof in
+      // tests/memory_lane.test.js).
+      let effectiveGoal = goal;
+      let memoryContext = '';
+      const wantsSaveThat = /^save\s+that$/i.test(goal);
+
+      if (wantsSaveThat) {
+        if (!this._memoryEnabled) {
+          const msg = 'teach save that needs memory on first - type "memory on", then use the terminal here a bit so it has a pattern to save';
+          this.printError(msg);
+          this._auditPush({ action: 'teach' }, 'blocked', msg);
+          this._settle(false, msg);
+          return;
+        }
+        const origin = this._currentAutoOpenOrigin();
+        const mem = origin ? await this._loadMemorySnapshot() : LFL.registry.createEmptyMemory();
+        const ring = (origin && mem.recent && mem.recent[origin]) || [];
+        const rep = LFL.registry.detectRepeat(ring, LFL.registry.MEMORY_REPEAT_THRESHOLD);
+        if (!origin || !rep.fire) {
+          const msg = 'teach save that: no repeated pattern detected yet on this site - keep using the terminal here, or describe it yourself with "teach <goal text>"';
+          this.printError(msg);
+          this._auditPush({ action: 'teach' }, 'blocked', msg);
+          this._settle(false, msg);
+          return;
+        }
+        effectiveGoal = `a script that does, in order: ${rep.verbs.join(', then ')} (a pattern the user has repeated ${rep.count} times on this site)`;
+        memoryContext = LFL.registry.buildMemoryContext(mem, origin, this._teachScriptNames());
+      } else if (this._memoryEnabled) {
+        const origin = this._currentAutoOpenOrigin();
+        if (origin) {
+          const mem = await this._loadMemorySnapshot();
+          memoryContext = LFL.registry.buildMemoryContext(mem, origin, this._teachScriptNames());
+        }
+      }
+
       // Same LLM-call rate-limit budget as the page-lane/nav-lane (design
       // §4: "a draft costs one slot") - checked/recorded via the SW-
       // authoritative limiter, same _rlCheck/_rlRecord helpers _handleGo()/
@@ -2545,10 +2607,19 @@
       let resp;
       try {
         // THE isolation-critical call: the payload sent to the model
-        // contains ONLY `goal` (this typed text) - no page content of any
-        // kind. See service-worker.js's buildBrainstormPayload() and
-        // tests/brainstorm_lane_isolation.test.js for the proof.
-        resp = await chrome.runtime.sendMessage({ type: 'BRAINSTORM_LLM_REQUEST', goal });
+        // contains ONLY `goal` (this typed, or `save that`-synthesized,
+        // text) plus, ONLY when memory is on and something is recorded for
+        // this origin, the trusted `memoryContext` preface built above - no
+        // page content of any kind, ever. See service-worker.js's
+        // buildBrainstormPayload() and tests/brainstorm_lane_isolation.test.js
+        // / tests/memory_lane.test.js for the proof. Two full literal
+        // branches (rather than one object mutated afterward) so the
+        // memory-off/nothing-recorded case sends the EXACT same `{type,
+        // goal}` shape this lane has always sent - pre-M3 source-shape
+        // pins (tests/m5_scripts.test.js) still find this same inline call.
+        resp = memoryContext
+          ? await chrome.runtime.sendMessage({ type: 'BRAINSTORM_LLM_REQUEST', goal: effectiveGoal, memoryContext })
+          : await chrome.runtime.sendMessage({ type: 'BRAINSTORM_LLM_REQUEST', goal: effectiveGoal });
       } catch (e) {
         resp = { ok: false, error: 'local model offline - deterministic commands still work (' + (e && e.message ? e.message : 'messaging error') + ')' };
       }
@@ -2601,7 +2672,7 @@
       // approval card - reuses the SAME top-layer card + occlusion probe as
       // `run`'s plan-preview (_probeApprovalOcclusion(), _approvePending()/
       // _rejectPending() routing via 'awaiting-teach-save').
-      this.state.pendingTeach = { goal, name, body, steps: validated.steps };
+      this.state.pendingTeach = { goal: effectiveGoal, name, body, steps: validated.steps };
       this.state.mode = 'awaiting-teach-save';
       this.glossEl.textContent = name ? `TEACH: save as "${name}"?` : 'TEACH: save this script?';
       const stepsText = validated.steps.map((s, i) => `${i + 1}. ${s}`).join('\n');
@@ -3489,15 +3560,20 @@
     //
     // A terminal-scoped, opt-in, 100% deterministic record of "which verb ran
     // on which origin, how many times" plus a per-origin repeat-detector that
-    // only ever PRINTS a hint - no model call anywhere in this section (that
-    // is explicitly M3, out of scope here). Storage round trips follow the
-    // exact same fire-and-forget, best-effort-swallow-errors division of
-    // labor as _bumpStats()/_handleAutoOpen() above: registry.js owns every
-    // byte of the actual memory logic (recordVerb/forgetOrigin/clearMemory/
-    // setMemoryQuiet/formatMemoryDump/detectRepeat/formatNudge, all pure);
-    // this class only does the chrome.storage.local get/set glue and the
-    // printing/audit-log bookkeeping around them, same posture as the
-    // alias/macro/theme/autoopen handlers elsewhere in this file.
+    // only ever PRINTS a hint - no model call anywhere in THIS section
+    // (recording/detecting/dumping/forgetting). The one place memory reaches
+    // a model at all is M3's `teach` wiring, in _handleTeachCommand() above
+    // and _loadMemorySnapshot()/_teachScriptNames() just below - a
+    // deliberately separate, later, human-typed-only path; nothing here
+    // calls it or is called by it. Storage round trips follow the exact same
+    // fire-and-forget, best-effort-swallow-errors division of labor as
+    // _bumpStats()/_handleAutoOpen() above: registry.js owns every byte of
+    // the actual memory logic (recordVerb/forgetOrigin/clearMemory/
+    // setMemoryQuiet/formatMemoryDump/detectRepeat/formatNudge/
+    // buildMemoryContext, all pure); this class only does the
+    // chrome.storage.local get/set glue and the printing/audit-log
+    // bookkeeping around them, same posture as the alias/macro/theme/
+    // autoopen handlers elsewhere in this file.
 
     // THE recording choke point's content-script half (see registry.js's
     // recordVerb() for the other, pure half). Called from exactly two spots
@@ -3545,6 +3621,40 @@
       if (this._lastNudgeKey === key) return;
       this._lastNudgeKey = key;
       this.printInfo(LFL.registry.formatNudge(res.verbs, res.count));
+    }
+
+    // ---- memory lane M3 (2026-07-16, LFL-TERMINAL-MEMORY-LANE-DESIGN.md
+    // §4/§6/§8) - the read side used ONLY by _handleTeachCommand()'s
+    // `teach`/`teach save that` wiring above. Nothing else in this file
+    // calls either of these two helpers. ----
+
+    // Promise-wrapped read of the memory store (every OTHER memory read/
+    // write in this file stays callback-based, matching this file's
+    // pre-existing convention - see _recordMemoryVerb()/_printMemoryShow()/
+    // etc. above; this one is awaited inline inside the already-async
+    // _handleTeachCommand(), where a Promise is more readable than a nested
+    // callback at the call site). Resolves to a normalizeMemory()-shaped
+    // object even on a storage error or a thrown exception - NEVER rejects -
+    // because a memory-context failure must fall back to "no context",
+    // never block or crash the teach flow.
+    _loadMemorySnapshot() {
+      return new Promise((resolve) => {
+        try {
+          chrome.storage.local.get([LFL.registry.MEMORY_KEY], (res) => {
+            if (chrome.runtime.lastError) { resolve(LFL.registry.createEmptyMemory()); return; }
+            resolve(LFL.registry.normalizeMemory(res && res[LFL.registry.MEMORY_KEY]));
+          });
+        } catch (_e) { resolve(LFL.registry.createEmptyMemory()); }
+      });
+    }
+
+    // Script names for buildMemoryContext()'s optional third argument
+    // (registry.js's own comment on that function: scripts are a flat,
+    // global namespace, not part of the `mem` object itself). Best-effort:
+    // an unexpected shape from listScripts() yields an empty list rather
+    // than throwing and aborting the whole teach flow.
+    _teachScriptNames() {
+      try { return Object.keys(this._aliasStore.listScripts()); } catch (_e) { return []; }
     }
 
     _memoryUnavailable() {

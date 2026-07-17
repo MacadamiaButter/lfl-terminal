@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /**
- * tests/memory_lane.test.js - the terminal-memory M1/M2 build
- * (LFL-TERMINAL-MEMORY-LANE-DESIGN.md, phases M1+M2 only: a deterministic,
+ * tests/memory_lane.test.js - the terminal-memory M1/M2/M3 build
+ * (LFL-TERMINAL-MEMORY-LANE-DESIGN.md, all three phases: a deterministic,
  * opt-in, local-only command-usage store + its controls + a print-only
- * repeat-detector - NO model interaction anywhere in this phase; M3
- * (buildMemoryContext, wiring the store into `teach`'s payload) is a
- * separate, later build and is untouched here).
+ * repeat-detector (M1/M2, no model interaction anywhere), PLUS M3's
+ * buildMemoryContext() + its wiring into the trusted brainstorm/`teach`
+ * lane ONLY - the one model-touching step of this whole feature).
  *
- * Two halves:
+ * Four parts:
  *
  * 1. Pure-logic tests against the REAL, unmodified extension/content/
  *    registry.js (plain `require()` - registry.js is dual-mode CommonJS/
@@ -21,24 +21,36 @@
  *    tests/toolbar_action.test.js and tests/m5b_script_sharing.test.js use
  *    for glue code that isn't worth a full DOM/vm simulation) - default OFF,
  *    the two (and only two) recording choke points, the `forget` origin-
- *    shape guard, and RESERVED_NAMES coverage.
+ *    shape guard, RESERVED_NAMES coverage, and (M3) the `teach save that`
+ *    gating/wiring shape.
  *
- * 3. THE CRITICAL isolation proof, a direct clone of
+ * 3. M3: buildMemoryContext() purity - whitelisted-fields-only output
+ *    (verbs/counts/script-names, never an argument/URL/raw serialization),
+ *    fed adversarial memory with argument-shaped garbage hand-inserted in
+ *    every reachable position, arity, caps, and determinism.
+ *
+ * 4. THE CRITICAL isolation proof, a direct clone of
  *    tests/brainstorm_lane_isolation.test.js's own method: loads the REAL
  *    background/service-worker.js via Node's `vm` module with a fake `fetch`
  *    that captures the exact request body sent to the local model, and
- *    proves the execution-lane (`LFL_LLM_REQUEST`) and brainstorm-lane
+ *    proves (a) the execution-lane (`LFL_LLM_REQUEST`) and brainstorm-lane
  *    (`BRAINSTORM_LLM_REQUEST`) payload builders produce BYTE-IDENTICAL
- *    request bodies whether chrome.storage.local holds populated memory data
- *    (enabled, with poisoned verb/origin content) or nothing at all - memory
- *    never enters ANY network payload in this phase, because
- *    service-worker.js (the only place either payload is ever built) is not
- *    touched by this build at all and never reads chrome.storage.local.
+ *    request bodies whether chrome.storage.local holds populated memory
+ *    data or nothing at all when no `memoryContext` is attached to the
+ *    outgoing message; (b) the brainstorm-lane payload WITH a `memoryContext`
+ *    field attached gains exactly one clearly-labeled extra `system`
+ *    message, never touching the existing system prompt or the user's own
+ *    goal-turn JSON; and (c) the execution lane ignores a `memoryContext`
+ *    field entirely, even when a caller's message object carries one -
+ *    service-worker.js still never reads chrome.storage.local anywhere,
+ *    memory only ever reaches a payload as a plain string the CONTENT
+ *    script (terminal.js) already built and attached to the outgoing
+ *    message itself.
  *
  * GOTCHA (from a previous session, see brainstorm_lane_isolation.test.js's
  * own header): comparing objects/arrays returned OUT of a vm sandbox with
  * deepStrictEqual can trip on Object.prototype identity across realms -
- * normalize with JSON.parse(JSON.stringify(x)) (used throughout part 3
+ * normalize with JSON.parse(JSON.stringify(x)) (used throughout parts 3-4
  * below) before comparing.
  *
  * Run: node tests/memory_lane.test.js
@@ -506,7 +518,254 @@ check('terminal.js: `memory`/`remember`/`forget` are dispatched entirely inside 
 });
 
 // =====================================================================
-// PART 8 - CRITICAL: execution-lane / brainstorm-lane payload isolation.
+// PART 7b - M3: `teach save that` + memory-context wiring, structural
+// proofs against the real terminal.js source (same technique as PART 7 -
+// this project has no DOM harness for terminal.js, see M6's own doc note
+// in docs/threat-model.md for the same documented limitation).
+// =====================================================================
+
+const teachBodyStart = termSrc.indexOf('async _handleTeachCommand(raw) {');
+const teachBodyEnd = termSrc.indexOf('\n    async _approveTeachSave()', teachBodyStart);
+const teachBody = termSrc.slice(teachBodyStart, teachBodyEnd);
+
+check('terminal.js: _handleTeachCommand recognizes the fixed magic phrase "save that" (case-insensitively) as goal text, not an arbitrary user description', () => {
+  assert.ok(teachBodyStart > -1 && teachBodyEnd > teachBodyStart, '_handleTeachCommand body not found');
+  assert.match(teachBody, /\/\^save\\s\+that\$\/i\.test\(goal\)/);
+});
+
+check('terminal.js: `teach save that` while memory is OFF is refused BEFORE any repeat-detection or rate-limit/network work - checked first inside the wantsSaveThat branch', () => {
+  const wantsIdx = teachBody.indexOf('if (wantsSaveThat) {');
+  const memGateIdx = teachBody.indexOf('if (!this._memoryEnabled) {', wantsIdx);
+  const rlCheckIdx = teachBody.indexOf("await this._rlCheck('llm')", wantsIdx);
+  assert.ok(wantsIdx > -1 && memGateIdx > -1 && rlCheckIdx > -1, 'could not locate the expected markers');
+  assert.ok(wantsIdx < memGateIdx && memGateIdx < rlCheckIdx, 'the memory-enabled gate must run before the rate-limit check');
+});
+
+check('terminal.js: `teach save that` requires detectRepeat() to actually fire on the CURRENT origin before any LLM call - a non-firing repeat returns before _rlCheck', () => {
+  const repIdx = teachBody.indexOf('LFL.registry.detectRepeat(ring, LFL.registry.MEMORY_REPEAT_THRESHOLD)');
+  const rlCheckIdx = teachBody.indexOf("await this._rlCheck('llm')");
+  assert.ok(repIdx > -1 && rlCheckIdx > -1 && repIdx < rlCheckIdx, 'detectRepeat() must be checked before the rate-limit/network call');
+  assert.match(teachBody, /if \(!origin \|\| !rep\.fire\) \{/, 'a non-firing (or origin-less) repeat must be refused');
+});
+
+check('terminal.js: the `teach save that` synthesized goal is built ONLY from rep.verbs/rep.count - never references the raw "save that" text or any other input', () => {
+  const m = teachBody.match(/effectiveGoal = `[^`]*\$\{rep\.verbs\.join\([^)]*\)\}[^`]*\$\{rep\.count\}[^`]*`;/);
+  assert.ok(m, 'effectiveGoal in the wantsSaveThat branch must be built from rep.verbs/rep.count only');
+});
+
+check('terminal.js: buildMemoryContext() is called with (memory-snapshot, origin, script-names) - never with page content, command text, or the raw goal', () => {
+  const calls = teachBody.match(/LFL\.registry\.buildMemoryContext\(mem, origin, this\._teachScriptNames\(\)\)/g) || [];
+  assert.strictEqual(calls.length, 2, 'expected exactly two call sites - the wantsSaveThat branch and the plain-teach-with-memory-on branch');
+});
+
+check('terminal.js: the plain `teach <goal>` + memory-on branch does NOT override the user\'s own typed goal - effectiveGoal stays the literal `goal` there', () => {
+  const elseIdx = teachBody.indexOf('} else if (this._memoryEnabled) {');
+  assert.ok(elseIdx > -1, 'the plain-teach-with-memory-on branch must exist');
+  const branchBody = teachBody.slice(elseIdx, teachBody.indexOf('\n      }', teachBody.indexOf('memoryContext = LFL.registry.buildMemoryContext', elseIdx)));
+  assert.doesNotMatch(branchBody, /effectiveGoal\s*=/, 'the plain-teach branch must never reassign effectiveGoal - the user\'s own goal text is untouched');
+});
+
+check('terminal.js: the outgoing BRAINSTORM_LLM_REQUEST message attaches `memoryContext` ONLY inside the `memoryContext ? ... : ...` ternary - the memory-off/nothing-recorded branch sends the bare {type, goal} shape, byte-identical to pre-M3', () => {
+  assert.match(
+    teachBody,
+    /resp = memoryContext\s*\n\s*\? await chrome\.runtime\.sendMessage\(\{ type: 'BRAINSTORM_LLM_REQUEST', goal: effectiveGoal, memoryContext \}\)\s*\n\s*: await chrome\.runtime\.sendMessage\(\{ type: 'BRAINSTORM_LLM_REQUEST', goal: effectiveGoal \}\);/,
+  );
+});
+
+check('terminal.js: _loadMemorySnapshot() reads ONLY LFL.registry.MEMORY_KEY from storage and never rejects (resolves to an empty memory object on any error)', () => {
+  const idx = termSrc.indexOf('_loadMemorySnapshot() {');
+  const end = termSrc.indexOf('\n    }', termSrc.indexOf('\n    }', idx) + 1);
+  const body = termSrc.slice(idx, end);
+  assert.match(body, /chrome\.storage\.local\.get\(\[LFL\.registry\.MEMORY_KEY\]/);
+  assert.doesNotMatch(body, /reject/);
+});
+
+check('terminal.js: _teachScriptNames() reads script names via this._aliasStore.listScripts() only, never touches chrome.storage or page content', () => {
+  const idx = termSrc.indexOf('_teachScriptNames() {');
+  const end = termSrc.indexOf('\n    }', idx);
+  const body = termSrc.slice(idx, end);
+  assert.match(body, /this\._aliasStore\.listScripts\(\)/);
+  assert.doesNotMatch(body, /chrome\.storage/);
+});
+
+// =====================================================================
+// PART 8 - M3: buildMemoryContext() purity - whitelisted-fields-only,
+// adversarial-seed-proof, deterministic. The read-side counterpart to
+// PART 1-4's recordVerb()/normalizeMemory() write-side proofs.
+// =====================================================================
+
+check('buildMemoryContext: arity is 2 - (mem, origin) is the whole required contract, scriptNames is an optional caller-side enrichment (defaulted)', () => {
+  assert.strictEqual(registry.buildMemoryContext.length, 2);
+});
+
+check('buildMemoryContext: well-formed memory yields verbs(count) sorted by count descending', () => {
+  let mem = registry.recordVerb(registry.createEmptyMemory(), 'https://example.com', 'go');
+  mem = registry.recordVerb(mem, 'https://example.com', 'search');
+  mem = registry.recordVerb(mem, 'https://example.com', 'search');
+  const ctx = registry.buildMemoryContext(mem, 'https://example.com');
+  assert.match(ctx, /commands the user has run on this site: search\(2\), go\(1\)/);
+});
+
+check('buildMemoryContext: includes the detected repeat pattern line when detectRepeat fires on the recent ring', () => {
+  let mem = registry.createEmptyMemory();
+  for (let i = 0; i < 3; i++) {
+    mem = registry.recordVerb(mem, 'https://example.com', 'go');
+    mem = registry.recordVerb(mem, 'https://example.com', 'search');
+    mem = registry.recordVerb(mem, 'https://example.com', 'read');
+  }
+  const ctx = registry.buildMemoryContext(mem, 'https://example.com');
+  assert.match(ctx, /repeated pattern on this site: "go, search, read" \(3 times\)/);
+});
+
+check('buildMemoryContext: omits the repeat-pattern line when no repeat is detected', () => {
+  const mem = registry.recordVerb(registry.createEmptyMemory(), 'https://example.com', 'go');
+  const ctx = registry.buildMemoryContext(mem, 'https://example.com');
+  assert.doesNotMatch(ctx, /repeated pattern/);
+});
+
+check('buildMemoryContext: includes script names (3rd arg) only when given, filtered to NAME_RE-shaped names, capped', () => {
+  const mem = registry.recordVerb(registry.createEmptyMemory(), 'https://example.com', 'go');
+  const withNames = registry.buildMemoryContext(mem, 'https://example.com', ['my-flow', 'another_one']);
+  assert.match(withNames, /scripts the user already has: my-flow, another_one/);
+  const withoutNames = registry.buildMemoryContext(mem, 'https://example.com');
+  assert.doesNotMatch(withoutNames, /scripts the user already has/);
+});
+
+check('buildMemoryContext: an origin with nothing recorded yields an empty string (no throw, no stray labels)', () => {
+  const mem = registry.createEmptyMemory();
+  assert.strictEqual(registry.buildMemoryContext(mem, 'https://never-visited.example'), '');
+});
+
+check('buildMemoryContext: an unparseable origin (e.g. "javascript:alert(1)") is treated as "nothing recorded" - no throw', () => {
+  const mem = registry.recordVerb(registry.createEmptyMemory(), 'https://example.com', 'go');
+  assert.strictEqual(registry.buildMemoryContext(mem, 'javascript:alert(1)'), '');
+});
+
+check('buildMemoryContext: deterministic - identical input, called twice, produces byte-identical output', () => {
+  let mem = registry.recordVerb(registry.createEmptyMemory(), 'https://example.com', 'go');
+  mem = registry.recordVerb(mem, 'https://example.com', 'search');
+  const names = ['b-script', 'a-script'];
+  const a = registry.buildMemoryContext(mem, 'https://example.com', names);
+  const b = registry.buildMemoryContext(mem, 'https://example.com', names);
+  assert.strictEqual(a, b);
+});
+
+check('buildMemoryContext: verbs are capped at MEMORY_CONTEXT_MAX_VERBS, keeping the highest-count ones', () => {
+  let mem = registry.createEmptyMemory();
+  const cap = registry.MEMORY_CONTEXT_MAX_VERBS;
+  for (let i = 0; i < cap + 5; i++) {
+    for (let n = 0; n <= i; n++) mem = registry.recordVerb(mem, 'https://example.com', `v${i}`);
+  }
+  const ctx = registry.buildMemoryContext(mem, 'https://example.com');
+  const line = ctx.split('\n')[0];
+  const shown = line.replace('commands the user has run on this site: ', '').split(', ');
+  assert.strictEqual(shown.length, cap, `expected exactly ${cap} verbs in the context line, got ${shown.length}`);
+  assert.ok(line.includes(`v${cap + 4}(`), 'the highest-count verb must survive the cap');
+  assert.ok(!line.includes('v0('), 'the lowest-count verb must be dropped by the cap');
+});
+
+check('buildMemoryContext: script names are capped at MEMORY_CONTEXT_MAX_SCRIPT_NAMES', () => {
+  const mem = registry.recordVerb(registry.createEmptyMemory(), 'https://example.com', 'go');
+  const cap = registry.MEMORY_CONTEXT_MAX_SCRIPT_NAMES;
+  const names = [];
+  for (let i = 0; i < cap + 5; i++) names.push(`script${i}`);
+  const ctx = registry.buildMemoryContext(mem, 'https://example.com', names);
+  const line = ctx.split('\n').find((l) => l.startsWith('scripts the user already has: '));
+  const shown = line.replace('scripts the user already has: ', '').split(', ');
+  assert.strictEqual(shown.length, cap);
+});
+
+check('buildMemoryContext ADVERSARIAL: extra properties hand-inserted onto a verb entry (argument-shaped) never leak - only verbKey and n are ever read', () => {
+  const poisoned = {
+    v: 1,
+    origins: {
+      'https://example.com': {
+        search: { n: 3, lastUsed: 1, arg: 'SHOULD-NOT-APPEAR divorce lawyer', query: 'SHOULD-NOT-APPEAR-EITHER' },
+      },
+    },
+    prefs: {},
+    recent: {},
+  };
+  const ctx = registry.buildMemoryContext(poisoned, 'https://example.com');
+  assert.ok(!ctx.includes('SHOULD-NOT-APPEAR'), `poisoned verb-entry property leaked:\n${ctx}`);
+  assert.strictEqual(ctx, 'commands the user has run on this site: search(3)');
+});
+
+check('buildMemoryContext ADVERSARIAL: extra TOP-LEVEL keys on the memory object itself never leak (this function is not a generic serializer)', () => {
+  const poisoned = {
+    v: 1,
+    origins: { 'https://example.com': { go: { n: 1, lastUsed: 1 } } },
+    prefs: {},
+    recent: {},
+    SHOULD_NOT_APPEAR_TOPLEVEL: 'evil payload',
+    argumentsLeakedHere: ['SHOULD-NOT-APPEAR-ARRAY'],
+  };
+  const ctx = registry.buildMemoryContext(poisoned, 'https://example.com');
+  assert.ok(!ctx.includes('SHOULD-NOT-APPEAR'), `poisoned top-level key leaked:\n${ctx}`);
+});
+
+check('buildMemoryContext ADVERSARIAL: extra/unrecognized pref keys never leak (prefs are not part of this function\'s output at all)', () => {
+  const poisoned = {
+    v: 1,
+    origins: { 'https://example.com': { go: { n: 1, lastUsed: 1 } } },
+    prefs: { evilPref: 'SHOULD-NOT-APPEAR-PREF' },
+    recent: {},
+  };
+  const ctx = registry.buildMemoryContext(poisoned, 'https://example.com');
+  assert.ok(!ctx.includes('SHOULD-NOT-APPEAR'), `poisoned pref leaked:\n${ctx}`);
+});
+
+check('buildMemoryContext ADVERSARIAL: an argument-shaped verb KEY (spaces/quotes) never survives normalizeMemory to reach output - the same wall recordVerb() itself holds', () => {
+  const poisoned = {
+    v: 1,
+    origins: { 'https://example.com': { 'search "divorce lawyer"': { n: 1, lastUsed: 1 } } },
+    prefs: {},
+    recent: {},
+  };
+  const ctx = registry.buildMemoryContext(poisoned, 'https://example.com');
+  assert.strictEqual(ctx, '', 'an argument-shaped verb key must never survive into the context string');
+});
+
+check('buildMemoryContext ADVERSARIAL: argument-shaped/oversized/quoted script names (3rd arg) are dropped individually, never partially echoed', () => {
+  const mem = registry.recordVerb(registry.createEmptyMemory(), 'https://example.com', 'go');
+  const poisonedNames = ['ok-name', 'has spaces SHOULD-NOT-APPEAR', '"quoted-SHOULD-NOT-APPEAR"', 'a'.repeat(60)];
+  const ctx = registry.buildMemoryContext(mem, 'https://example.com', poisonedNames);
+  assert.ok(!ctx.includes('SHOULD-NOT-APPEAR'), `poisoned script name leaked:\n${ctx}`);
+  assert.match(ctx, /scripts the user already has: ok-name$/m);
+});
+
+check('buildMemoryContext ADVERSARIAL: a poisoned recent-ring entry (non-verb-shaped, hand-inserted bypassing recordVerb) never reaches the repeat-pattern line', () => {
+  const poisoned = {
+    v: 1,
+    origins: {},
+    prefs: {},
+    recent: { 'https://example.com': ['search "SHOULD-NOT-APPEAR"', 'search "SHOULD-NOT-APPEAR"', 'search "SHOULD-NOT-APPEAR"'] },
+  };
+  const ctx = registry.buildMemoryContext(poisoned, 'https://example.com');
+  assert.ok(!ctx.includes('SHOULD-NOT-APPEAR'), `poisoned recent-ring entry leaked:\n${ctx}`);
+});
+
+check('buildMemoryContext: never emits a quote character or the literal substring "http" - no argument, no URL, ever (same convention as formatMemoryDump\'s own adversarial test)', () => {
+  let mem = registry.recordVerb(registry.createEmptyMemory(), 'https://example.com', 'search');
+  mem = registry.recordVerb(mem, 'https://example.com', 'go');
+  const ctx = registry.buildMemoryContext(mem, 'https://example.com', ['my-flow']);
+  assert.ok(!ctx.includes('"'), 'no quote characters should ever appear');
+  assert.ok(!ctx.toLowerCase().includes('http'), 'no URL/origin text should ever appear - the origin itself is never echoed');
+});
+
+check('buildMemoryContext source: never calls JSON.stringify/Object.values/Object.entries on `mem` or an entry - built by naming specific fields, not generic serialization', () => {
+  const registrySrc = fs.readFileSync(path.join(ROOT, 'extension', 'content', 'registry.js'), 'utf8');
+  const idx = registrySrc.indexOf('function buildMemoryContext(mem, origin, scriptNames = []) {');
+  const end = registrySrc.indexOf('\n  return {', idx); // the module's final export return, right after this function
+  assert.ok(idx > -1 && end > idx, 'buildMemoryContext source not found');
+  const body = registrySrc.slice(idx, end);
+  assert.doesNotMatch(body, /JSON\.stringify/);
+  assert.doesNotMatch(body, /Object\.values/);
+  assert.doesNotMatch(body, /Object\.entries/);
+});
+
+// =====================================================================
+// PART 9 - CRITICAL: execution-lane / brainstorm-lane payload isolation.
 // Direct clone of tests/brainstorm_lane_isolation.test.js's buildSwInstance()
 // method, PLUS a chrome.storage.local mock (service-worker.js never uses
 // storage.local today - only storage.session for the rate limiter/TS_*
@@ -697,6 +956,92 @@ async function main() {
     const swSrc = fs.readFileSync(SW_PATH, 'utf8');
     assert.doesNotMatch(swSrc, /lflMemory/i);
     assert.doesNotMatch(swSrc, /storage\.local/i);
+  });
+
+  // =====================================================================
+  // PART 10 - M3: the brainstorm-lane `memoryContext` wiring itself, against
+  // the REAL service-worker.js via the same buildSwInstance() harness above.
+  // This is the direct regression proof for "teach with memory off is
+  // byte-identical to before M3 shipped" AND the proof that a memoryContext
+  // field, when present, is delimited/labeled the way the design doc
+  // requires and never reaches the execution lane.
+  // =====================================================================
+
+  await acheck('M3: BRAINSTORM_LLM_REQUEST WITHOUT memoryContext produces the exact pre-M3 2-message shape [system, user] - no new message, no new field', async () => {
+    const sw = buildSwInstance({});
+    await sw.send({ type: 'BRAINSTORM_LLM_REQUEST', goal: 'check the weather' }, 1);
+    const body = JSON.parse(sw.capturedRequests[0].init.body);
+    assert.strictEqual(body.messages.length, 2, 'messages must stay exactly [system, user] when memoryContext is absent');
+    assert.strictEqual(body.messages[0].role, 'system');
+    assert.strictEqual(body.messages[1].role, 'user');
+    assert.deepStrictEqual(realm(JSON.parse(body.messages[1].content)), { goal: 'check the weather' });
+  });
+
+  await acheck('M3: BRAINSTORM_LLM_REQUEST WITH memoryContext inserts exactly ONE extra system-role message, clearly labeled TRUSTED CONTEXT / not page content, BETWEEN the fixed system prompt and the user goal turn', async () => {
+    const sw = buildSwInstance({});
+    const ctx = 'commands the user has run on this site: search(3), go(1)\nscripts the user already has: my-flow';
+    await sw.send({ type: 'BRAINSTORM_LLM_REQUEST', goal: 'check the weather', memoryContext: ctx }, 1);
+    const body = JSON.parse(sw.capturedRequests[0].init.body);
+    assert.strictEqual(body.messages.length, 3);
+    assert.strictEqual(body.messages[0].role, 'system');
+    assert.strictEqual(body.messages[1].role, 'system');
+    assert.strictEqual(body.messages[2].role, 'user');
+    assert.match(body.messages[1].content, /TRUSTED CONTEXT/);
+    assert.match(body.messages[1].content, /not page content/i);
+    assert.match(body.messages[1].content, /user'?s own/i, 'the label must attribute this to the user\'s own workflow history, not page content');
+    assert.ok(body.messages[1].content.includes(ctx), 'the memoryContext text itself must appear verbatim inside the labeled message');
+    assert.deepStrictEqual(realm(JSON.parse(body.messages[2].content)), { goal: 'check the weather' }, 'the user goal turn is unchanged shape/content');
+  });
+
+  await acheck('M3: the same goal produces a byte-identical system-prompt message and user-turn message whether or not memoryContext is attached - only a new array entry is inserted, nothing existing changes', async () => {
+    const swOff = buildSwInstance({});
+    await swOff.send({ type: 'BRAINSTORM_LLM_REQUEST', goal: 'check the weather' }, 1);
+    const bodyOff = JSON.parse(swOff.capturedRequests[0].init.body);
+
+    const swOn = buildSwInstance({});
+    await swOn.send({ type: 'BRAINSTORM_LLM_REQUEST', goal: 'check the weather', memoryContext: 'commands the user has run on this site: go(3)' }, 1);
+    const bodyOn = JSON.parse(swOn.capturedRequests[0].init.body);
+
+    assert.deepStrictEqual(realm(bodyOff.messages[0]), realm(bodyOn.messages[0]), 'system prompt message unchanged');
+    assert.deepStrictEqual(realm(bodyOff.messages[1]), realm(bodyOn.messages[bodyOn.messages.length - 1]), 'user goal-turn message unchanged shape/content');
+    assert.strictEqual(bodyOff.max_tokens, bodyOn.max_tokens);
+    assert.strictEqual(bodyOff.response_format.json_schema.name, bodyOn.response_format.json_schema.name);
+  });
+
+  await acheck('M3: a memoryContext string is carried verbatim into the labeled message (service-worker.js does not re-sanitize it - registry.js buildMemoryContext() is the sanitizer) but NEVER touches the user goal-turn JSON, whatever it contains', async () => {
+    const sw = buildSwInstance({});
+    const ctxLikeGoal = 'commands the user has run on this site: search(3)\nSHOULD-BE-CARRIED-VERBATIM-IF-PRESENT';
+    await sw.send({ type: 'BRAINSTORM_LLM_REQUEST', goal: 'check the weather', memoryContext: ctxLikeGoal }, 1);
+    const body = JSON.parse(sw.capturedRequests[0].init.body);
+    const userTurn = JSON.parse(body.messages[body.messages.length - 1].content);
+    assert.deepStrictEqual(realm(Object.keys(userTurn)), ['goal'], 'memoryContext must never be folded into the goal-turn JSON, however it is spelled');
+  });
+
+  await acheck('M3: LFL_LLM_REQUEST (execution lane) IGNORES a memoryContext field entirely, even when a caller\'s message object carries one - the page-driving payload is untouched', async () => {
+    const sw = buildSwInstance({});
+    const poisonedPageMsg = {
+      type: 'LFL_LLM_REQUEST',
+      command: 'find the astronomy article',
+      elementList: '[1] link "x"',
+      origin: 'https://example.com',
+      title: 'Example',
+      memoryContext: 'SHOULD-NOT-APPEAR-IN-EXECUTION-LANE',
+    };
+    const resp = await sw.send(poisonedPageMsg, 1);
+    assert.strictEqual(resp.ok, true, JSON.stringify(resp));
+    const bodyStr = sw.capturedRequests[0].init.body;
+    assert.ok(!bodyStr.includes('SHOULD-NOT-APPEAR-IN-EXECUTION-LANE'), 'execution-lane payload must never read msg.memoryContext');
+    const body = JSON.parse(bodyStr);
+    const userTurn = JSON.parse(body.messages[body.messages.length - 1].content);
+    assert.deepStrictEqual(realm(Object.keys(userTurn).sort()), ['command', 'elements', 'origin', 'title'].sort(), 'execution-lane user turn must carry exactly its own 4 fields - memoryContext dropped');
+  });
+
+  await acheck('M3: NAV_LLM_REQUEST (nav lane) IGNORES a memoryContext field entirely too - only the brainstorm lane was ever wired to read it', async () => {
+    const sw = buildSwInstance({});
+    const resp = await sw.send({ type: 'NAV_LLM_REQUEST', command: 'go to the arch linux wiki', memoryContext: 'SHOULD-NOT-APPEAR-IN-NAV-LANE' }, 1);
+    assert.strictEqual(resp.ok, true, JSON.stringify(resp));
+    const bodyStr = sw.capturedRequests[0].init.body;
+    assert.ok(!bodyStr.includes('SHOULD-NOT-APPEAR-IN-NAV-LANE'), 'nav-lane payload must never read msg.memoryContext');
   });
 
   console.log(`\n${passed} passed, ${failed} failed`);

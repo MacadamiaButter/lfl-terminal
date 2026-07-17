@@ -1543,6 +1543,116 @@
     return `you've run "${list.join(', ')}" here ${count} times - type "teach save that" to make it a script`;
   }
 
+  // ---- memory lane M3 (2026-07-16, LFL-TERMINAL-MEMORY-LANE-DESIGN.md
+  // §4/§6/§8) - buildMemoryContext(): THE ONE function anywhere in this
+  // codebase that turns a stored memory object into text a MODEL will ever
+  // see. Wired into exactly one place: terminal.js's `teach` handling, which
+  // attaches its output to a BRAINSTORM_LLM_REQUEST message as an OPTIONAL
+  // `memoryContext` field (see service-worker.js's buildBrainstormPayload()).
+  // The execution lane (LFL_LLM_REQUEST, page-driving) never calls this
+  // function and never reads chrome.storage.local's memory key at all - see
+  // tests/memory_lane.test.js's M3 isolation section for the byte-identical
+  // proof.
+  //
+  // Caps small on purpose - this is meant to be a SHORT hint, not a data
+  // dump: only the top few verbs by count, only the most recent detected
+  // repeat pattern, only a bounded number of script names.
+  const MEMORY_CONTEXT_MAX_VERBS = 12;
+  const MEMORY_CONTEXT_MAX_SCRIPT_NAMES = 20;
+  // Script names come from createAliasStore()'s NAME_RE (letters/digits/-/_,
+  // starting with a letter), which has no length cap of its own - this is a
+  // defensive bound on how much of a hand-typed script name gets echoed into
+  // a model prompt, nothing more; it does not change what names are valid to
+  // save a script under.
+  const MEMORY_CONTEXT_SCRIPT_NAME_MAX_LEN = 40;
+
+  // buildMemoryContext(mem, origin, scriptNames) - reads exactly three
+  // things and nothing else:
+  //   (a) mem.origins[originKey] - a {verb: {n, lastUsed}} map. Re-validates
+  //       every verb key against MEMORY_VERB_RE and every count as a
+  //       non-negative number HERE, independently of normalizeMemory()'s own
+  //       guarantees (the same "revalidate at every hop" posture recordVerb()
+  //       holds itself to, not "trust the last function that touched it").
+  //       Only verbKey and n are ever read; lastUsed and any other property
+  //       an entry might carry (however it got there) is never touched.
+  //   (b) mem.recent[originKey], fed through the existing, pure
+  //       detectRepeat() (itself re-filtered to verb-shaped strings here,
+  //       belt-and-suspenders on top of normalizeMemory()'s own recent-ring
+  //       cleaning) - never printed raw, only its {verbs, count} return
+  //       value.
+  //   (c) scriptNames - an OPTIONAL third argument (e.g. the keys of
+  //       this._aliasStore.listScripts() - scripts are a flat, global
+  //       namespace, not part of the `mem` object itself), each
+  //       independently checked against NAME_RE and a defensive length cap
+  //       before being echoed. Left out of the (mem, origin) contract this
+  //       function's arity is measured by (defaulted to `[]`, so
+  //       buildMemoryContext.length === 2, matching every other memory
+  //       function's "no room for a smuggled extra input" shape) - passing
+  //       script names is a caller-side enrichment this function does not
+  //       depend on to stay safe without it.
+  //
+  // NEVER does `JSON.stringify(mem)`, `Object.values(entry)`,
+  // `Object.assign({}, entry)`, or any other generic serialization of
+  // anything read from storage - every line of the output is built by
+  // naming one specific, whitelisted field. That is what makes "whatever
+  // got into the store, however it got there, still cannot reach the model
+  // as anything but a verb/count/script-name" true by construction rather
+  // than by review: tests/memory_lane.test.js's M3 section feeds this
+  // function memory hand-seeded with argument-shaped strings in every
+  // position it can reach (extra properties on a verb entry, extra
+  // top-level keys on `mem` itself, oversized/space-containing script
+  // names) and asserts none of it survives into the returned string.
+  //
+  // Deterministic (sorted output, no Date.now()/Math.random() anywhere in
+  // this function) and pure - never touches chrome.storage.local itself,
+  // same posture as every other function in this section; the caller
+  // already has `mem` in hand.
+  function buildMemoryContext(mem, origin, scriptNames = []) {
+    const base = normalizeMemory(mem);
+    const originKey = normalizeOriginKey(origin);
+    const lines = [];
+
+    if (originKey && Object.prototype.hasOwnProperty.call(base.origins, originKey)) {
+      const verbs = base.origins[originKey];
+      const verbNames = Object.keys(verbs)
+        .filter((v) => MEMORY_VERB_RE.test(v))
+        .sort((a, b) => {
+          const na = (verbs[a] && typeof verbs[a].n === 'number' && verbs[a].n >= 0) ? verbs[a].n : 0;
+          const nb = (verbs[b] && typeof verbs[b].n === 'number' && verbs[b].n >= 0) ? verbs[b].n : 0;
+          return nb - na;
+        })
+        .slice(0, MEMORY_CONTEXT_MAX_VERBS);
+      if (verbNames.length > 0) {
+        const verbTxt = verbNames
+          .map((v) => {
+            const n = (verbs[v] && typeof verbs[v].n === 'number' && verbs[v].n >= 0) ? Math.floor(verbs[v].n) : 0;
+            return `${v}(${n})`;
+          })
+          .join(', ');
+        lines.push(`commands the user has run on this site: ${verbTxt}`);
+      }
+    }
+
+    if (originKey) {
+      const rawRing = (base.recent && Array.isArray(base.recent[originKey])) ? base.recent[originKey] : [];
+      const ring = rawRing.filter((v) => typeof v === 'string' && MEMORY_VERB_RE.test(v));
+      const rep = detectRepeat(ring, MEMORY_REPEAT_THRESHOLD);
+      if (rep.fire) {
+        lines.push(`repeated pattern on this site: "${rep.verbs.join(', ')}" (${rep.count} times)`);
+      }
+    }
+
+    const rawNames = Array.isArray(scriptNames) ? scriptNames : [];
+    const cleanNames = rawNames
+      .filter((n) => typeof n === 'string' && n.length > 0 && n.length <= MEMORY_CONTEXT_SCRIPT_NAME_MAX_LEN && NAME_RE.test(n))
+      .slice(0, MEMORY_CONTEXT_MAX_SCRIPT_NAMES);
+    if (cleanNames.length > 0) {
+      lines.push(`scripts the user already has: ${cleanNames.join(', ')}`);
+    }
+
+    return lines.join('\n');
+  }
+
   return {
     createRegistry, createAliasStore, splitChain, expandAlias, expandMacro,
     damerauLevenshtein, didYouMean, autoOpenMatch, toggleAutoOpen,
@@ -1562,5 +1672,8 @@
     createEmptyMemory, normalizeMemory, normalizeOriginKey, normalizeVerbKey,
     recordVerb, forgetOrigin, clearMemory, setMemoryQuiet, formatMemoryDump,
     detectRepeat, formatNudge,
+    // memory lane M3 (trusted preface into the brainstorm/teach lane only)
+    MEMORY_CONTEXT_MAX_VERBS, MEMORY_CONTEXT_MAX_SCRIPT_NAMES,
+    MEMORY_CONTEXT_SCRIPT_NAME_MAX_LEN, buildMemoryContext,
   };
 });

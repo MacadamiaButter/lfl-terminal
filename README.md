@@ -132,6 +132,7 @@ unmacro <name>                  remove a macro
 script new|ls|show|rm <name>    define/list/show/remove a named, multi-step script (v1)
 run <name> [args...]            preview then run a script, substituting $1..$9/$@
 teach <goal> [as <name>]        draft a script from a goal (opt-in, off by default - see below)
+teach save that [as <name>]     draft a script from the most recently detected repeat pattern (needs memory on too)
 teach on | teach off            enable/disable the brainstorm lane
 memory | memory show            show what command-usage memory has recorded (opt-in, off by default)
 memory on | memory off          enable/disable command-usage memory ("remember" also turns it on)
@@ -210,6 +211,17 @@ visible in the approval card - this tip just saves you a re-teach.
   pattern into a script. It never records arguments (what you searched for,
   typed, or filled in) or page content, and it's off by default - `memory
   show` proves exactly what's stored, `memory off` stops it.
+- With BOTH `memory` and `teach` on, `teach` gives the local model a short
+  trusted summary of your own command usage on the current site (verbs,
+  counts, and the names of scripts you already have - never arguments, never
+  page content) as background alongside your goal, so it can suggest a
+  fitting script instead of a generic one. `teach save that` skips writing a
+  goal entirely: it hands the model the most recently detected repeat
+  pattern instead. This summary only ever goes to the same local model your
+  own `teach` calls already use, and only when you invoke `teach` yourself -
+  it is never sent anywhere else, and the page-driving model call (`ask` and
+  everyday command resolution) never sees it at all. With memory off, `teach`
+  behaves exactly as it always has.
 
 A bare number by itself (after `ls`) does the sensible default thing for
 that item: opens a link, clicks a button, or tells you how to fill a field.

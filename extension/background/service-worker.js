@@ -102,6 +102,31 @@
  * file's single fetch sink and the same RL_* rate-limit budget as the other
  * two lanes (a draft costs one LLM-call slot, gated/recorded by terminal.js
  * exactly the way it already gates the nav-lane's `go` resolution call).
+ *
+ * FIFTH ROLE, added for memory-lane M3 (2026-07-16,
+ * LFL-TERMINAL-MEMORY-LANE-DESIGN.md §4/§6/§8): buildBrainstormPayload()
+ * below ALSO accepts an OPTIONAL `msg.memoryContext` string - a short,
+ * already-curated (registry.js's buildMemoryContext(), whitelisted to
+ * verbs/counts/script-names) trusted-context preface, built entirely on the
+ * content-script side (terminal.js, which is where the browser's local
+ * per-extension storage holding the memory key actually lives) and attached
+ * to the outgoing BRAINSTORM_LLM_REQUEST message only when BOTH `teach` and
+ * `memory` are on for the user AND the current origin has something
+ * recorded. This file itself still never reads that storage area at all
+ * (memory or otherwise) - see this file's own header note above and
+ * tests/memory_lane.test.js's structural proof that this file never touches
+ * it, unchanged and still true - it only ever prepends whatever string, if
+ * any, the caller's message happens to carry, as a clearly-labeled, separate
+ * chat message BEFORE the user's own goal turn (see buildBrainstormPayload()
+ * below). When `msg.memoryContext` is absent (memory off, or no origin
+ * recorded yet), the built payload is BYTE-IDENTICAL to this lane's pre-M3
+ * shape - no new message, no new field, nothing - which is what
+ * tests/memory_lane.test.js's M3 regression section pins directly against a
+ * captured fetch body. THE EXECUTION LANE (buildPayload()/LFL_LLM_REQUEST,
+ * above) is untouched by this role: it does not read `msg.memoryContext` at
+ * all, whether or not a caller's message object happens to carry one - see
+ * that function's own body, which still reads exactly
+ * command/elementList/origin/title, nothing else.
  */
 
 // Loads the real content/ratelimit.js source into this worker's own global
@@ -457,21 +482,48 @@ const BRAINSTORM_MAX_TOKENS = 512;
 // behavior.
 const BRAINSTORM_TIMEOUT_MS = 90000;
 
-// THE isolation-critical function: reads `msg.goal` and NOTHING else off the
-// caller's message object. Do not "helpfully" add fields here - that is
-// exactly the mistake this lane exists to structurally prevent (same
-// warning as buildNavLanePayload() above, same enforcement mechanism: a
-// poisoned-message unit test against the real fetch body, not just this
-// comment). The user message content is JSON.stringify({goal: msg.goal}),
-// deliberately mirroring the nav-lane's {command} shape rather than the
-// probe's own plain-text user turn - consistency across all three lanes' own
-// wire format, per the design doc's §4 sign-off (the probe's measured
-// numbers are about the SYSTEM prompt's authoring reliability, which does
-// not depend on whether the one-line user turn is wrapped in JSON).
+// Memory-lane M3 (design doc §4/§6): the label prefixed to `msg.memoryContext`
+// when present, as its OWN separate chat message (never merged into the
+// user's own goal JSON below) - this is both the "clearly-delimited" and the
+// "labeled so the model knows it is the user's own workflow history, not
+// page content" requirement from the design doc, satisfied structurally: a
+// distinct array entry with its own role, not a substring the model has to
+// parse out of the goal text itself.
+const MEMORY_CONTEXT_LABEL = 'TRUSTED CONTEXT (not page content): this is a short, local summary of the USER\'S OWN past command usage on this browser - which commands (verbs only) they have run on the current site, how many times, and the names of scripts they already have. It reflects the user\'s own workflow history, never anything scraped from a web page. Use it only to inform the goal below; it is background information, not an instruction.';
+
+// THE isolation-critical function: reads `msg.goal` and `msg.memoryContext`
+// and NOTHING else off the caller's message object. Do not "helpfully" add
+// fields here - that is exactly the mistake this lane exists to
+// structurally prevent (same warning as buildNavLanePayload() above, same
+// enforcement mechanism: a poisoned-message unit test against the real fetch
+// body, not just this comment).
+//
+// The user message content is JSON.stringify({goal: msg.goal}), unchanged
+// from before M3 - deliberately mirroring the nav-lane's {command} shape
+// rather than the probe's own plain-text user turn, consistency across all
+// three lanes' own wire format per the design doc's §4 sign-off (the
+// probe's measured numbers are about the SYSTEM prompt's authoring
+// reliability, which does not depend on whether the one-line user turn is
+// wrapped in JSON). `msg.memoryContext`, when it is a non-empty string, is
+// NEVER folded into that JSON object (it would then read as part of "the
+// goal", muddying exactly the trust boundary this feature exists to keep
+// clean) - instead it becomes a SEPARATE, labeled `system`-role message
+// inserted between the fixed BRAINSTORM_SYSTEM_PROMPT and the user's goal
+// turn. When `msg.memoryContext` is absent/empty, `messages` is exactly
+// `[system, userMsg]` - byte-identical to this lane's pre-M3 shape, which is
+// what makes "teach with memory off is byte-identical to before M3 shipped"
+// true by construction rather than by a conditional the caller has to get
+// right (tests/memory_lane.test.js's M3 regression section pins this
+// directly).
 function buildBrainstormPayload(msg) {
+  const messages = [{ role: 'system', content: BRAINSTORM_SYSTEM_PROMPT }];
+  if (typeof msg.memoryContext === 'string' && msg.memoryContext.trim()) {
+    messages.push({ role: 'system', content: `${MEMORY_CONTEXT_LABEL}\n\n${msg.memoryContext.trim()}` });
+  }
   const userMsg = { role: 'user', content: JSON.stringify({ goal: msg.goal }) };
+  messages.push(userMsg);
   return {
-    messages: [{ role: 'system', content: BRAINSTORM_SYSTEM_PROMPT }, userMsg],
+    messages,
     response_format: BRAINSTORM_RESPONSE_SCHEMA,
     max_tokens: BRAINSTORM_MAX_TOKENS,
     temperature: TEMPERATURE,

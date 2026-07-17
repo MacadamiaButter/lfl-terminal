@@ -1,6 +1,6 @@
 # Privacy Policy - lfl-terminal
 
-Effective date: 2026-07-14
+Effective date: 2026-07-16
 
 lfl-terminal is a local-first browser extension. Its entire design goal is
 that your data stays on your machine. This policy describes exactly what that
@@ -31,11 +31,19 @@ channel by which we could.
   `go`, `read` - never the arguments or search terms you typed) you use on
   which sites (origin only - scheme and host, never the path or query) so it
   can suggest turning a repeated pattern into a script. It never records page
-  content, form values, or what you typed into a page or search box, and this
-  memory is never sent anywhere - not to us, not to any model - in this phase
-  of the feature. Stored locally (`chrome.storage.local`); `memory show`
-  displays exactly what is recorded, `memory forget <site>` or `memory clear`
-  erases it, and `memory off` stops all recording.
+  content, form values, or what you typed into a page or search box. Stored
+  locally (`chrome.storage.local`); `memory show` displays exactly what is
+  recorded, `memory forget <site>` or `memory clear` erases it, and
+  `memory off` stops all recording.
+  This memory is never sent anywhere except your own local model, and only
+  when you turn BOTH `memory` and `teach` on and use `teach` yourself: a
+  short summary (verbs, counts, and the names of scripts you already have -
+  never arguments, never page content) is added as background context to
+  that one request, the same loopback request `teach` always makes to
+  `http://127.0.0.1:1238`. It never leaves your machine, is never sent to us
+  or any third party, and is never included in the request the terminal
+  makes when it interprets an everyday command or `ask` on a page - only
+  `teach`'s own drafting request can ever carry it.
 - **No network egress to us.** The extension makes no network requests to any
   server operated by the developer, and contains no analytics, advertising, or
   crash-reporting code.
