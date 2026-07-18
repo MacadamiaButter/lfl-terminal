@@ -786,6 +786,63 @@ console.log('\n[10] audit value-freedom - kind-only summaries, no compared/page-
 })();
 
 // =====================================================================
+// [11] test-hook run verdict (lab L1 follow-up, 2026-07-18) - structural:
+// terminal.js exposes lastRunVerdict on the SAME dev-gated data-lfl-state
+// payload as lastResult (H2: nothing new is exposed when dev hooks are
+// off - the field lives inside the one payload the _devHooksEnabled
+// early-return already guards), set at every §2.3 verdict emission point,
+// counters-only (never the diagnostic string).
+// =====================================================================
+console.log('\n[11] test-hook run verdict (structural) - dev-gated, counters-only');
+
+(() => {
+  const terminalSrc = fs.readFileSync(path.join(ROOT, 'extension', 'content', 'terminal.js'), 'utf8');
+
+  check('structural: _updateTestHook payload includes lastRunVerdict', () => {
+    assert.match(terminalSrc, /lastRunVerdict: this\._lastRunVerdict,/,
+      'the hook payload must carry this._lastRunVerdict');
+  });
+
+  check('structural: the lastRunVerdict field sits INSIDE the dev-gated payload (after the _devHooksEnabled early-return)', () => {
+    const gateIdx = terminalSrc.indexOf("if (!this._devHooksEnabled) {");
+    const fieldIdx = terminalSrc.indexOf('lastRunVerdict: this._lastRunVerdict,');
+    assert.ok(gateIdx !== -1, 'the H2 dev-hooks gate must exist');
+    assert.ok(fieldIdx !== -1, 'the lastRunVerdict payload field must exist');
+    assert.ok(fieldIdx > gateIdx,
+      'lastRunVerdict must be assembled after the dev-hooks early-return, i.e. only ever published when dev hooks are on');
+  });
+
+  check('structural: all four §2.3 verdict emission points set _lastRunVerdict (ok, failed, arrival-failed, paused)', () => {
+    assert.match(terminalSrc, /this\._lastRunVerdict = \{ name: run\.name, ok: true, outcome: 'ok', stepsTotal: run\.total, stepIndex: run\.total \};/,
+      'the _afterSettle ok branch must set the verdict');
+    const failedSets = terminalSrc.match(/this\._lastRunVerdict = \{ name: run\.name, ok: false, outcome: 'failed', stepsTotal: run\.total, stepIndex: run\.index \};/g) || [];
+    assert.strictEqual(failedSets.length, 2,
+      'both failure emission points (_afterSettle fail + _advanceQueue arrival-mismatch) must set the verdict');
+    assert.match(terminalSrc, /this\._lastRunVerdict = \{ name: run\.name, ok: true, outcome: 'paused', stepsTotal: run\.total, stepIndex: run\.index \};/,
+      'the pause path must set the verdict');
+  });
+
+  check('structural: a new run resets the previous verdict (no stale same-page verdict)', () => {
+    assert.match(terminalSrc, /this\.state\.activeRun = \{ name: run\.name, total: run\.steps\.length, index: 1 \};\n\s*\/\/[^\n]*\n\s*\/\/[^\n]*\n\s*\/\/[^\n]*\n\s*this\._lastRunVerdict = null;/,
+      'approving a run must null the previous verdict');
+  });
+
+  check('structural: the verdict object is counters-only - no diagnostic/message/instruction field ever assigned into it', () => {
+    const sets = terminalSrc.match(/this\._lastRunVerdict = \{[^}]*\};/g) || [];
+    assert.ok(sets.length >= 4, 'expected at least the four emission-point assignments');
+    for (const s of sets) {
+      assert.ok(!/diagnostic|message|instruction|msg|output/.test(s),
+        `verdict assignment must stay counters-only: ${s}`);
+    }
+  });
+
+  check('structural: no new storage key - _lastRunVerdict never appears in a chrome.storage call', () => {
+    const storageCalls = terminalSrc.match(/chrome\.storage[^;]*_lastRunVerdict/g) || [];
+    assert.strictEqual(storageCalls.length, 0, '_lastRunVerdict must be in-memory only');
+  });
+})();
+
+// =====================================================================
 // summary
 // =====================================================================
 console.log(`\n${passed} passed, ${failed} failed`);

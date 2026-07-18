@@ -337,6 +337,21 @@
       // can verify hard-block enforcement (e.g. password-field refusal)
       // without needing to read text out of the closed shadow root.
       this._lastResult = null;
+      // "recipes that succeed" follow-up (lab L1 finding, 2026-07-18): the
+      // last run VERDICT ({name, ok, outcome, stepsTotal, stepIndex} or
+      // null), exposed on the SAME dev-gated test hook as _lastResult so an
+      // external harness can read the run's own step accounting instead of
+      // reconstructing it from lastResult polling (which provably
+      // undercounts on fast local pages - see lfl-lab's RESULTS-TASKS.md
+      // human/fixture section). Display/diagnostic-only, in-memory only
+      // (never persisted, no storage key), and value-free by construction:
+      // name + verdict word + two counters, never a diagnostic string, never
+      // a compared/page-read value - same audit rule the run verdict's own
+      // _auditPush lines already follow. Set at exactly the four places the
+      // §2.3 verdict line itself is emitted (_afterSettle ok/fail, the
+      // _advanceQueue arrival-mismatch halt, _handlePauseSegment) and reset
+      // when a new run is approved.
+      this._lastRunVerdict = null;
       // M2.3 rate limiting is now SW-authoritative (see class header comment
       // and background/service-worker.js) - this is only a cache of the
       // last real snapshot the service worker returned, for synchronous
@@ -1703,6 +1718,11 @@
             const msg = LFL.registry.formatRunOk(run.name, run.total);
             this.printOk(msg);
             this._auditPush({ action: 'run', reason: run.name }, 'ok', msg);
+            // Test-hook verdict (see _lastRunVerdict's constructor comment):
+            // counters only, refreshed AFTER the fact because the step's own
+            // _settle() already ran before _afterSettle() was reached.
+            this._lastRunVerdict = { name: run.name, ok: true, outcome: 'ok', stepsTotal: run.total, stepIndex: run.total };
+            this._updateTestHook();
             this.state.activeRun = null;
           }
           // else: mid-run, more steps queued - fall through to _advanceQueue() below.
@@ -1720,6 +1740,10 @@
           // a compared value) - the diagnostic tail can carry an expect/wait
           // value and stays scrollback-only via the printError above.
           this._auditPush({ action: 'run', reason: run.name }, 'failed', LFL.registry.formatRunFailed(run.name, run.index, run.total, ''));
+          // Test-hook verdict - same value-free counters-only shape as the
+          // ok branch above; never carries the diagnostic.
+          this._lastRunVerdict = { name: run.name, ok: false, outcome: 'failed', stepsTotal: run.total, stepIndex: run.index };
+          this._updateTestHook();
           this.state.activeRun = null;
         }
       }
@@ -1753,6 +1777,9 @@
           const msg = LFL.registry.formatRunFailed(run.name, run.index, run.total, arrival.message);
           this.printError(msg);
           this._auditPush({ action: 'run', reason: run.name }, 'failed', msg);
+          // Test-hook verdict - set BEFORE the _settle(false, ...) below,
+          // whose own _updateTestHook() call publishes it.
+          this._lastRunVerdict = { name: run.name, ok: false, outcome: 'failed', stepsTotal: run.total, stepIndex: run.index };
           this.state.activeRun = null;
         } else {
           this._auditPush({ action: 'queue' }, 'halted(arrival-mismatch)', arrival.message);
@@ -2615,6 +2642,11 @@
         const runMsg = LFL.registry.formatRunPaused(run.index, instruction);
         this.printInfo(runMsg);
         this._auditPush({ action: 'run', reason: run.name }, 'paused', runMsg);
+        // Test-hook verdict (see _lastRunVerdict's constructor comment) -
+        // pause is a designed stop, not a failure (§2.3), so ok:true with
+        // its own outcome word; the instruction text stays out (value-free
+        // rule). Set BEFORE the _settle() below, which publishes it.
+        this._lastRunVerdict = { name: run.name, ok: true, outcome: 'paused', stepsTotal: run.total, stepIndex: run.index };
       }
       this._auditPush({ action: 'pause', reason: instruction }, 'paused', msg);
       this._settle(true, msg);
@@ -2887,6 +2919,10 @@
         // directly (it is dispatched synchronously below, never queued) -
         // see state.activeRun's own comment.
         this.state.activeRun = { name: run.name, total: run.steps.length, index: 1 };
+        // A fresh run invalidates any previous run's test-hook verdict
+        // (see _lastRunVerdict's constructor comment) - hygiene so a
+        // same-page second `run` can never expose a stale verdict.
+        this._lastRunVerdict = null;
 
         // Queue everything past the first step, ENVELOPE-TAGGED with the
         // run's identity (see _encodeRunStep()) so state.activeRun can be
@@ -4959,6 +4995,12 @@
         mode: this.state.mode,
         seq: this._seq,
         lastResult: this._lastResult,
+        // Run verdict, counters-only ({name, ok, outcome, stepsTotal,
+        // stepIndex} or null) - dev-gated like everything else in this
+        // payload (the _devHooksEnabled early-return above), in-memory
+        // only, value-free by construction (see _lastRunVerdict's
+        // constructor comment).
+        lastRunVerdict: this._lastRunVerdict,
         rateLimit: budget,
         pendingProposal: this.state.pendingProposal
           ? {
