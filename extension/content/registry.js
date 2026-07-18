@@ -1169,6 +1169,15 @@
     }
   }
 
+  // Value-free audit summary for expect/wait (design §2.1 hard rule: "the
+  // audit log entry and memory lane record the VERB and verdict only, never
+  // the compared value"). Predicate KIND only - no labels, no args, no
+  // diagnostic text, so neither a page-read value nor a typed comparison
+  // value can ever reach the audit log through these two verbs.
+  function auditSummaryForPredicate(verb, kind, verdict) {
+    return `${verb} ${kind ? String(kind) : '(malformed)'}: ${verdict}`;
+  }
+
   // evalExpect(pred, domFacts) - the ONE predicate-evaluation function
   // `expect` (synchronous, engine.js) and `wait` (polling, terminal.js)
   // both call, every time, against facts their own DOM-touching extractor
@@ -2371,6 +2380,7 @@
     // "recipes that succeed" (expect / wait / run verdict)
     WAIT_POLL_MS, WAIT_DEFAULT_TIMEOUT_S, WAIT_MAX_TIMEOUT_S,
     parseExpectStep, parseWaitStep, formatPredicateLabel, evalExpect,
+    auditSummaryForPredicate,
     formatRunOk, formatRunFailed, formatRunPaused,
   };
 });

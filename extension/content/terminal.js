@@ -1716,7 +1716,10 @@
           const diagnostic = ((this._lastResult && this._lastResult.message) || '').split('\n')[0].slice(0, 160);
           const msg = LFL.registry.formatRunFailed(run.name, run.index, run.total, diagnostic);
           this.printError(msg);
-          this._auditPush({ action: 'run', reason: run.name }, 'failed', msg);
+          // Audit gets the HEAD only (design §2.1: verb and verdict, never
+          // a compared value) - the diagnostic tail can carry an expect/wait
+          // value and stays scrollback-only via the printError above.
+          this._auditPush({ action: 'run', reason: run.name }, 'failed', LFL.registry.formatRunFailed(run.name, run.index, run.total, ''));
           this.state.activeRun = null;
         }
       }
@@ -2136,13 +2139,16 @@
         // "one mechanism, two callers"; this makes three).
         if (det.expectFailed) {
           this.printError(det.output);
-          this._auditPush({ action: 'expect' }, 'failed', det.output ? det.output.slice(0, 160) : '');
+          // det.auditSummary is the value-free kind-only line engine.js
+          // built (design §2.1: audit records verb+verdict, never a
+          // compared value; det.output's diagnostic stays scrollback-only).
+          this._auditPush({ action: 'expect' }, 'failed', det.auditSummary || '');
           this._settle(false, det.output || '');
           this._afterSettle(false);
           return;
         }
         this._printDetResult(det);
-        this._auditPush({ action: 'deterministic' }, 'auto', det.output ? det.output.slice(0, 160) : '');
+        this._auditPush({ action: 'deterministic' }, 'auto', det.auditSummary || (det.output ? det.output.slice(0, 160) : ''));
         this._settle(true, det.output || '');
         // FIX 1 (security verify LOW-1): `back`/same-origin `open`/`open!`/
         // auto-submitting `search` all INITIATE a navigation from inside
@@ -2638,14 +2644,18 @@
         ? `wait ${Math.round(parsed.timeoutMs / 1000)}s`
         : `wait for ${LFL.registry.formatPredicateLabel(pred)}`;
       const result = await this._runWaitLoop(pred, parsed.timeoutMs, label);
+      // Audit gets the value-free kind-only summary, never result.output -
+      // a failed `wait for heading` diagnostic includes page-read heading
+      // text ("last seen headings: ..."), which is scrollback-only per
+      // design §2.1's audit rule (same posture as expect's auditSummary).
       if (result.ok) {
         this.printOk(result.output);
-        this._auditPush({ action: 'wait' }, 'ok', result.output);
+        this._auditPush({ action: 'wait' }, 'ok', LFL.registry.auditSummaryForPredicate('wait', parsed.kind, 'OK'));
         this._settle(true, result.output);
         this._afterSettle(true);
       } else {
         this.printError(result.output);
-        this._auditPush({ action: 'wait' }, result.cancelled ? 'cancelled' : 'failed', result.output);
+        this._auditPush({ action: 'wait' }, result.cancelled ? 'cancelled' : 'failed', LFL.registry.auditSummaryForPredicate('wait', parsed.kind, result.cancelled ? 'CANCELLED' : 'FAILED'));
         this._settle(false, result.output);
         this._afterSettle(false);
       }

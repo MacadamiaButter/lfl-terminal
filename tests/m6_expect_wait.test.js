@@ -720,6 +720,72 @@ console.log('\n[9] halt-on-fail contract (structural) - expectFailed is additive
 })();
 
 // =====================================================================
+// [10] audit value-freedom (design §2.1 hard rule; verify finding F1) -
+// the audit log records verb+verdict only: expect/wait audit the
+// kind-only auditSummary, never the output/diagnostic (which can carry a
+// page-read field value), and a failed run audits the head-only verdict.
+// =====================================================================
+console.log('\n[10] audit value-freedom - kind-only summaries, no compared/page-read values');
+
+(() => {
+  const sandbox = buildSandbox();
+
+  check('auditSummaryForPredicate is kind-only: no labels, no args, no values', () => {
+    const R = sandbox.window.LFL.registry;
+    assert.strictEqual(R.auditSummaryForPredicate('expect', 'field', 'FAILED'), 'expect field: FAILED');
+    assert.strictEqual(R.auditSummaryForPredicate('wait', 'heading', 'OK'), 'wait heading: OK');
+    assert.strictEqual(R.auditSummaryForPredicate('expect', null, 'FAILED'), 'expect (malformed): FAILED');
+  });
+
+  const secretEl = fakeInput({ type: 'text', value: 'SECRET-PAGE-VALUE-123' });
+  sandbox.window.LFL.axtree.build = () => {
+    const map = new Map([[1, secretEl]]);
+    return { entries: [{ index: 1, ref: secretEl, role: 'textbox', name: 'Email', tag: 'input', extra: 'type=text' }], map, notes: [] };
+  };
+  check('failed field comparison: output carries the diagnostic, auditSummary carries NEITHER the read value NOR the label', () => {
+    const det = sandbox.window.LFL.engine.tryDeterministic('expect field "Email" equals "other@x"', freshState());
+    assert.strictEqual(det.expectFailed, true);
+    assert.ok(det.output.indexOf('SECRET-PAGE-VALUE-123') !== -1, 'diagnostic (scrollback-only) shows the read value');
+    assert.strictEqual(det.auditSummary, 'expect field: FAILED');
+    assert.ok(det.auditSummary.indexOf('SECRET-PAGE-VALUE-123') === -1);
+    assert.ok(det.auditSummary.indexOf('Email') === -1);
+    assert.ok(det.auditSummary.indexOf('other@x') === -1);
+  });
+  check('passing expect carries a kind-only auditSummary too (typed comparison value stays out of audit)', () => {
+    const det = sandbox.window.LFL.engine.tryDeterministic('expect field "Email" equals "SECRET-PAGE-VALUE-123"', freshState());
+    assert.strictEqual(det.expectFailed, undefined, det.output);
+    assert.strictEqual(det.auditSummary, 'expect field: OK');
+  });
+  check('malformed expect carries the (malformed) auditSummary, never the raw typed text', () => {
+    const det = sandbox.window.LFL.engine.tryDeterministic('expect bogus "maybe-sensitive-arg"', freshState());
+    assert.strictEqual(det.expectFailed, true);
+    assert.strictEqual(det.auditSummary, 'expect (malformed): FAILED');
+  });
+
+  check('structural: terminal.js audits det.auditSummary for expect, NEVER det.output', () => {
+    const terminalSrc = fs.readFileSync(path.join(ROOT, 'extension', 'content', 'terminal.js'), 'utf8');
+    assert.match(terminalSrc, /_auditPush\(\{ action: 'expect' \}, 'failed', det\.auditSummary \|\| ''\)/,
+      'the expect audit push must use det.auditSummary');
+    assert.ok(!/_auditPush\(\{ action: 'expect' \}[^)]*det\.output/.test(terminalSrc),
+      'the expect audit push must not reference det.output');
+  });
+  check('structural: terminal.js audits the head-only run verdict (diagnostic tail stripped)', () => {
+    const terminalSrc = fs.readFileSync(path.join(ROOT, 'extension', 'content', 'terminal.js'), 'utf8');
+    assert.match(terminalSrc, /'failed', LFL\.registry\.formatRunFailed\(run\.name, run\.index, run\.total, ''\)\)/,
+      'the run-failed audit push must rebuild the verdict with an empty diagnostic');
+  });
+  check('structural: terminal.js audits auditSummaryForPredicate for wait ok/failed, never result.output', () => {
+    const terminalSrc = fs.readFileSync(path.join(ROOT, 'extension', 'content', 'terminal.js'), 'utf8');
+    const waitAudits = terminalSrc.match(/_auditPush\(\{ action: 'wait' \}[^\n]*/g) || [];
+    assert.ok(waitAudits.length >= 3, 'expected the three wait audit pushes');
+    for (const line of waitAudits) {
+      assert.ok(line.indexOf('result.output') === -1, `wait audit push must not carry result.output: ${line}`);
+    }
+    assert.match(terminalSrc, /_auditPush\(\{ action: 'wait' \}, 'ok', LFL\.registry\.auditSummaryForPredicate\('wait', parsed\.kind, 'OK'\)\)/);
+  });
+})();
+
+// =====================================================================
 // summary
 // =====================================================================
 console.log(`\n${passed} passed, ${failed} failed`);

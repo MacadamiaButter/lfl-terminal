@@ -1263,17 +1263,35 @@
   // was checked.
   function doExpect(raw, state) {
     const parsed = LFL.registry.parseExpectStep(raw);
-    if (!parsed.ok) return { output: `expect: ${parsed.error}`, expectFailed: true };
+    // auditSummary (design §2.1 hard rule): the audit log gets this
+    // value-free, kind-only line instead of `output` - `output` may carry a
+    // compared/page-read value in its diagnostic and is scrollback-only.
+    if (!parsed.ok) {
+      return {
+        output: `expect: ${parsed.error}`,
+        expectFailed: true,
+        auditSummary: LFL.registry.auditSummaryForPredicate('expect', null, 'FAILED'),
+      };
+    }
     const pred = { kind: parsed.kind, args: parsed.args };
     const label = LFL.registry.formatPredicateLabel(pred);
     const facts = extractExpectFacts(pred, state);
     const res = LFL.registry.evalExpect(pred, facts);
-    if (res.ok) return { output: `expect ${label}: OK` };
+    if (res.ok) {
+      return {
+        output: `expect ${label}: OK`,
+        auditSummary: LFL.registry.auditSummaryForPredicate('expect', parsed.kind, 'OK'),
+      };
+    }
     const detailLine = res.detail ? `\n  ${res.detail}` : '';
     // Design §3: "keep the field minimal ({expectFailed:true} on the
     // result object)" - the ONE additive change to tryDeterministic()'s
     // {output} contract; every other handler's return shape is untouched.
-    return { output: `expect ${label}: FAILED${detailLine}`, expectFailed: true };
+    return {
+      output: `expect ${label}: FAILED${detailLine}`,
+      expectFailed: true,
+      auditSummary: LFL.registry.auditSummaryForPredicate('expect', parsed.kind, 'FAILED'),
+    };
   }
 
   // ---- `here` ----

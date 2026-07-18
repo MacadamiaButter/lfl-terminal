@@ -1962,13 +1962,17 @@ was already outside every model path before this build, and stays that way:
   `TS_QUEUE_*` messages, never a new storage key) carries a run's
   name/total/step-index, never a field value.
 - **Never in the audit log entry.** `_auditPush()` (unchanged signature)
-  records the verb and verdict only for an `expect`/`wait`/`run` call
-  (`{action:'expect'}`/`{action:'wait'}`/`{action:'run', reason:name}`, a
-  short slice of the OUTPUT string for the summary) - the same "verb+verdict,
-  never the argument" posture the memory lane already holds itself to
-  elsewhere in this file. Diagnostic values that do appear in that summary
-  slice are display text a human already saw on screen the moment before,
-  not a new channel.
+  records the verb and verdict only for an `expect`/`wait`/`run` call:
+  `expect`/`wait` audit a value-free, kind-only summary built by
+  `registry.js auditSummaryForPredicate()` (e.g. `expect field: FAILED`),
+  never the output/diagnostic string; a failed `run` audits the head-only
+  verdict (`run <name>: FAILED at step K/N`) with the diagnostic tail
+  stripped. Diagnostics that can carry a compared or page-read value exist
+  ONLY on the scrollback surface via `printError`/`printOk` - the same
+  "verb+verdict, never the argument" posture the memory lane already holds
+  itself to elsewhere in this file. (This was a verify finding, fixed
+  post-build: the first build audited a slice of the output string, which
+  for a failed field comparison included the read value.)
 - **Truncated even on-screen.** `EXPECT_VALUE_DIAG_CAP` (48 chars) caps how
   much of a field value a diagnostic ever shows, so even the display-only
   surface never dumps an unbounded value.
