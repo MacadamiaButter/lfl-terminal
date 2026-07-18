@@ -12,14 +12,14 @@ DETERMINISTIC-ONLY, same posture as popover_smoke.py: neither `expect` nor
 to either LLM lane, no rate-limit budget spent), so this script needs NO
 local model server running.
 
-Honest note on the harness this was authored in: this environment does not
-have the `playwright` Python package installed (`python3 -c "import
-playwright"` fails with ModuleNotFoundError), so this script has NOT been
-run here - it is written to the same pattern as the other *_smoke.py files
-in this directory (all of which share this same constraint) and should be
-run by whoever verifies this build, with:
-  python3 -m pip install playwright && python3 -m playwright install chromium
-  python tests/m6_expect_wait_smoke.py
+Honest note: authored blind (no playwright in the build environment) and
+first RUN 2026-07-17 via lfl-lab's harness venv
+(harness/.venv/bin/python). The first run exposed a race in this script's
+own case-1 predicate (stale `dev on` settle matched an any-settle poll),
+fixed by naming the final settle line; the product behaved correctly in
+both cases from the start. Run with:
+  <lfl-lab>/harness/.venv/bin/python tests/m6_expect_wait_smoke.py
+or install playwright + chromium and use plain python3.
 
 Writes screenshots to tests/m6-shots/ and prints PASS/FAIL per case, exiting
 nonzero if any case failed.
@@ -197,7 +197,15 @@ def run():
                 'wait for heading "Ready" within 5s && expect heading "Ready"',
                 settle_wait_s=0.3,
             )
-            result = wait_for_last_result(page, lambda r: r.get("ok") is True or r.get("ok") is False, timeout_s=8)
+            # Predicate must name the FINAL settle: `dev on`'s own settle
+            # (ok: True) is still sitting in lastResult while the delayed
+            # `wait for` runs, so an any-settle predicate matches the stale
+            # value instantly (found on this script's first real run).
+            result = wait_for_last_result(
+                page,
+                lambda r: 'expect heading "Ready"' in (r.get("message") or ""),
+                timeout_s=8,
+            )
             check(
                 "case 1: chain settles true (both `wait for` and the chained `expect` passed)",
                 result is not None and result.get("ok") is True,

@@ -8,6 +8,7 @@ tests/.chrome-profile/
 tests/.chrome-profile-m2/
 tests/.chrome-profile-m3/
 tests/.chrome-profile-popover-smoke/
+tests/.chrome-profile-m6-smoke/
 server/.env.local
 
 dist/
