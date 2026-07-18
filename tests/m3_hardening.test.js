@@ -255,6 +255,13 @@ const M3_NEW_COMMAND_NAMES = [
   // RESERVED_NAMES comment on them). This pin proves the registry entries
   // themselves never leak into a model-emittable action enum.
   'welcome', 'tour', 'status',
+  // "recipes that succeed" (2026-07-17,
+  // LFL-TERMINAL-RECIPES-THAT-SUCCEED-DESIGN.md) - same guarantee. `expect`
+  // is dispatched inside engine.js's tryDeterministic() (synchronous,
+  // DOM-only); `wait` is head-intercepted in terminal.js's
+  // _dispatchSegment() (async poll loop) - neither one ever builds a
+  // model-lane payload of its own or reaches either RESPONSE_SCHEMA.
+  'expect', 'wait',
 ];
 
 async function testVocabularyLock() {

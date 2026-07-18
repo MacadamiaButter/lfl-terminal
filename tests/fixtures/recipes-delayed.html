@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>recipes delayed-render fixture</title></head>
+<body>
+<!--
+  tests/fixtures/recipes-delayed.html - "recipes that succeed" smoke fixture
+  (LFL-TERMINAL-RECIPES-THAT-SUCCEED-DESIGN.md, see tests/m6_expect_wait_smoke.py).
+
+  #status starts as "Loading" and is rewritten to "Ready" ~1.5s after load,
+  via a plain setTimeout - a deterministic, self-contained stand-in for "a
+  page whose real content shows up after the initial render" (the exact case
+  `wait for heading ...` exists to cover; a bare `expect heading "Ready"`
+  typed immediately after page load is expected to FAIL, since the heading
+  has not changed yet).
+-->
+<h1 id="status">Loading</h1>
+<p>This heading changes from "Loading" to "Ready" about 1.5 seconds after
+the page loads - a fixed, deterministic delay, not a race against anything
+external.</p>
+<script>
+  setTimeout(function () {
+    document.getElementById('status').textContent = 'Ready';
+  }, 1500);
+</script>
+</body>
+</html>

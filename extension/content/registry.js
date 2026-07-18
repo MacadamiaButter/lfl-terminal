@@ -265,6 +265,12 @@
     // in place) - same shadowing footgun as every other standalone control
     // command above.
     'config', 'pin', 'unpin',
+    // "recipes that succeed" (2026-07-17,
+    // LFL-TERMINAL-RECIPES-THAT-SUCCEED-DESIGN.md §3): `expect` (deterministic
+    // assertion, dispatched in engine.js's tryDeterministic) and `wait`
+    // (bounded polling, dispatched async in terminal.js) - same shadowing
+    // footgun as every other built-in verb above.
+    'expect', 'wait',
     // memory lane M1/M2 (2026-07-16, LFL-TERMINAL-MEMORY-LANE-DESIGN.md):
     // `memory` (show/on/off/quiet/loud/forget/clear) and its two aliases
     // `remember` (-> `memory on`) / `forget <origin>` (-> `memory forget
@@ -803,6 +809,20 @@
         }
         continue; // pause is never index-addressed - skip the check below
       }
+      // "recipes that succeed" (design §3): expect/wait steps must parse
+      // via the SAME parsers define/import/run time all share (one
+      // definition of "a valid expect/wait step") - malformed forms are
+      // rejected here, at save/import, not discovered later at run time.
+      if (head === 'expect') {
+        const p = parseExpectStep(step);
+        if (!p.ok) return { ok: false, reason: `step ${i + 1}: ${p.error}` };
+        continue; // expect is read-only - never index-addressed, skip the check below
+      }
+      if (head === 'wait') {
+        const p = parseWaitStep(step);
+        if (!p.ok) return { ok: false, reason: `step ${i + 1}: ${p.error}` };
+        continue; // wait polls a predicate or sleeps - never index-addressed, skip the check below
+      }
       const idx = stepIsIndexAddressed(step);
       if (idx.blocked) {
         return { ok: false, reason: `step ${i + 1}: ${idx.why} - this cannot be safely replayed later; use pause and do it manually instead` };
@@ -942,6 +962,20 @@
       }
       return { ok: true };
     }
+    // "recipes that succeed": re-parse AFTER substitution/alias-expansion,
+    // same posture as pause just above - a template that only becomes
+    // malformed once $1..$9/$@ are filled in (or an alias expansion) must
+    // still be caught before it runs, not just at define/import time.
+    if (head === 'expect') {
+      const p = parseExpectStep(stepText);
+      if (!p.ok) return { ok: false, reason: p.error };
+      return { ok: true };
+    }
+    if (head === 'wait') {
+      const p = parseWaitStep(stepText);
+      if (!p.ok) return { ok: false, reason: p.error };
+      return { ok: true };
+    }
     const idx = stepIsIndexAddressed(stepText);
     if (idx.blocked) {
       return { ok: false, reason: `${idx.why} - this cannot be safely replayed; use pause and do it manually instead` };
@@ -1010,6 +1044,217 @@
     });
     if (err) return { ok: false, reason: err };
     return { ok: true, text };
+  }
+
+  // ---- "recipes that succeed" (2026-07-17,
+  // LFL-TERMINAL-RECIPES-THAT-SUCCEED-DESIGN.md): expect / wait parsing +
+  // predicate evaluation, and the `run` verdict line formats ----
+  //
+  // parseExpectStep(raw)/parseWaitStep(raw) are pure string-in,
+  // structured-result-out parsers, same house style as
+  // parseScriptBody/substituteParams/tokenizeArgs above - no DOM, directly
+  // unit-testable. evalExpect(pred, domFacts) is likewise pure: it NEVER
+  // touches document/location/chrome.* itself, only compares/formats
+  // already-extracted facts (design §3: "kept pure by passing extracted
+  // facts"). DOM fact EXTRACTION (what actually reads the live page) lives
+  // in engine.js's extractExpectFacts() (synchronous, `expect`'s own
+  // handler) and is reused, unmodified, by terminal.js's `wait` poll loop
+  // every 250ms - ONE predicate, ONE definition of "does this match" is
+  // shared by both verbs, exactly as design §2.2 requires.
+
+  const WAIT_POLL_MS = 250;
+  const WAIT_DEFAULT_TIMEOUT_S = 10;
+  const WAIT_MAX_TIMEOUT_S = 30;
+  // Diagnostics only ever show a capped slice of a field value (design §4:
+  // "keep every diagnostic under ~3 lines") - never the raw, unbounded
+  // value, and never anywhere near a model payload (§2.1's hard security
+  // rule - diagnostics are scrollback/queue-verdict text only, never sent
+  // to either LLM lane).
+  const EXPECT_VALUE_DIAG_CAP = 48;
+  const EXPECT_HEADINGS_DIAG_CAP = 3;
+
+  function truncateForDiagnostic(s) {
+    const t = String(s == null ? '' : s);
+    return t.length > EXPECT_VALUE_DIAG_CAP ? `${t.slice(0, EXPECT_VALUE_DIAG_CAP)}...` : t;
+  }
+
+  // `expect url contains "..."` / `expect origin "..."` / `expect text "..."` /
+  // `expect heading "..."` / `expect field "<label>" equals "..."` /
+  // `expect field "<label>" empty` - the closed set, design §2.1. Quoted
+  // arguments only, double quotes, no escapes - same quoting convention as
+  // splitChain()/tokenizeArgs() above, not a new one. Returns
+  // {ok:true, kind, args} or {ok:false, error}.
+  const EXPECT_USAGE = 'usage: expect url contains "..." | expect origin "..." | expect text "..." | expect heading "..." | expect field "<label>" equals "..." | expect field "<label>" empty';
+  const EXPECT_FORMS = [
+    { kind: 'url', re: /^expect\s+url\s+contains\s+"([^"]*)"\s*$/i, build: (m) => ({ substr: m[1] }) },
+    { kind: 'origin', re: /^expect\s+origin\s+"([^"]*)"\s*$/i, build: (m) => ({ origin: m[1] }) },
+    { kind: 'text', re: /^expect\s+text\s+"([^"]*)"\s*$/i, build: (m) => ({ substr: m[1] }) },
+    { kind: 'heading', re: /^expect\s+heading\s+"([^"]*)"\s*$/i, build: (m) => ({ substr: m[1] }) },
+    { kind: 'field', re: /^expect\s+field\s+"([^"]*)"\s+equals\s+"([^"]*)"\s*$/i, build: (m) => ({ label: m[1], mode: 'equals', value: m[2] }) },
+    { kind: 'field', re: /^expect\s+field\s+"([^"]*)"\s+empty\s*$/i, build: (m) => ({ label: m[1], mode: 'empty' }) },
+  ];
+
+  function parseExpectStep(raw) {
+    const s = (typeof raw === 'string' ? raw : '').trim();
+    if (!/^expect(\s|$)/i.test(s)) return { ok: false, error: EXPECT_USAGE };
+    for (const form of EXPECT_FORMS) {
+      const m = s.match(form.re);
+      if (m) return { ok: true, kind: form.kind, args: form.build(m) };
+    }
+    return { ok: false, error: EXPECT_USAGE };
+  }
+
+  // `wait for text|heading|field|url ... [within <N>s]` / `wait <N>s` -
+  // design §2.2. timeoutMs is always present in a successful parse and
+  // ALREADY validated against the hard cap (WAIT_MAX_TIMEOUT_S): a value
+  // above it is REJECTED here, at parse time, never silently clamped (§9
+  // sign-off B). Returns {ok:true, kind, args, timeoutMs} or
+  // {ok:false, error}.
+  const WAIT_USAGE = `usage: wait for text "..." | wait for heading "..." | wait for field "<label>" | wait for url contains "..." [within <N>s] | wait <N>s (timeout 1-${WAIT_MAX_TIMEOUT_S}s)`;
+
+  function parseWaitTimeoutSeconds(nStr) {
+    const n = parseInt(nStr, 10);
+    if (!Number.isFinite(n) || n < 1) return { ok: false, error: 'wait timeout must be at least 1s' };
+    if (n > WAIT_MAX_TIMEOUT_S) {
+      return { ok: false, error: `wait timeout cannot exceed ${WAIT_MAX_TIMEOUT_S}s (got ${n}s) - shorten it, or split the recipe with a "pause" step` };
+    }
+    return { ok: true, seconds: n };
+  }
+
+  const WAIT_FOR_FORMS = [
+    { kind: 'text', re: /^wait\s+for\s+text\s+"([^"]*)"(?:\s+within\s+(\d+)s)?\s*$/i, build: (m) => ({ substr: m[1] }) },
+    { kind: 'heading', re: /^wait\s+for\s+heading\s+"([^"]*)"(?:\s+within\s+(\d+)s)?\s*$/i, build: (m) => ({ substr: m[1] }) },
+    { kind: 'field', re: /^wait\s+for\s+field\s+"([^"]*)"(?:\s+within\s+(\d+)s)?\s*$/i, build: (m) => ({ label: m[1] }) },
+    { kind: 'url', re: /^wait\s+for\s+url\s+contains\s+"([^"]*)"(?:\s+within\s+(\d+)s)?\s*$/i, build: (m) => ({ substr: m[1] }) },
+  ];
+  const WAIT_SLEEP_RE = /^wait\s+(\d+)s\s*$/i;
+
+  function parseWaitStep(raw) {
+    const s = (typeof raw === 'string' ? raw : '').trim();
+    if (!/^wait(\s|$)/i.test(s)) return { ok: false, error: WAIT_USAGE };
+    const sleepM = s.match(WAIT_SLEEP_RE);
+    if (sleepM) {
+      const t = parseWaitTimeoutSeconds(sleepM[1]);
+      if (!t.ok) return t;
+      return { ok: true, kind: 'sleep', args: {}, timeoutMs: t.seconds * 1000 };
+    }
+    for (const form of WAIT_FOR_FORMS) {
+      const m = s.match(form.re);
+      if (!m) continue;
+      let seconds = WAIT_DEFAULT_TIMEOUT_S;
+      if (m[2] !== undefined) {
+        const t = parseWaitTimeoutSeconds(m[2]);
+        if (!t.ok) return t;
+        seconds = t.seconds;
+      }
+      return { ok: true, kind: form.kind, args: form.build(m), timeoutMs: seconds * 1000 };
+    }
+    return { ok: false, error: WAIT_USAGE };
+  }
+
+  // Reconstructs the canonical "<form text>" a predicate came from, for
+  // both `expect <label>: OK/FAILED` and `wait for <label>: ...` title
+  // lines - one formatter, shared, so the two verbs' titles can never drift
+  // apart in wording.
+  function formatPredicateLabel(pred) {
+    const kind = pred && pred.kind;
+    const args = (pred && pred.args) || {};
+    switch (kind) {
+      case 'url': return `url contains "${args.substr}"`;
+      case 'origin': return `origin "${args.origin}"`;
+      case 'text': return `text "${args.substr}"`;
+      case 'heading': return `heading "${args.substr}"`;
+      case 'field': return args.mode === 'empty' ? `field "${args.label}" empty` : `field "${args.label}" equals "${args.value}"`;
+      default: return String(kind || '(unknown)');
+    }
+  }
+
+  // evalExpect(pred, domFacts) - the ONE predicate-evaluation function
+  // `expect` (synchronous, engine.js) and `wait` (polling, terminal.js)
+  // both call, every time, against facts their own DOM-touching extractor
+  // gathered (engine.js's extractExpectFacts()). Pure: given the same
+  // pred+domFacts it always returns the same {ok, detail} - detail is '' on
+  // a pass (design §2.1: "PASS prints a quiet confirmation line", no
+  // diagnostic needed) and a <=3-line diagnostic body (design §4) on a
+  // fail, built ONLY from the numbers/strings already in domFacts, never a
+  // fresh DOM read of its own.
+  //
+  // Credential refusal (design §2.1 hard security rule, mutation-tested -
+  // design §7 item 1/2): a `field` predicate whose domFacts.isCredential is
+  // true is ALWAYS ok:false here, unconditionally, regardless of mode or
+  // domFacts.value - the caller-side extractor (engine.js) is what must
+  // never populate domFacts.value for a credential field in the first
+  // place (defense in depth: this function still refuses even if a future
+  // extractor bug ever did), and this is the only field-kind branch that
+  // can produce credential:true.
+  function evalExpect(pred, domFacts) {
+    const kind = pred && pred.kind;
+    const args = (pred && pred.args) || {};
+    const f = domFacts || {};
+    switch (kind) {
+      case 'url': {
+        const href = typeof f.href === 'string' ? f.href : '';
+        const ok = href.indexOf(args.substr) !== -1;
+        return { ok, detail: ok ? '' : `current url: ${href}` };
+      }
+      case 'origin': {
+        const actual = typeof f.origin === 'string' ? f.origin : '';
+        const ok = actual.toLowerCase() === String(args.origin || '').toLowerCase();
+        return { ok, detail: ok ? '' : `current origin: ${actual}` };
+      }
+      case 'text': {
+        const ok = (f.matchCount || 0) > 0;
+        const total = f.totalVisibleTextNodes || 0;
+        return { ok, detail: ok ? '' : `searched ${total} visible text node${total === 1 ? '' : 's'} on ${f.origin || ''}, no match` };
+      }
+      case 'heading': {
+        const ok = (f.matchCount || 0) > 0;
+        const seen = Array.isArray(f.headingsSeen) ? f.headingsSeen.slice(0, EXPECT_HEADINGS_DIAG_CAP) : [];
+        const detail = seen.length ? `last seen headings: ${seen.map((h) => `"${h}"`).join(', ')}` : 'no headings found on page';
+        return { ok, detail: ok ? '' : detail };
+      }
+      case 'field': {
+        if (f.isCredential) {
+          return { ok: false, credential: true, detail: `field "${args.label}" is a credential field - refusing to read its value for comparison` };
+        }
+        if (!f.found) {
+          const detail = f.ambiguous
+            ? `ambiguous field "${args.label}" - candidates:\n${(f.candidates || []).join('\n')}`
+            : `no fillable field matching "${args.label}"`;
+          return { ok: false, detail };
+        }
+        const value = typeof f.value === 'string' ? f.value : '';
+        if (args.mode === 'empty') {
+          const ok = value === '';
+          return { ok, detail: ok ? '' : `field "${args.label}" found, not empty (value: "${truncateForDiagnostic(value)}")` };
+        }
+        const ok = value === args.value;
+        const detail = value === ''
+          ? `field "${args.label}" found, value differs (field is empty)`
+          : `field "${args.label}" found, value differs (got "${truncateForDiagnostic(value)}")`;
+        return { ok, detail: ok ? '' : detail };
+      }
+      default:
+        return { ok: false, detail: 'unrecognized expect/wait predicate' };
+    }
+  }
+
+  // ---- `run <name>` verdict line formats (design §2.3) - pure string
+  // builders only; the STATE that decides which of these to print, and
+  // when (tracking which step of a run is in flight, surviving a mid-run
+  // navigation) is terminal.js's job (`state.activeRun` - see that file's
+  // own comment), kept out of this pure-parsing file the same way every
+  // other stateful decision in this project is split from its formatting. ----
+  function formatRunOk(name, total) {
+    const n = Number(total) || 0;
+    return `run ${name}: OK (${n} step${n === 1 ? '' : 's'})`;
+  }
+  function formatRunFailed(name, index, total, diagnostic) {
+    const tail = diagnostic ? ` - ${diagnostic}` : '';
+    return `run ${name}: FAILED at step ${index}/${total}${tail}`;
+  }
+  function formatRunPaused(index, instruction) {
+    return instruction ? `paused at step ${index} (${instruction})` : `paused at step ${index}`;
   }
 
   // ---- 4. did-you-mean (M4a friction trio, tool 3) ----
@@ -1430,6 +1675,13 @@
     theme: Object.freeze(['default', 'phosphor', 'amber', 'paper']),
     // _handleConfigCommand() (terminal.js): anchor|middleclick.
     config: Object.freeze(['anchor', 'middleclick']),
+    // "recipes that succeed": expect's closed set of second words
+    // (engine.js's tryDeterministic `expect` branch); wait's only literal
+    // second word is "for" (the `wait <N>s` fixed-sleep form has no second
+    // word to classify - it's a bare number+unit, already lit 'num' by the
+    // generic numeric-token pass below).
+    expect: Object.freeze(['url', 'origin', 'text', 'heading', 'field']),
+    wait: Object.freeze(['for']),
   });
 
   // ---- color grammar v2: help/man rich-text builders (design doc §5) ----
@@ -2116,5 +2368,9 @@
     // member-experience E2 (welcome) / E3 (tour)
     welcomeText, welcomeRich,
     tourStepCount, tourNextStep, tourJumpStep, tourStepRich, tourStepText,
+    // "recipes that succeed" (expect / wait / run verdict)
+    WAIT_POLL_MS, WAIT_DEFAULT_TIMEOUT_S, WAIT_MAX_TIMEOUT_S,
+    parseExpectStep, parseWaitStep, formatPredicateLabel, evalExpect,
+    formatRunOk, formatRunFailed, formatRunPaused,
   };
 });

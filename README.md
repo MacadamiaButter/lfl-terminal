@@ -130,7 +130,9 @@ unalias <name>                  remove an alias
 macro <name> = <cmd1> && <cmd2> define a named && chain (depth-1)
 unmacro <name>                  remove a macro
 script new|ls|show|rm <name>    define/list/show/remove a named, multi-step script (v1)
-run <name> [args...]            preview then run a script, substituting $1..$9/$@
+run <name> [args...]            preview then run a script, substituting $1..$9/$@ - ends in a verdict line
+expect url|origin|text|heading|field ...  deterministic assertion; FAIL halts a script/&&-chain (see Recipes below)
+wait for text|heading|field|url ... | wait <N>s  bounded polling (10s default, 30s cap); Esc cancels
 teach <goal> [as <name>]        draft a script from a goal (opt-in, off by default - see below)
 teach save that [as <name>]     draft a script from the most recently detected repeat pattern (needs memory on too)
 teach on | teach off            enable/disable the brainstorm lane
@@ -171,6 +173,53 @@ is refused at save/import time, so a script only ever composes the fixed
 vocabulary. Names are shared across aliases/macros/scripts - one name, one
 thing - but a script's OWN name doesn't have to avoid built-in verbs, since
 it's only ever reached via `run <name>`.
+
+### Recipes
+
+A script that only ever *runs* isn't the same as one that *worked*. Two more
+verbs give a script something to check itself against:
+
+- `expect` is a deterministic, read-only assertion - `expect url contains
+  "..."`, `expect origin "..."`, `expect text "..."`, `expect heading "..."`,
+  `expect field "<label>" equals "..."`, `expect field "<label>" empty`.
+  Typed alone, a failure just prints a short diagnostic (what was searched,
+  where, the nearest facts it could find). Inside a script or an `&&` chain,
+  a failed `expect` **halts the rest of it**, fail-closed - the same posture
+  a cross-origin redirect mid-chain already has. `expect field` refuses
+  outright on a credential field (password/OTP/etc.) - it never reads that
+  value, not even to compare it; a non-credential field's value only ever
+  appears in your own scrollback and in the diagnostic, never in storage,
+  the audit log, or a model payload.
+- `wait` polls the same predicates every 250ms until they pass or a timeout
+  fires - `wait for text "..."`, `wait for heading "..."`, `wait for field
+  "<label>"`, `wait for url contains "..."` (default 10s, `within <N>s` to
+  change it, hard cap 30s - a longer value is rejected outright, never
+  silently shortened), or a fixed `wait <N>s`. Esc cancels. A timeout or a
+  cancel is a step failure, same halt-on-fail as a failed `expect`. `wait`
+  never calls the model and never spends LLM or action budget.
+- `run <name>` now ends with an explicit verdict instead of just stopping:
+  `run checkout: OK (5 steps)` or `run checkout: FAILED at step 3/5 - no
+  fillable field matching "Coupon"`. A script that stops at `pause` reports
+  `paused at step 3 (click the buy button)` instead - that's a designed
+  stop, not a failure.
+
+One honest worked example - a script that only claims success if the page
+actually agrees:
+
+```
+script new wiki-search
+go en.wikipedia.org
+wait for heading "Wikipedia"
+search "Eiffel Tower"
+wait for heading "Eiffel Tower" within 15s
+expect url contains "Eiffel_Tower"
+```
+
+`run wiki-search` either ends in `run wiki-search: OK (5 steps)`, or tells
+you exactly which step didn't happen and what was actually on the page
+instead - no more silently "ran the commands" without knowing if any of them
+did what you meant. This is new; there are no reliability numbers to quote
+yet (that's a separate, ongoing measurement - see `docs/threat-model.md`).
 
 `teach` is opt-in and **off by default** - `teach on` turns it on for this
 browser profile. Once on, `teach check the wunderground forecast for santa fe

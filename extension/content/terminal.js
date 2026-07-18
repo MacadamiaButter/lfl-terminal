@@ -91,6 +91,15 @@
   const ARROW_KEY_DIRS = Object.freeze({
     ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',
   });
+  // "recipes that succeed" (2026-07-17) - see _encodeRunStep()'s own
+  // comment: a leading Unicode Private Use Area character (U+E000 - no
+  // keyboard produces it, no legitimate copy-pasted command text would
+  // plausibly contain it) followed by a fixed tag, so a plain user-typed/
+  // pasted queue entry can never be mistaken for a run-step envelope by
+  // accident. Deliberately NOT a NUL byte: a NUL byte makes git/most
+  // tooling treat the whole file as binary, losing line-level diff review
+  // for no real safety benefit over a PUA character here.
+  const RUN_STEP_ENVELOPE_PREFIX = 'lfl-run-step';
 
   // Kept in sync with content/terminal.css - see the TODO note there.
   const CSS_TEXT = `
@@ -232,6 +241,21 @@
         // chrome.*-capable async dispatch path the way go/alias/macro/dev/
         // origins need. Kept in sync everywhere _rlBudgetCache is assigned.
         rlBudgetCache: null,
+        // "recipes that succeed" (2026-07-17,
+        // LFL-TERMINAL-RECIPES-THAT-SUCCEED-DESIGN.md §2.3): {name, total,
+        // index} while a `run <name>` is in flight, else null - the ONE
+        // piece of state _afterSettle()/_handlePauseSegment() read to decide
+        // whether (and how) to print the run's verdict line. `index` is the
+        // 1-based step currently executing. Reconstructed at every SW-queue
+        // pop from a small envelope this build encodes into the QUEUED step
+        // text itself (see _encodeRunStep()/_decodeRunStep()) - this is what
+        // lets a run's verdict/step-count survive a mid-run navigation
+        // (fresh content-script injection = fresh `state`, but the SW-backed
+        // TS_QUEUE this rides on top of is unchanged, same mechanism every
+        // other chain/script already depends on). Never persisted anywhere
+        // beyond that queue text; not a new storage key (design §2.3: "no
+        // new storage keys").
+        activeRun: null,
       };
       // M3: the alias/macro store (registry.js) - chrome.storage.local
       // backed, loaded async below. The ONLY writers of it are
@@ -344,6 +368,11 @@
       // _exitProgram() below - this is the ONLY state the program-mode
       // primitive needs beyond the ordinary command state above.
       this._activeProgram = null;
+      // "recipes that succeed": non-null (a zero-arg cancel function)
+      // while a `wait` poll loop is in progress - see _runWaitLoop()/
+      // _cancelActiveWait(). Esc routes here the same way it routes to
+      // _rejectPending() for the approval-card modes (_onInputKeydown).
+      this._activeWaitCancel = null;
       // collapse+resize (2026-07-14): default height + expanded state, set
       // BEFORE _buildDom (which calls _applyPanelHeight/_applyCollapsed).
       // _loadPanelHeight() below is async and re-applies any persisted height
@@ -890,6 +919,20 @@
           return;
         }
         return; // swallow history/resize/etc. shortcuts while capturing a script body
+      }
+      // "recipes that succeed" (design §2.2): a `wait` poll loop is in
+      // progress - the input is already readOnly (_runWaitLoop()), but
+      // readOnly does not stop keydown events (same note as the
+      // _activeProgram check above), so this must be checked before the
+      // ordinary Enter/Escape handling below. Esc cancels (isTrusted-gated
+      // by this method's own M3 H1 check above - "like all overlay input",
+      // design §2.2); every other key is swallowed.
+      if (this.state.mode === 'awaiting-wait') {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          this._cancelActiveWait();
+        }
+        return;
       }
       // brainstorm lane (design doc §3): the "no `as <name>` was given"
       // follow-up - a single line capturing the name to save the already-
@@ -1601,6 +1644,38 @@
 
     // ---- command dispatch ----
 
+    // "recipes that succeed" (2026-07-17): wraps one script step's
+    // ALREADY-substituted, already-validated text with the run's identity
+    // (name/total) so it can be recovered from the SW-backed TS_QUEUE after
+    // a mid-run navigation destroys this Terminal instance and a fresh one
+    // is constructed (see state.activeRun's own comment). The prefix
+    // (RUN_STEP_ENVELOPE_PREFIX, above) is a Unicode Private Use Area
+    // character no keyboard produces, followed by a fixed tag - a
+    // typed/pasted command could in principle contain that character, but
+    // could never ALSO happen to be followed by this exact literal tag, so
+    // decode has no realistic false-positive. JSON.stringify/JSON.parse
+    // round-trips the step text verbatim (quotes, unicode, whatever param
+    // substitution produced) with no delimiter of its own to collide with.
+    _encodeRunStep(name, total, text) {
+      return `${RUN_STEP_ENVELOPE_PREFIX}${JSON.stringify({ name, total, text })}`;
+    }
+
+    // Returns {name, total, text} or null (not a run-step envelope - an
+    // ordinary chain/macro segment, the overwhelmingly common case). Never
+    // throws on malformed/foreign input - a plain user-typed queue entry
+    // must always decode to null, not an exception.
+    _decodeRunStep(raw) {
+      const prefix = RUN_STEP_ENVELOPE_PREFIX;
+      if (typeof raw !== 'string' || raw.slice(0, prefix.length) !== prefix) return null;
+      try {
+        const parsed = JSON.parse(raw.slice(prefix.length));
+        if (parsed && typeof parsed.name === 'string' && typeof parsed.total === 'number' && typeof parsed.text === 'string') {
+          return parsed;
+        }
+      } catch (_e) { /* not a run-step envelope - fall through to null */ }
+      return null;
+    }
+
     _settle(ok, message) {
       this._lastResult = { ok, message: message || '' };
       this._seq++;
@@ -1614,7 +1689,37 @@
     // _afterSettle(ok) exactly once at its own settle point, ok being
     // whether THAT step succeeded. See registry.js/nav.js for the pure
     // pieces; this is the stateful glue.
+    // "recipes that succeed" (design §2.3): the run-verdict emission
+    // point. state.activeRun is only ever non-null while a `run <name>` is
+    // in flight (set in _approveScriptRun()/_advanceQueue() - see
+    // state.activeRun's own comment), so this is a strict, additive
+    // widening of _afterSettle's own job - a lone command or an ordinary
+    // `&&` chain/macro never touches this branch at all.
     _afterSettle(ok) {
+      const run = this.state.activeRun;
+      if (run) {
+        if (ok) {
+          if (run.index >= run.total) {
+            const msg = LFL.registry.formatRunOk(run.name, run.total);
+            this.printOk(msg);
+            this._auditPush({ action: 'run', reason: run.name }, 'ok', msg);
+            this.state.activeRun = null;
+          }
+          // else: mid-run, more steps queued - fall through to _advanceQueue() below.
+        } else {
+          // The step's own diagnostic was already printed by whatever
+          // dispatch branch failed (did-you-mean, a blocked segment, or
+          // engine.js's `expect ...: FAILED` lines) - this is a SECOND,
+          // summary line (design §2.3's exact wording), built from the same
+          // this._lastResult _settle() just set. Capped to one line - the
+          // full diagnostic is already visible just above it.
+          const diagnostic = ((this._lastResult && this._lastResult.message) || '').split('\n')[0].slice(0, 160);
+          const msg = LFL.registry.formatRunFailed(run.name, run.index, run.total, diagnostic);
+          this.printError(msg);
+          this._auditPush({ action: 'run', reason: run.name }, 'failed', msg);
+          this.state.activeRun = null;
+        }
+      }
       if (ok) {
         this._advanceQueue();
       } else {
@@ -1635,21 +1740,54 @@
       );
       if (!arrival.ok) {
         this.printError(arrival.message);
-        this._auditPush({ action: 'queue' }, 'halted(arrival-mismatch)', arrival.message);
+        // "recipes that succeed": an unexpected redirect mid-run is
+        // itself a run failure - print the SAME arrival diagnostic a second
+        // time, wrapped as the run's verdict line, additive to the
+        // unconditional printError() just above (which every non-run chain
+        // already relied on and still gets, unchanged).
+        if (this.state.activeRun) {
+          const run = this.state.activeRun;
+          const msg = LFL.registry.formatRunFailed(run.name, run.index, run.total, arrival.message);
+          this.printError(msg);
+          this._auditPush({ action: 'run', reason: run.name }, 'failed', msg);
+          this.state.activeRun = null;
+        } else {
+          this._auditPush({ action: 'queue' }, 'halted(arrival-mismatch)', arrival.message);
+        }
         this._settle(false, arrival.message);
         await this._tsSend('TS_QUEUE_CLEAR');
         return;
       }
       const popped = await this._tsSend('TS_QUEUE_POP');
       if (!popped.ok || popped.next === null || popped.next === undefined) return;
-      this._pushHistory(popped.next);
-      this._lastCommand = popped.next;
-      this.printCmdEcho(popped.next);
+      // "recipes that succeed": decode a run-step envelope (see
+      // _encodeRunStep()) BEFORE anything else touches this text - the
+      // echoed/dispatched command must always be the clean, human-approved
+      // step, never the wrapper. Reconstructs state.activeRun from the
+      // envelope every time (not just once) - this is what makes a run's
+      // step count survive a mid-run navigation: a fresh content-script
+      // injection has a fresh (null) state.activeRun, and this is the one
+      // place it gets rebuilt, from the SW-backed queue text itself. An
+      // ordinary chain/macro segment (the overwhelmingly common case)
+      // decodes to null and this branch is a no-op.
+      let dispatchText = popped.next;
+      const decoded = this._decodeRunStep(popped.next);
+      if (decoded) {
+        dispatchText = decoded.text;
+        this.state.activeRun = {
+          name: decoded.name,
+          total: decoded.total,
+          index: decoded.total - popped.queue.length,
+        };
+      }
+      this._pushHistory(dispatchText);
+      this._lastCommand = dispatchText;
+      this.printCmdEcho(dispatchText);
       // M4b: anything popped off the queue exists ONLY because an earlier
       // `&&` chain or macro expansion put it there - always chain/macro
       // context, regardless of how many segments came before it (see
       // _handleGameCommand()'s fromChain check).
-      await this._dispatchSegment(popped.next, { fromChain: true });
+      await this._dispatchSegment(dispatchText, { fromChain: true });
     }
 
     _submitCommand(rawInput) {
@@ -1836,8 +1974,13 @@
       } else {
         // A lone (non-chain) command abandons any stale queue left over from
         // an earlier interrupted chain - typing something new is itself a
-        // decision not to continue waiting on the old one.
+        // decision not to continue waiting on the old one. Design note: the same
+        // abandonment clears any leftover run identity too - a fresh typed
+        // command is never part of the old run, so there is nothing left to
+        // print a verdict for (it was either already resolved, or is being
+        // silently abandoned here exactly like the queue itself).
         await this._tsSend('TS_QUEUE_CLEAR');
+        this.state.activeRun = null;
       }
       await this._dispatchSegment(segments[0], { fromChain: chainContext });
     }
@@ -1893,6 +2036,16 @@
       // like `go` above.
       if (firstTok === 'pause') {
         this._handlePauseSegment(resolved);
+        return;
+      }
+
+      // "recipes that succeed" (design §2.2/§3): `wait` is async (a poll
+      // loop) and so cannot live in engine.js's synchronous
+      // tryDeterministic() contract - head-intercepted here instead, same
+      // posture as `go`/`pause` above, so it works both typed directly and
+      // as a queued script/chain step.
+      if (firstTok === 'wait') {
+        await this._handleWaitSegment(resolved);
         return;
       }
 
@@ -1973,6 +2126,21 @@
         // when memory is off - see _recordMemoryVerb()'s own comment.
         this._recordMemoryVerb(firstTok);
         if (det.clear) this.clearOutput();
+        // "recipes that succeed" (design §2.1/§3): expect's FAIL path -
+        // the FIRST deterministic handler with a structured pass/fail
+        // (engine.js's own comment on tryDeterministic()). Rendered as an
+        // error line (not the ordinary info-styled _printDetResult()) and
+        // settled false, which halts a chain/script fail-closed via
+        // _afterSettle() below - the SAME halt mechanism the arrival-check
+        // halt already uses, reused rather than a second one (design §3:
+        // "one mechanism, two callers"; this makes three).
+        if (det.expectFailed) {
+          this.printError(det.output);
+          this._auditPush({ action: 'expect' }, 'failed', det.output ? det.output.slice(0, 160) : '');
+          this._settle(false, det.output || '');
+          this._afterSettle(false);
+          return;
+        }
         this._printDetResult(det);
         this._auditPush({ action: 'deterministic' }, 'auto', det.output ? det.output.slice(0, 160) : '');
         this._settle(true, det.output || '');
@@ -2429,8 +2597,148 @@
       const instruction = m ? m[1] : resolved.replace(/^pause\s*/i, '').trim();
       const msg = instruction ? `paused - ${instruction}` : 'paused';
       this.printInfo(`⏸ ${msg} - type "continue" when ready`);
+      // "recipes that succeed" (design §2.3): inside an active `run`,
+      // ALSO report the step-numbered form the design doc specifies -
+      // additive to the generic pause line above (an ordinary `&&`
+      // chain/typed pause, with no active run, still gets only that line).
+      // activeRun is deliberately left set, not cleared - pause is a
+      // designed stop, not a run failure; `continue` resumes the SAME run
+      // at the SAME step (index unchanged until the next real queue pop).
+      if (this.state.activeRun) {
+        const run = this.state.activeRun;
+        const runMsg = LFL.registry.formatRunPaused(run.index, instruction);
+        this.printInfo(runMsg);
+        this._auditPush({ action: 'run', reason: run.name }, 'paused', runMsg);
+      }
       this._auditPush({ action: 'pause', reason: instruction }, 'paused', msg);
       this._settle(true, msg);
+    }
+
+    // ---- "recipes that succeed" (2026-07-17,
+    // LFL-TERMINAL-RECIPES-THAT-SUCCEED-DESIGN.md §2.2/§3): `wait` - bounded,
+    // cancellable, async polling on the SAME predicate code `expect` uses
+    // (registry.js's evalExpect() + engine.js's extractExpectFacts()) ----
+
+    // Parses, then runs the poll/sleep loop, then reports + settles exactly
+    // like every other segment (design §2.2: timeout/cancel is a step
+    // failure, same halt-on-fail posture a failed `expect` has - reuses
+    // _afterSettle(), not a second mechanism). Never calls a model, never
+    // touches rate-limit budget (no _rlSend call anywhere in this method).
+    async _handleWaitSegment(resolved) {
+      const parsed = LFL.registry.parseWaitStep(resolved);
+      if (!parsed.ok) {
+        this.printError(parsed.error);
+        this._auditPush({ action: 'wait' }, 'blocked', parsed.error);
+        this._settle(false, parsed.error);
+        this._afterSettle(false);
+        return;
+      }
+      const pred = parsed.kind === 'sleep' ? null : { kind: parsed.kind, args: parsed.args };
+      const label = parsed.kind === 'sleep'
+        ? `wait ${Math.round(parsed.timeoutMs / 1000)}s`
+        : `wait for ${LFL.registry.formatPredicateLabel(pred)}`;
+      const result = await this._runWaitLoop(pred, parsed.timeoutMs, label);
+      if (result.ok) {
+        this.printOk(result.output);
+        this._auditPush({ action: 'wait' }, 'ok', result.output);
+        this._settle(true, result.output);
+        this._afterSettle(true);
+      } else {
+        this.printError(result.output);
+        this._auditPush({ action: 'wait' }, result.cancelled ? 'cancelled' : 'failed', result.output);
+        this._settle(false, result.output);
+        this._afterSettle(false);
+      }
+    }
+
+    // The poll/sleep loop itself - resolves {ok, output, cancelled?} once
+    // the predicate passes, the timeout fires, or Esc cancels. `pred` is
+    // null for the `wait <N>s` fixed-sleep form (no predicate to poll, just
+    // elapsed time); otherwise it is evaluated every WAIT_POLL_MS (250ms)
+    // via the SAME extractExpectFacts()/evalExpect() pair `expect` calls -
+    // one predicate, one definition of "does this match" (design §2.2).
+    //
+    // Visible waiting status (design §2.2): a single DOM line, updated in
+    // place every tick and removed when the wait ends - reuses the
+    // existing `.lfl-line.lfl-info` class verbatim (no new CSS selector;
+    // this build adds none - see the build's own report on the css_sync
+    // gate). Deliberately NOT routed through _appendLine()/_appendLineDom()
+    // - a live countdown is transient UI, never scrollback-worthy, and must
+    // not be persisted/replayed on the next navigation's restore the way a
+    // real printed line would be.
+    //
+    // Esc cancellation: state.mode is set to 'awaiting-wait' for the
+    // duration and the input is made read-only, mirroring every other
+    // "something is in flight" mode this class has; _onInputKeydown() routes
+    // Escape to _cancelActiveWait() while that mode is active (isTrusted-
+    // gated the same way as every other overlay input handler - see that
+    // method's own M3 H1 comment).
+    //
+    // Watchdog note (design §2.2: "must not starve the queue watchdog"):
+    // this project has no separate stuck-queue watchdog to integrate with
+    // (grep confirms no such mechanism exists anywhere in this codebase) -
+    // the design principle is satisfied by construction instead: this loop
+    // always resolves on its own, within timeoutMs + one poll tick, and
+    // never blocks anything else (chrome.storage.session TS_QUEUE polling,
+    // the approval-card UI, etc.) while it runs.
+    _runWaitLoop(pred, timeoutMs, label) {
+      return new Promise((resolve) => {
+        const start = Date.now();
+        let done = false;
+        let timer = null;
+        this.state.mode = 'awaiting-wait';
+        this.inputEl.readOnly = true;
+        const statusEl = document.createElement('div');
+        statusEl.className = 'lfl-line lfl-info';
+        this.outputEl.appendChild(statusEl);
+        this.outputEl.scrollTop = this.outputEl.scrollHeight;
+
+        const finish = (result) => {
+          if (done) return;
+          done = true;
+          if (timer !== null) clearTimeout(timer);
+          this._activeWaitCancel = null;
+          if (statusEl.parentNode) statusEl.parentNode.removeChild(statusEl);
+          this.state.mode = 'idle';
+          this.inputEl.readOnly = false;
+          this._updateTestHook();
+          resolve(result);
+        };
+
+        this._activeWaitCancel = () => {
+          finish({ ok: false, cancelled: true, output: `${label}: CANCELLED` });
+        };
+
+        const tick = () => {
+          if (done) return;
+          const elapsedMs = Date.now() - start;
+          const elapsedS = Math.floor(elapsedMs / 1000);
+          const limitS = Math.round(timeoutMs / 1000);
+          statusEl.textContent = `${label}... (${elapsedS}s / ${limitS}s - Esc to cancel)`;
+          this.outputEl.scrollTop = this.outputEl.scrollHeight;
+          if (pred === null) {
+            // `wait <N>s` - a fixed sleep, success only once the full
+            // duration elapses; nothing to poll.
+            if (elapsedMs >= timeoutMs) { finish({ ok: true, output: `${label}: done` }); return; }
+            timer = setTimeout(tick, LFL.registry.WAIT_POLL_MS);
+            return;
+          }
+          const facts = LFL.engine.extractExpectFacts(pred, this.state);
+          const res = LFL.registry.evalExpect(pred, facts);
+          if (res.ok) { finish({ ok: true, output: `${label}: OK (${elapsedS}s)` }); return; }
+          if (elapsedMs >= timeoutMs) {
+            const detailLine = res.detail ? `\n  ${res.detail}` : '';
+            finish({ ok: false, output: `${label}: FAILED (timeout ${limitS}s)${detailLine}` });
+            return;
+          }
+          timer = setTimeout(tick, LFL.registry.WAIT_POLL_MS);
+        };
+        tick();
+      });
+    }
+
+    _cancelActiveWait() {
+      if (typeof this._activeWaitCancel === 'function') this._activeWaitCancel();
     }
 
     // ---- scripts v1: `run <name> [args...]` - injection-safe param
@@ -2565,17 +2873,27 @@
         this.state.pendingScriptRun = null;
         this._auditPush({ action: 'run', reason: run.name }, 'approved', `running ${run.steps.length} step(s)`);
 
-        // Queue everything past the first step, then dispatch the first
-        // step through the SAME path _runChain() uses to start a chain -
-        // every subsequent step (popped off the SW-backed queue, possibly
-        // after a navigation) is unconditionally chain-context, exactly
-        // like a macro expansion's segments (see _advanceQueue()'s own
-        // comment). No separate _settle() here for "the run started" - each
-        // dispatched step produces its own settle, same as an ordinary
-        // `&&` chain never settling the chain itself, only its steps.
+        // "recipes that succeed" (design §2.3): step 1 of N, tracked
+        // directly (it is dispatched synchronously below, never queued) -
+        // see state.activeRun's own comment.
+        this.state.activeRun = { name: run.name, total: run.steps.length, index: 1 };
+
+        // Queue everything past the first step, ENVELOPE-TAGGED with the
+        // run's identity (see _encodeRunStep()) so state.activeRun can be
+        // correctly rebuilt at every later pop, including after a mid-run
+        // navigation destroys this Terminal instance - then dispatch the
+        // first step through the SAME path _runChain() uses to start a
+        // chain - every subsequent step (popped off the SW-backed queue,
+        // possibly after a navigation) is unconditionally chain-context,
+        // exactly like a macro expansion's segments (see _advanceQueue()'s
+        // own comment). No separate _settle() here for "the run started" -
+        // each dispatched step produces its own settle (and, via
+        // _afterSettle(), the run's own OK/FAILED verdict once it's truly
+        // done), same as an ordinary `&&` chain never settling the chain
+        // itself, only its steps.
         if (run.steps.length > 1) {
           await this._tsSend('TS_QUEUE_SET', {
-            queue: run.steps.slice(1),
+            queue: run.steps.slice(1).map((s) => this._encodeRunStep(run.name, run.steps.length, s)),
             expectedOrigin: typeof location !== 'undefined' ? location.origin : null,
           });
         } else {

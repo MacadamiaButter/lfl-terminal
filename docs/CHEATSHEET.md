@@ -106,6 +106,49 @@ Rules the editor enforces:
 
 `script ls` / `script show <name>` / `script rm <name>` manage them.
 
+## Recipes - `expect` / `wait` / the `run` verdict
+
+Deterministic, read-only, never touch the model.
+
+| Command | Does |
+|---|---|
+| `expect url contains "..."` | pass/fail on the current `location.href` |
+| `expect origin "..."` | exact origin match, case-insensitive host |
+| `expect text "..."` | visible-text substring, case-insensitive |
+| `expect heading "..."` | visible h1-h6 (or role=heading) substring |
+| `expect field "<label>" equals "..."` | field value, compared after trim |
+| `expect field "<label>" empty` | field value is empty after trim |
+| `wait for text/heading/field/url ...` | polls the same predicates every 250ms; default 10s, `within <N>s` to change, hard cap 30s |
+| `wait <N>s` | fixed sleep, same 30s cap |
+
+Rules:
+- **Halt-on-fail.** A failed `expect`, or a `wait` that times out or is
+  cancelled (Esc), halts the rest of a script or `&&` chain - same
+  fail-closed posture as an unexpected cross-origin redirect. Typed alone,
+  it just prints the diagnostic.
+- **Credential fields are refused, not evaluated.** `expect field` on a
+  password/OTP/etc. field never reads its value, not even to compare -
+  it prints why and stops there.
+- **Field values are display-only.** A non-credential field's value may
+  appear in your scrollback and in the failure diagnostic - never in
+  storage, the audit log entry (which records the verb and verdict only),
+  or any model payload.
+- `run <name>` now ends with a verdict: `run checkout: OK (5 steps)` or
+  `run checkout: FAILED at step 3/5 - <diagnostic>`. A script that stops at
+  `pause` reports `paused at step 3 (click the buy button)` instead - not a
+  failure, a designed hand-back. `log` shows the verdict too.
+- Timeouts above 30s are rejected outright when you save/run the script -
+  never silently shortened.
+
+```
+script new wiki-search
+go en.wikipedia.org
+wait for heading "Wikipedia"
+search "Eiffel Tower"
+wait for heading "Eiffel Tower" within 15s
+expect url contains "Eiffel_Tower"
+```
+
 ## teach - the model writes the script, you approve it
 
 Opt-in, off by default:

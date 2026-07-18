@@ -1891,3 +1891,181 @@ the advisor - no vault RAG, no `hermes-priv`, no fleet context reachable
 from any part of this feature. Not cross-device sync - local to this
 browser profile. Not keystroke/argument logging - verbs, origins, and
 counts, full stop.
+
+## Recipes that succeed (2026-07-17, LFL-TERMINAL-RECIPES-THAT-SUCCEED-DESIGN.md)
+
+`expect` (deterministic assertion), `wait` (bounded polling on the same
+predicate code), and an explicit `run <name>` verdict line. The governing
+claim, checked below: **this milestone widens NOTHING** - no new model
+authority, no new page-DOM mutation path, no new network reach, no manifest/
+permission change - it only gives the product a vocabulary for "did the page
+actually agree with what I expected", something the task-success bench had
+previously had to bolt on from outside the extension entirely.
+
+### Read-only, no model, no egress
+
+`expect`'s DOM reads (`engine.js`'s `extractExpectFacts()`) are exactly the
+same class of read `ls`/`find`/`highlight`/`here` already perform:
+`document.querySelectorAll`/`createTreeWalker`/`.textContent`/`.value`/
+`location.href`/`location.origin`. Nothing here ever writes to the page DOM,
+scrolls, focuses, or dispatches a synthetic event - `expect`'s own handler
+(`doExpect()`) calls no `executor.js` function at all. `wait` (terminal.js's
+`_runWaitLoop()`) polls the identical extraction/evaluation pair every
+250ms; the only DOM write anywhere in this feature is the loop's own
+transient status line (a single `<div class="lfl-line lfl-info">` inside the
+extension's own closed-shadow output pane, never scrollback-persisted,
+removed the moment the wait ends) - not page content. Neither verb ever
+calls `chrome.runtime.sendMessage` to reach either model lane, and neither
+consumes a slot of the LLM-call or executed-action rate-limit budget (no
+`_rlSend` call anywhere in `_handleWaitSegment()`/`_runWaitLoop()`/
+`doExpect()`) - confirmed structurally in `tests/m6_expect_wait.test.js`.
+`egress`/`leaks`/`emdash` gates and the full 26-suite battery are green with
+this feature present; `extension/manifest.json` is byte-identical to before
+this build (no new permission, no new `host_permissions`).
+
+### Credential-field refusal - the one hard security rule this feature adds
+
+`expect field "<label>" equals/empty` reuses `doFillLabel`'s own label
+resolution (`pickLabelMatch` over a fresh listing: exact match wins, else a
+unique substring, else an ambiguity failure listing candidates) but adds a
+check `fill`/`select` never needed: **before reading `el.value` at all**,
+`extractFieldFacts()` calls the real, unmodified `guards.js`
+`isPasswordField(el)` - the SAME hard-block predicate `executor.js`'s
+fill/select guard already uses, not a reimplementation. If it returns true,
+`value` is left `null`, unconditionally; the real field value is never read
+into any variable this code touches. `registry.js`'s pure `evalExpect()`
+enforces the same rule a second, independent time (`domFacts.isCredential`
+always fails the predicate, both `equals` and `empty` modes, regardless of
+what `domFacts.value` happens to hold) - defense in depth, so even a future
+extraction-side bug that accidentally populated `value` for a credential
+field would still not leak it through the comparison result. Both layers are
+mutation-tested in `tests/m6_expect_wait.test.js` (design §7 item 1: "remove
+credential refusal -> test fails").
+
+### Field values are display-only, never a new storage or model-payload path
+
+Design §9 sign-off C accepted `expect field ... equals ...` reading a
+NON-credential field's value specifically because the surface it can reach
+was already outside every model path before this build, and stays that way:
+- **Scrollback/diagnostics only.** A compared value can appear in the
+  printed `expect ...: FAILED` / `wait for ... FAILED` diagnostic line and,
+  through the ordinary `printError`/`printOk` -> `_appendLine` path, in
+  per-tab scrollback (`TS_SCROLLBACK_APPEND`) - the exact same display-only
+  surface every other command's output already uses, already proven never
+  read back into either model lane's payload builder (`buildPayload()`/
+  `buildNavLanePayload()`/`BRAINSTORM_LLM_REQUEST`'s builder - none of the
+  three accept or read a scrollback field, see the M3/Terminal-memory
+  sections above).
+- **Never in storage.** No new `chrome.storage.*` key exists for a compared
+  value - `state.activeRun` (the only new piece of persistent-ish state this
+  build adds, and even that is SW-session-backed only via the pre-existing
+  `TS_QUEUE_*` messages, never a new storage key) carries a run's
+  name/total/step-index, never a field value.
+- **Never in the audit log entry.** `_auditPush()` (unchanged signature)
+  records the verb and verdict only for an `expect`/`wait`/`run` call
+  (`{action:'expect'}`/`{action:'wait'}`/`{action:'run', reason:name}`, a
+  short slice of the OUTPUT string for the summary) - the same "verb+verdict,
+  never the argument" posture the memory lane already holds itself to
+  elsewhere in this file. Diagnostic values that do appear in that summary
+  slice are display text a human already saw on screen the moment before,
+  not a new channel.
+- **Truncated even on-screen.** `EXPECT_VALUE_DIAG_CAP` (48 chars) caps how
+  much of a field value a diagnostic ever shows, so even the display-only
+  surface never dumps an unbounded value.
+
+### Structured-failure addition to the dispatch contract
+
+`engine.js`'s `tryDeterministic()` contract was, before this build, uniform:
+every handler's result meant success (or a "nothing happened, here's a
+gentle message" success) - there was no handler with a real fail state.
+`expect` is the first one that can genuinely fail, and the contract change
+is deliberately minimal and additive: a passing `expect` returns exactly
+`{output}`, identical in shape to every pre-existing handler; a failing one
+adds exactly one new boolean field, `{output, expectFailed:true}`. No
+existing handler's return shape changed, and `tests/m6_expect_wait.test.js`
+pins both directions (a pass never carries the field at all; every fail
+path - predicate fail, credential refusal, and a malformed `expect` typo -
+carries it). `terminal.js`'s `_dispatchSegment()` checks `det.expectFailed`
+and, when true, prints the diagnostic as an error line and calls
+`_settle(false, ...)` -> `_afterSettle(false)` - the SAME halt mechanism the
+pre-existing cross-origin arrival-check halt already uses (`TS_QUEUE_CLEAR`,
+"any error/block/rejection/Esc clears the rest of the chain" - design doc
+§5's original M3 rule, now with a third caller). One mechanism, three
+callers (arrival mismatch, a failed/malformed `expect`, a timed-out or
+cancelled `wait`) - not a second, parallel halt path to keep in sync.
+Design §7 mutation check 2 ("make expect fail-open (ok:true on error) ->
+halt test fails") is exactly this contract, pinned.
+
+### `wait` - the async half, same predicate, bounded, cancellable
+
+`wait` cannot live in `tryDeterministic()`'s synchronous contract (it polls
+over time), so it is head-intercepted in `terminal.js`'s `_dispatchSegment()`
+the same way `go`/`pause` already are - reachable both typed directly and as
+a queued script/chain step. It calls the exact same
+`extractExpectFacts()`/`evalExpect()` pair `expect` does, every 250ms
+(`LFL.registry.WAIT_POLL_MS`), so "does this match" has one definition
+shared by both verbs, not two that could drift apart. Timeout is capped hard
+at 30s (`WAIT_MAX_TIMEOUT_S`) - a `wait ... within 45s` or `wait 45s` is
+REJECTED at parse time with a message, never silently shortened to 30
+(design §9 sign-off B; pinned in `tests/m6_expect_wait.test.js`). Esc
+cancels, gated by the same `guards.isPasswordField`-adjacent
+`isTrustedInputEvent()` check every other overlay input handler in this
+file already uses (M3 H1) - a page cannot synthesize the cancel. A timeout
+or a cancel is a step failure with the same halt-on-fail posture as a failed
+`expect` (`_handleWaitSegment()` mirrors the `expectFailed` branch's
+`_settle(false, ...)` -> `_afterSettle(false)` call). There is no separate
+"stuck queue" watchdog anywhere in this codebase to integrate with (checked
+by grep across `extension/`) - the design principle ("must not starve the
+queue watchdog") holds by construction instead: the loop always resolves
+within its own `timeoutMs` plus at most one 250ms poll tick, and nothing
+else in the extension blocks on it.
+
+### `run <name>` verdict - queue-plumbing note and one disclosed scope limit
+
+The verdict line (`run <name>: OK (N steps)` / `run <name>: FAILED at step
+K/N - <diagnostic>`) has to survive exactly the same thing an ordinary
+multi-page script already survives: a step navigating the tab, which
+destroys and re-creates the content script (and this class's `state`)
+entirely. `background/service-worker.js` is a locked file for this build
+and gained no new message type, so step-count bookkeeping
+(`state.activeRun = {name, total, index}`) is reconstructed, at every
+SW-queue pop, from a small marker this build encodes into the QUEUED STEP
+TEXT ITSELF (`_encodeRunStep()`/`_decodeRunStep()`, terminal.js): a leading
+Unicode Private Use Area character (U+E000, unreachable by any keyboard)
+followed by a fixed tag and a `JSON.stringify({name, total, text})` payload.
+The envelope is stripped before the step is ever echoed or dispatched, so
+what runs and what the user sees is byte-identical to before this build;
+only the transport-through-the-existing-`TS_QUEUE_*`-messages layer changed,
+using message types (`TS_QUEUE_SET`/`PEEK`/`POP`/`CLEAR`) that already
+existed and already only ever carry plain strings the SW treats as opaque.
+This does not widen the "the queue only ever holds user-typed text" design
+§5 invariant in any way that matters to trust: the wrapped text is still
+exactly the same, already-approved (plan-preview `run` approval, or
+param-substituted/alias-expanded and re-validated by
+`validateResolvedStep()`) step text a human already saw before `run` began -
+the envelope adds bookkeeping metadata around it, never new content INTO it.
+
+**Disclosed, narrow scope limit:** if a script's FINAL step itself triggers
+a full-page navigation (a bare `go`/`open`/same-origin `click` with no
+subsequent `expect`/`wait` step to observe the result), the closing `OK`
+verdict is not printed - the content script that would print it is
+destroyed by the navigation, and nothing is left in the SW queue afterward
+to trigger it on the next injection. The run still completed with no
+failure raised; it simply has no closing line. This is exactly the failure
+mode the feature's own philosophy (design §1: recipes should end on a
+read-only check, not a bare navigate) argues against authoring in the first
+place, and every fixture/lab recipe (§6, lab-half build) ends on `expect`.
+An unexpected REDIRECT mid-run (the arrival-check case) is fully covered -
+`_advanceQueue()`'s existing arrival-mismatch branch prints a `run ...:
+FAILED at step K/N - <arrival diagnostic>` line using the SAME halted-queue
+message the pre-existing (pre-this-build) arrival check already produces.
+
+### Scope exclusions (design §1, restated)
+
+Not record-by-doing. Not a model change of any kind - `expect`/`wait` never
+build a model payload, never appear in either `RESPONSE_SCHEMA` action enum
+(`tests/m3_hardening.test.js`'s `M3_NEW_COMMAND_NAMES` pin, extended this
+build). No new model authority, no conditionals/loops, no manifest or
+permission change. `guards.js`, `executor.js`, `nav-watch.js`, `nav.js`,
+`axtree.js`, `background/service-worker.js`, and `extension/manifest.json`
+are byte-identical to before this build.

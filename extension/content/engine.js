@@ -97,6 +97,15 @@
   // doc's own worked taxonomy example, which places it under settings &
   // session (not automation) - see the design doc's §5 block comment.
   reg.register({ name: 'pause', argSpec: 'pause "<instruction>"', help: 'inside a script: stop and hand control back for a manual step (e.g. an index-addressed click); "continue" resumes (v1)', group: GROUP_SESSION });
+  // "recipes that succeed" (2026-07-17,
+  // LFL-TERMINAL-RECIPES-THAT-SUCCEED-DESIGN.md) - `expect` is dispatched
+  // right here in tryDeterministic() below (synchronous, DOM-only, same as
+  // every other verb this file handles). `wait` is dispatched by
+  // terminal.js (async poll loop, cannot live in this file's synchronous
+  // contract - same posture as go/pause above), registered here purely for
+  // help/man text and vocabulary enumeration.
+  reg.register({ name: 'expect', argSpec: 'expect url contains "..." | expect origin "..." | expect text "..." | expect heading "..." | expect field "<label>" equals "..." | expect field "<label>" empty', help: 'deterministic, read-only assertion; FAIL halts a script/&&-chain fail-closed (never a credential field\'s value - refused outright)', group: GROUP_AUTO });
+  reg.register({ name: 'wait', argSpec: 'wait for text|heading|field|url ... [within <N>s] | wait <N>s', help: 'bounded polling (250ms) on the same predicates as `expect`, default 10s / hard cap 30s; Esc cancels, timeout or cancel halts the same way a failed `expect` does', group: GROUP_AUTO });
   // brainstorm lane (2026-07-15, LFL-TERMINAL-BRAINSTORM-LANE-DESIGN.md) -
   // dispatched by terminal.js (`teach` needs chrome.* async access and the
   // plan-preview approval card, same posture as script/run above). Opt-in,
@@ -1136,6 +1145,137 @@
     return { output: `${header}\n${lines.join('\n')}`, outputRich: richLines };
   }
 
+  // =====================================================================
+  // "recipes that succeed" (2026-07-17,
+  // LFL-TERMINAL-RECIPES-THAT-SUCCEED-DESIGN.md §2.1/§3) - `expect`, the
+  // deterministic assertion verb. Parsing and the pass/fail decision live
+  // in registry.js (parseExpectStep/evalExpect, pure); this section is the
+  // DOM-touching half only - extracting the FACTS a predicate needs
+  // (extractExpectFacts, reused unmodified by terminal.js's `wait` poll
+  // loop, design §2.2: "same match code, single source of truth") and
+  // formatting the final output line. NEVER mutates the page, scrolls, or
+  // focuses (§2.1) - every helper below only ever READS.
+  // =====================================================================
+
+  // Every visible text node under document.body, regardless of content -
+  // used ONLY for the `expect text`/`wait for text` FAILURE diagnostic's
+  // "searched N visible text nodes" count (design §4). The pass/fail
+  // decision itself reuses collectVisibleTextMatches() above (the SAME
+  // collector `find`/`highlight` already use) - this is a second, dumber
+  // walk whose only job is the count, not the match.
+  function countVisibleTextNodes() {
+    if (typeof document.createTreeWalker !== 'function') return 0;
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        if (!(node.textContent || '').trim()) return NodeFilter.FILTER_SKIP;
+        const parent = node.parentElement;
+        if (!parent || !LFL.axtree.isElementVisible(parent)) return NodeFilter.FILTER_SKIP;
+        return NodeFilter.FILTER_ACCEPT;
+      },
+    });
+    let count = 0;
+    let n = walker.nextNode();
+    while (n) { count += 1; n = walker.nextNode(); }
+    return count;
+  }
+
+  // Every visible heading's collapsed text, in document order - feeds both
+  // the `expect heading`/`wait for heading` match count and (capped to 3 by
+  // registry.js's evalExpect) the failure diagnostic's "last seen headings".
+  function collectVisibleHeadings() {
+    const nodes = document.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"]');
+    const out = [];
+    for (const el of nodes) {
+      if (!LFL.axtree.isElementVisible(el)) continue;
+      const text = (el.textContent || '').replace(/\s+/g, ' ').trim();
+      if (text) out.push(text);
+    }
+    return out;
+  }
+
+  function extractHeadingFacts(substr) {
+    const headings = collectVisibleHeadings();
+    const q = (substr || '').toLowerCase();
+    const matchCount = headings.filter((h) => h.toLowerCase().includes(q)).length;
+    return { matchCount, headingsSeen: headings };
+  }
+
+  // `expect field "<label>" ...` / `wait for field "<label>"` fact
+  // extraction - REUSES doFillLabel's own machinery verbatim (design §2.1:
+  // "resolve the label exactly like doFillLabel does"): a fresh listing
+  // only when none exists yet, pickLabelMatch's exact -> unique-substring
+  // -> ambiguous ladder, fillableFieldEntries' field-only filter.
+  //
+  // Credential refusal (design §2.1 hard security rule): the check runs
+  // BEFORE any value is read - `value` is left `null` for a credential
+  // field, unconditionally, no matter what `el.value` actually holds.
+  // registry.js's evalExpect() also refuses on `isCredential` regardless of
+  // mode/value (defense in depth, design §7 mutation check 1/2) - this is
+  // the extraction-side half of that same rule.
+  function extractFieldFacts(label, state) {
+    if (!state.listingContext) {
+      const built = LFL.axtree.build();
+      state.listingContext = { entries: built.entries, map: built.map, notes: built.notes };
+    }
+    const fields = fillableFieldEntries(state.listingContext.entries);
+    const res = pickLabelMatch(fields, label);
+    if (res.none) return { found: false, ambiguous: false, candidates: [], isCredential: false, value: null };
+    if (res.ambiguous) {
+      return { found: false, ambiguous: true, candidates: res.ambiguous.map(formatListingEntry), isCredential: false, value: null };
+    }
+    const el = LFL.axtree.resolve(state.listingContext.map, res.match.index);
+    if (!el) return { found: false, ambiguous: false, candidates: [], isCredential: false, value: null };
+    if (LFL.guards.isPasswordField(el)) {
+      return { found: true, ambiguous: false, candidates: [], isCredential: true, value: null };
+    }
+    const value = typeof el.value === 'string' ? el.value.trim() : '';
+    return { found: true, ambiguous: false, candidates: [], isCredential: false, value };
+  }
+
+  // extractExpectFacts(pred, state) - the single DOM-touching fact
+  // extractor `expect` (doExpect, below) and terminal.js's `wait` poll loop
+  // both call, every evaluation, feeding the result into registry.js's pure
+  // evalExpect(). Exported on LFL.engine (see this file's export block)
+  // specifically so terminal.js can reuse it without a parallel
+  // reimplementation - "one predicate, one definition" (design §2.2).
+  function extractExpectFacts(pred, state) {
+    const kind = pred && pred.kind;
+    const args = (pred && pred.args) || {};
+    switch (kind) {
+      case 'url': return { href: location.href };
+      case 'origin': return { origin: location.origin };
+      case 'text': {
+        const matches = collectVisibleTextMatches(args.substr);
+        return { matchCount: matches.length, totalVisibleTextNodes: countVisibleTextNodes(), origin: location.origin };
+      }
+      case 'heading': return extractHeadingFacts(args.substr);
+      case 'field': return extractFieldFacts(args.label, state);
+      default: return {};
+    }
+  }
+
+  // `expect` itself - synchronous, DOM-only, dispatched from
+  // tryDeterministic() below like every other verb in this file (design §3:
+  // "it is synchronous and DOM-only"). A malformed form (parseExpectStep
+  // fails) is ALSO reported via expectFailed:true, not silently treated as
+  // a pass - a chain/script containing a typo'd expect must halt the same
+  // way a genuinely-failed assertion does, not sail through as if nothing
+  // was checked.
+  function doExpect(raw, state) {
+    const parsed = LFL.registry.parseExpectStep(raw);
+    if (!parsed.ok) return { output: `expect: ${parsed.error}`, expectFailed: true };
+    const pred = { kind: parsed.kind, args: parsed.args };
+    const label = LFL.registry.formatPredicateLabel(pred);
+    const facts = extractExpectFacts(pred, state);
+    const res = LFL.registry.evalExpect(pred, facts);
+    if (res.ok) return { output: `expect ${label}: OK` };
+    const detailLine = res.detail ? `\n  ${res.detail}` : '';
+    // Design §3: "keep the field minimal ({expectFailed:true} on the
+    // result object)" - the ONE additive change to tryDeterministic()'s
+    // {output} contract; every other handler's return shape is untouched.
+    return { output: `expect ${label}: FAILED${detailLine}`, expectFailed: true };
+  }
+
   // ---- `here` ----
 
   function detectPaginationHint() {
@@ -1227,6 +1367,13 @@
     if (/^read$/i.test(trimmed)) return doRead();
     if (/^here$/i.test(trimmed)) return doHere(state);
 
+    // "recipes that succeed" (design §3): `expect` is synchronous and
+    // DOM-only, dispatched here like every other verb in this file. `wait`
+    // is NOT here - it is async (a poll loop), head-intercepted in
+    // terminal.js's _dispatchSegment() instead (see that file's own
+    // comment on state.mode 'awaiting-wait').
+    if (/^expect(\s|$)/i.test(trimmed)) return doExpect(trimmed, state);
+
     let m = trimmed.match(/^man\s+(\S+)$/i);
     if (m) return { output: reg.manText(m[1]), outputRich: reg.manRich(m[1]) };
 
@@ -1312,5 +1459,12 @@
     // pure rich-line builders, exported for direct unit testing without a
     // DOM - see tests/color_grammar.test.js.
     HELP_RICH, formatListingEntryRich, sectionRichLines,
+    // "recipes that succeed" (2026-07-17) - doExpect/extractExpectFacts
+    // exported so terminal.js's `wait` poll loop can reuse the SAME DOM
+    // fact extractor `expect` uses (design §2.2: "same match code, single
+    // source of truth"), and so tests/m6_expect_wait.test.js can exercise
+    // doExpect end to end without needing terminal.js's full DOM/chrome.*
+    // dependencies (same posture as every other handler exported above).
+    doExpect, extractExpectFacts, countVisibleTextNodes, collectVisibleHeadings,
   };
 })();
