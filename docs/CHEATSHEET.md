@@ -66,9 +66,11 @@ ask find the cheapest option on this page
 
 The local model sees the page's element map and proposes ONE action from a fixed
 set (click / fill / select / navigate / scroll / extract / answer / abort). You
-get an approval card: Enter approves, Esc rejects. Mutating actions never run
-without that approval, and hard blocks (credentials, cross-origin, non-http)
-apply even to approved proposals. `budget` shows your remaining call/action
+get an approval card: Enter approves, Esc rejects. Model-proposed mutating
+actions never run without that approval (typed commands like `click <N>` and
+`fill <N> with <text>` above are your own direct intent, not a model proposal,
+so they run without a card), and hard blocks (credentials, cross-origin,
+non-http) apply either way. `budget` shows your remaining call/action
 allowance; `continue` resumes after a rate-limit pause. `log` shows the session's
 audit trail.
 

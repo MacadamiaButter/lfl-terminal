@@ -1,4 +1,4 @@
-# lfl-terminal threat model - M1 seed, M2 hardening applied, M3 command browser, M4a friction trio
+# lfl-terminal threat model - M1 seed through M6 brainstorm lane, plus the popover redesign, memory lane, and recipes-that-succeed follow-ons
 
 This is the seed threat model for the M1 feasibility spike: the 13 design
 requirements the product is built against, honest implementation status for

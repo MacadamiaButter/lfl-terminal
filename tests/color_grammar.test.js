@@ -29,8 +29,9 @@
  * call site, and CSS twin presence of the new span classes - same style as
  * tests/syntax_highlight.test.js Part 2.
  *
- * Part 5: isolation (guards/executor/service-worker/manifest untouched) +
- * gates green (css_sync, theme_contrast, the three hygiene shell gates).
+ * Part 5: isolation (guards/executor/service-worker untouched, manifest
+ * unchanged apart from its "description" string) + gates green (css_sync,
+ * theme_contrast, the three hygiene shell gates).
  *
  * Run: node tests/color_grammar.test.js
  */
@@ -490,7 +491,7 @@ check('.lfl-syn-arg is italic and uses --lfl-dim in BOTH CSS twins', () => {
 // Part 5 - isolation + gates
 // =====================================================================
 
-console.log('\n[5] isolation - guards/executor/nav/nav-watch/axtree/manifest byte-identical to be72a74; service-worker.js checked for color-grammar mentions only; gates green');
+console.log('\n[5] isolation - guards/executor/nav/nav-watch/axtree byte-identical to be72a74; manifest.json description-only diff; service-worker.js checked for color-grammar mentions only; gates green');
 
 // service-worker.js was DROPPED from the byte-identical-to-be72a74 pin below
 // (2026-07-16, LFL-TERMINAL-MEMBER-EXPERIENCE-DESIGN.md §7 sign-off E/§8):
@@ -500,16 +501,38 @@ console.log('\n[5] isolation - guards/executor/nav/nav-watch/axtree/manifest byt
 // explicitly and deliberately touches service-worker.js (E1 error mapping,
 // E3 tour-progress storage, E4 install listener, E5 status check - see that
 // file's own header "SIXTH ROLE" comment), with its own Fable security
-// review of that diff. guards/executor/nav/nav-watch/axtree/manifest remain
-// pinned exactly as before - this build's own HARD CONSTRAINTS list holds
-// itself to that same untouched set. service-worker.js still gets the
-// second check just below (no color-grammar-specific tokens/API mentions),
-// which remains true and meaningful independent of the byte-identity pin.
-const git = spawnSync('git', ['diff', '--stat', 'be72a74', '--', 'extension/content/guards.js', 'extension/content/executor.js', 'extension/content/nav.js', 'extension/content/nav-watch.js', 'extension/content/axtree.js', 'extension/manifest.json'], { cwd: ROOT, encoding: 'utf8' });
+// review of that diff. guards/executor/nav/nav-watch/axtree remain pinned
+// exactly as before - this build's own HARD CONSTRAINTS list holds itself
+// to that same untouched set. service-worker.js still gets the second check
+// just below (no color-grammar-specific tokens/API mentions), which remains
+// true and meaningful independent of the byte-identity pin.
+//
+// manifest.json was ALSO dropped from the raw byte-identity pin (2026-07-18,
+// 0.5.x copy-precision pass): that pass deliberately and authorizedly
+// rewrites manifest.json's "description" string only (two-deployment-truths
+// honesty fix - the old string unconditionally claimed "Nothing leaves your
+// machine," which is false for the shared/cohort tailnet deployment). Same
+// precedent as service-worker.js above: a raw diff pin is this build's own
+// snapshot, not a permanent invariant once a later, in-scope, non-JS copy
+// pass has a documented reason to touch the file. The REAL invariant - that
+// nothing BUT description changed (permissions/host_permissions/version/
+// every other key byte-identical to be72a74) - is asserted explicitly below,
+// which is strictly stronger than the raw byte-identity pin it replaces.
+const git = spawnSync('git', ['diff', '--stat', 'be72a74', '--', 'extension/content/guards.js', 'extension/content/executor.js', 'extension/content/nav.js', 'extension/content/nav-watch.js', 'extension/content/axtree.js'], { cwd: ROOT, encoding: 'utf8' });
 
-check('git diff against be72a74 for guards/executor/nav/nav-watch/axtree/manifest is EMPTY (byte-identical)', () => {
+check('git diff against be72a74 for guards/executor/nav/nav-watch/axtree is EMPTY (byte-identical)', () => {
   assert.strictEqual(git.status, 0, git.stderr);
   assert.strictEqual(git.stdout.trim(), '', `unexpected diff:\n${git.stdout}`);
+});
+
+check('manifest.json differs from be72a74 in "description" only - every other key byte-identical', () => {
+  const before = spawnSync('git', ['show', 'be72a74:extension/manifest.json'], { cwd: ROOT, encoding: 'utf8' });
+  assert.strictEqual(before.status, 0, before.stderr);
+  const beforeManifest = JSON.parse(before.stdout);
+  const afterManifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'));
+  delete beforeManifest.description;
+  delete afterManifest.description;
+  assert.deepStrictEqual(afterManifest, beforeManifest, 'manifest.json changed a key other than "description"');
 });
 
 check('guards.js/executor.js/nav.js/nav-watch.js/axtree.js/service-worker.js/manifest.json have no mention of this display-layer feature', () => {
@@ -520,6 +543,7 @@ check('guards.js/executor.js/nav.js/nav-watch.js/axtree.js/service-worker.js/man
   const manifest = JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8'));
   assert.deepStrictEqual(manifest.permissions, ['storage']);
   assert.deepStrictEqual(manifest.host_permissions, ['http://127.0.0.1:1238/*']);
+  assert.strictEqual(manifest.version, '0.5.0');
 });
 
 check('tests/css_sync.test.js (the CSS dual-sync gate) still exits 0', () => {

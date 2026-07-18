@@ -9,7 +9,7 @@ Nothing here is auto-published; it is a working draft for the human submitter.
 lfl-terminal
 
 ## Summary (max 132 chars, shown under the name)
-Browser terminal with deterministic commands and a local LLM that proposes page actions you approve. Nothing leaves your machine.
+Browser terminal: deterministic commands plus a local LLM proposing actions you approve. Nothing leaves the endpoint you configure.
 
 ## Category
 Developer Tools
@@ -30,12 +30,20 @@ action that you approve or reject before it ever touches the page.
 
 The whole point is local-first, human-supervised control:
 
-- Nothing leaves your machine. Deterministic commands run entirely in your
-  browser. The AI half talks only to a local model on your own computer
-  (loopback, 127.0.0.1). There are no accounts, no servers, no telemetry.
-- The model proposes; you decide. Any action that changes the page (click,
-  fill, navigate) is shown to you as a plain, deterministic summary and waits
-  for your explicit approval. Read-only commands run without a gate.
+- Local by default, no cloud AI, ever. Deterministic commands run entirely
+  in your browser. The AI half talks only to the model endpoint YOU
+  configure on loopback (127.0.0.1) - by default that's a model on your own
+  computer, so nothing leaves it. A shared/cohort setup can point that same
+  loopback address at a local bridge that relays to a cohort-operated model
+  over a private tailnet instead - never the open internet, never to us -
+  but no longer strictly on your machine. Either way: no accounts, no
+  servers we operate, no telemetry.
+- The model proposes; you decide. Any *model-proposed* action that changes
+  the page (click, fill, navigate) is shown to you as a plain, deterministic
+  summary and waits for your explicit approval. Typed commands you enter
+  yourself (like `click <N>`) are your own direct intent and run without
+  that card, under the same hard blocks. Read-only commands run without a
+  gate.
 - The model is never a security boundary. Approval, the fixed set of allowed
   actions, and the hard blocks (for example, credential fields are never
   auto-filled) are enforced by the extension's own code, not by the model.
@@ -63,7 +71,10 @@ What it will NOT do (on purpose):
 
 - It will not run shell commands, touch your filesystem, or use sudo. Ever.
 - It will not send your page content or commands to any cloud service or to us.
-- It will not act on a page without your approval for anything that mutates it.
+- It will not let the model act on a page without your approval for anything
+  that mutates it. (Commands you type yourself, like `click <N>`, are your
+  own direct intent and execute immediately - that's you acting, not the
+  model.)
 
 Open source (Apache-2.0). Source, threat model, and issues:
 https://github.com/MacadamiaButter/lfl-terminal
@@ -81,13 +92,17 @@ page actions proposed by a local AI model. Everything runs locally.
 
 - storage: Saves the user's own preferences (themes, aliases, macros, panel
   size, per-site auto-open) and recent command history locally on their device.
-- Host permission http://127.0.0.1:1238/*: Connects only to a local AI model
-  the user runs on their own machine (loopback). This is the extension's AI
-  lane; no remote server is contacted.
+- Host permission http://127.0.0.1:1238/*: Connects only to the loopback AI
+  model endpoint the user configures - by default a model the user runs on
+  their own machine; in a shared/cohort configuration, a local bridge
+  process the user points at that same address. This is the extension's
+  only AI lane; no remote server is contacted directly by the extension.
 - Content scripts / access to all sites (<all_urls>): The terminal is a general
-  tool that must be able to open on, read, and (only after explicit user
-  approval) act on whatever page the user is currently viewing. It activates on
-  user action (a keypress) and does not run in the background collecting data.
+  tool that must be able to open on, read, and act on whatever page the user
+  is currently viewing - model-proposed mutations only after explicit user
+  approval; commands the user types themselves run on their own direct
+  intent. It activates on user action (a keypress) and does not run in the
+  background collecting data.
 
 ### Data usage disclosures (check on the form)
 - Does NOT collect or use personal or sensitive user data.

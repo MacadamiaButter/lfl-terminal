@@ -5,8 +5,9 @@ commands run deterministically. Anything else is turned into **one**
 proposed action by a **local** LLM - which you approve, exact and literal,
 before it touches the page.
 
-Nothing about the page you're on, or what you type, ever leaves your
-machine.
+By default, nothing about the page you're on, or what you type, ever
+leaves your machine. (A shared/cohort configuration is the one exception -
+see "What 'local' and 'supervised' actually mean here" below.)
 
 ![The floating terminal panel spawning at the cursor on a live Wikipedia article, running help, ls links, and read, then getting dragged by its title bar and pinned in place](docs/demo.gif)
 
@@ -44,15 +45,26 @@ a static test (`tests/check_no_egress.sh`), not just a design intention.
 Two words get thrown around a lot in this space, so here's what they mean
 in this codebase, precisely, and no further:
 
-- **Local** - your page content and your typed commands never leave the
-  device. The extension has exactly one network call type: a loopback POST
-  to `http://127.0.0.1:1238`. That's the only entry in `host_permissions`,
-  and it's the only place `fetch`/`XMLHttpRequest`/`WebSocket`/etc. are
-  allowed to appear in the codebase, checked by grep on every run.
-- **Supervised** - no mutating action (`click`, `fill`, `select`,
-  `navigate`) executes without you approving the *exact literal action*,
-  rendered from the real page element, not from the model's own words about
-  what it's about to do.
+- **Local** - the extension itself has exactly one network call type: a
+  loopback POST to `http://127.0.0.1:1238`. That's the only entry in
+  `host_permissions`, and it's the only place `fetch`/`XMLHttpRequest`/
+  `WebSocket`/etc. are allowed to appear in the codebase, checked by grep
+  on every run. By default that loopback address is your own local model
+  server, so your page content and typed commands never leave the device.
+  A shared/cohort configuration can point that same loopback address at a
+  local bridge that relays to a cohort-operated model over a private
+  tailnet instead - never the open internet, never to the developer, but
+  no longer "never leaves the device" in the strict sense. Either way, the
+  extension's own code never makes a second network call anywhere else.
+- **Supervised** - a *model-proposed* mutating action (`click`, `fill`,
+  `select`, `navigate`) never executes without you approving the *exact
+  literal action*, rendered from the real page element, not from the
+  model's own words about what it's about to do. A *typed* deterministic
+  command (`click <N>`, `fill <N> with ...`, `search`, `open`, and the
+  rest) executes directly - your own typing is the authorization, the same
+  way it always has been for any terminal - with no approval card, but
+  every hard block below (credentials, unsafe click targets, cross-origin)
+  applies exactly the same either way.
 
 **What these do *not* mean: "safe," or "injection-proof."** A local model
 can still be wrong. A page can still try to bias what it reasons toward.
@@ -332,7 +344,7 @@ use.
 
 ## Development
 
-Twenty-five Node unit-test suites, no framework, no `npm install`.
+Twenty-six Node unit-test suites, no framework, no `npm install`.
 Run any one directly, or all of them:
 
 ```
