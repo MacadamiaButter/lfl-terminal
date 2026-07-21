@@ -151,10 +151,10 @@ broader principal.
    values a token can carry.
 4. Confirm no long-lived service account key exists anywhere in this
    repository's secrets. `CWS_ACCESS_TOKEN` should never appear as a
-   GitHub Actions secret - the workflow mints it fresh, in-job, from
-   `gcloud auth print-access-token` after the `google-github-actions/auth`
-   step, and it lives only in that job's process environment for the
-   duration of the run.
+   GitHub Actions secret - the workflow mints it fresh, in-job, via the
+   `google-github-actions/auth` step's `token_format: access_token`
+   output (auto-masked in logs), and it lives only in that job's process
+   environment for the duration of the run.
 
 ## 7. Prove the chain with a staged, non-production test
 
@@ -167,7 +167,10 @@ Before setting `CWS_WIF_READY` to `true` for real releases:
    required reviewer approval, then authenticated, then ran
    `tools/cws/cws_api.py upload` successfully (a real upload of a
    throwaway build is fine here - it only creates a new draft package,
-   which is safe to overwrite later; do not run `submit` yet).
+   which is safe to overwrite later). Note the workflow job runs its
+   `submit` step right after `upload`; for a pure upload-only first test,
+   temporarily comment out the submit step on a branch, or let it run and
+   immediately `tools/cws/cws_api.py cancel` the staged submission.
 4. Confirm in the Chrome Web Store Developer Dashboard that the draft
    package appears as expected, then either leave it as a draft or run
    `tools/cws/cws_api.py cancel` if a submission was accidentally started.
