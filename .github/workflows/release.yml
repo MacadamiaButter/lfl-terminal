@@ -1,0 +1,104 @@
+# Release workflow - human-authority boundary
+#
+# This workflow builds and stages a release. It NEVER takes an extension
+# live on the Chrome Web Store. The cws-stage-upload job can only reach
+# tools/cws/cws_api.py's `upload` and `submit` subcommands, and `submit`
+# is hardcoded (in cws_api.py, not here) to request a STAGED_PUBLISH
+# review, never DEFAULT_PUBLISH. There is no job, step, or script path in
+# this repository that performs a production publish. Taking a staged,
+# human-approved submission live in the Chrome Web Store Developer
+# Dashboard is a manual action only the owner can take. See
+# docs/RELEASE.md for the full runbook and docs/CWS-AUTH-SETUP.md for how
+# the cws-release environment and its credentials are configured.
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-artifact:
+    name: build artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0 # tools/build-release.sh checks existing tags for its deterministic manifest/version logic
+      - name: build release artifact
+        run: bash tools/build-release.sh
+      - name: upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-artifact
+          path: |
+            dist/lfl-terminal-*.zip
+            dist/release-manifest-*.json
+          if-no-files-found: error
+
+  cws-stage-upload:
+    name: CWS staged upload (upload-only, no production publish)
+    needs: build-artifact
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: vars.CWS_WIF_READY == 'true'
+    environment: cws-release
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      # No actions/download-artifact here (not on this repo's approved
+      # action allowlist). tools/build-release.sh is deterministic (git
+      # archive based) so re-running it against the same tagged commit in
+      # this job reproduces the exact same bytes the build-artifact job
+      # already validated, without adding another marketplace dependency.
+      - name: checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0 # tools/build-release.sh checks existing tags for its deterministic manifest/version logic
+      - name: rebuild release artifact (deterministic, matches build-artifact job)
+        run: bash tools/build-release.sh
+      - name: authenticate to Google Cloud (workload identity federation)
+        id: cws-token
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
+        with:
+          workload_identity_provider: ${{ vars.CWS_WIF_PROVIDER }}
+          service_account: ${{ vars.CWS_SERVICE_ACCOUNT }}
+          # Mint a short-lived (auto-masked) OAuth access token for the
+          # impersonated service account directly from the auth action.
+          # gcloud is deliberately not used here: the auth action only
+          # writes an ADC credentials file, it does not log the federated
+          # identity into gcloud's own credential store, so
+          # `gcloud auth print-access-token` would fail on a fresh runner.
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/chromewebstore
+      - name: locate built zip
+        id: locate-zip
+        run: |
+          ZIP_PATH="$(ls dist/lfl-terminal-*.zip | head -n1)"
+          echo "zip_path=${ZIP_PATH}" >> "${GITHUB_OUTPUT}"
+      - name: upload package to Chrome Web Store (draft only)
+        env:
+          CWS_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
+          CWS_ITEM_ID: ${{ vars.CWS_ITEM_ID }}
+          CWS_ACCESS_TOKEN: ${{ steps.cws-token.outputs.access_token }}
+          ZIP_PATH: ${{ steps.locate-zip.outputs.zip_path }}
+        run: python3 tools/cws/cws_api.py upload --zip "${ZIP_PATH}"
+      - name: submit for staged review (STAGED_PUBLISH only, blockOnWarnings)
+        env:
+          CWS_PUBLISHER_ID: ${{ vars.CWS_PUBLISHER_ID }}
+          CWS_ITEM_ID: ${{ vars.CWS_ITEM_ID }}
+          CWS_ACCESS_TOKEN: ${{ steps.cws-token.outputs.access_token }}
+        run: python3 tools/cws/cws_api.py submit
