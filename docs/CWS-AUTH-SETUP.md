@@ -72,7 +72,7 @@ gcloud iam workload-identity-pools providers create-oidc github-provider \
   --workload-identity-pool=github-pool \
   --display-name="GitHub OIDC provider" \
   --attribute-mapping="google.subject=assertion.sub,attribute.repository_id=assertion.repository_id,attribute.repository_owner_id=assertion.repository_owner_id" \
-  --attribute-condition="assertion.repository_id == 'REPO_ID_NUMBER' && assertion.sub == 'repo:OWNER/REPO:environment:cws-release'" \
+  --attribute-condition="assertion.repository_id == 'REPO_ID_NUMBER' && assertion.sub == 'repo:OWNER@OWNER_ID_NUMBER/REPO@REPO_ID_NUMBER:environment:cws-release'" \
   --issuer-uri="https://token.actions.githubusercontent.com"
 ```
 
@@ -87,6 +87,12 @@ Notes on the attribute mapping and condition above:
   `gh api repos/OWNER/REPO --jq .id` and the owner id with
   `gh api users/OWNER --jq .id` (or `gh api orgs/OWNER --jq .id` for an
   org), and substitute those numbers for `REPO_ID_NUMBER` above.
+- The `sub` format above assumes the repository's **immutable OIDC
+  subject claims** toggle (step 6) is enabled: with it on, GitHub issues
+  `repo:OWNER@OWNER_ID/REPO@REPO_ID:environment:ENV` instead of the
+  classic `repo:OWNER/REPO:environment:ENV`. Enable the toggle FIRST,
+  then set this condition to the immutable format; with the toggle off,
+  use the classic format instead. A mismatch fails closed (auth denied).
 - The attribute condition binds on **both** `repository_id` and the full
   `sub` claim including `environment:cws-release`. Binding on the
   environment claim means a workflow run outside the `cws-release`
