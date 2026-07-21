@@ -23,9 +23,11 @@ role, and cannot be delegated to an agent or automated.
 
 1. Create or choose a dedicated GCP project for this integration, e.g.
    `PROJECT_ID` (placeholder - use your own project id).
-2. Enable the Chrome Web Store API on that project:
+2. Enable the Chrome Web Store API plus the three APIs workload identity
+   federation itself depends on:
    ```
-   gcloud services enable chromewebstore.googleapis.com --project=PROJECT_ID
+   gcloud services enable chromewebstore.googleapis.com iam.googleapis.com \
+     iamcredentials.googleapis.com sts.googleapis.com --project=PROJECT_ID
    ```
 
 ## 2. Dedicated service account [OWNER ONLY]
