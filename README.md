@@ -344,6 +344,15 @@ use.
 
 ## Development
 
+One command runs everything fast and deterministic (every unit suite, the
+static gates below, manifest sanity, the permission-drift baseline, and the
+store-asset checks). It is the same command CI runs on every push and pull
+request:
+
+```
+bash tests/run_fast_gates.sh
+```
+
 Twenty-six Node unit-test suites, no framework, no `npm install`.
 Run any one directly, or all of them:
 
@@ -370,6 +379,31 @@ the M4a friction trio) for end-to-end/live-browser verification - it needs
 `pip install playwright && playwright install chromium` (or another
 Chrome-for-Testing build) and a running model server; see the scripts
 themselves for details.
+
+### Release integrity
+
+Releases are built by `tools/build-release.sh`, which refuses a dirty tree,
+a reused version, or any fast-gate failure, then packages the committed
+`extension/` tree with `git archive` so the zip is byte-for-byte
+reproducible: the same commit produces the same SHA-256 on any machine.
+Each build writes a machine-readable release manifest
+(`dist/release-manifest-<version>.json`) recording the source commit, build
+command, artifact hash, and full file list, so anyone can verify exactly
+what a shipped version contains.
+
+The permission surface is pinned: `tests/check_manifest_baseline.js` fails
+CI if `manifest.json` gains, loses, or changes any permission relative to
+the committed, human-reviewed `tests/manifest-baseline.json`. Widening the
+extension's permissions cannot happen as a side effect; it requires an
+explicit, reviewable baseline change in the same PR.
+
+Publishing is deliberately not fully automated. The release workflow can
+build, upload, and submit a version for review as a staged release only;
+taking a release live on the Chrome Web Store is always a manual human
+action. See `docs/RELEASE.md` for the full runbook. Honest caveat: CI
+proves the source passes these gates on a clean runner; it does not prove
+the absence of bugs, and the threat model in `docs/threat-model.md` still
+applies unchanged.
 
 ## License
 
