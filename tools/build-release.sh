@@ -56,10 +56,12 @@ SOURCE_COMMIT="$(git rev-parse HEAD)"
 
 # git archive's zip writer stamps every entry with the CURRENT wall-clock
 # time by default (unlike its tar writer), which would make the artifact
-# non-reproducible run to run. Pin every entry's mtime to the commit's own
-# committer timestamp instead, so two builds from the same commit are
-# byte-identical regardless of when or where they run.
-COMMIT_EPOCH="$(git show -s --format=%ct "${SOURCE_COMMIT}")"
+# non-reproducible run to run. Pin every entry's mtime to the committer
+# timestamp of the last commit that TOUCHED extension/ (not HEAD's), so
+# the artifact is byte-identical regardless of when or where it is built,
+# and also stable across commits that never change the extension (docs,
+# tests, workflows).
+COMMIT_EPOCH="$(git log -1 --format=%ct "${SOURCE_COMMIT}" -- extension)"
 
 TAG="v${VERSION}"
 if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
