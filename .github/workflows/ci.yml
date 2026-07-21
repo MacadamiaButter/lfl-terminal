@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: checkout
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0 # tests/color_grammar.test.js pins files against a historical commit via git diff/show
       - name: run fast gates
         run: bash tests/run_fast_gates.sh
 
@@ -38,5 +40,9 @@ jobs:
         run: pip install playwright==1.61.0
       - name: install chromium
         run: playwright install chromium --with-deps
+      - name: install xvfb
+        # Chrome refuses to load unpacked extensions fully headless; the
+        # smoke launches a persistent context that needs a display server.
+        run: sudo apt-get install -y --no-install-recommends xvfb
       - name: run popover smoke
-        run: python3 tests/popover_smoke.py
+        run: xvfb-run --auto-servernum python3 tests/popover_smoke.py
